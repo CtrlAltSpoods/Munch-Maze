@@ -8,6 +8,6 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "start": "node server/index.js",
-    "test": "node test/smoke.js"
+    "test": "node test/smoke.js && node test/ws-security.js"
   }
 }

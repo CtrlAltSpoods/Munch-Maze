@@ -21,6 +21,14 @@ const CFG = {
   dataDir: env('DATA_DIR', '/data'),
   puid: parseInt(env('PUID', ''), 10),
   pgid: parseInt(env('PGID', ''), 10),
+  // Connection limits. 0 turns a limit off.
+  maxConnections: Math.max(0, parseInt(env('MAX_CONNECTIONS', '1000'), 10) || 0),
+  maxConnectionsPerIp: Math.max(0, parseInt(env('MAX_CONNECTIONS_PER_IP', '20'), 10) || 0),
+  // Browsers on other sites may not open game connections unless listed here.
+  // Comma-separated origins (https://game.example.com), or * to allow any site.
+  allowedOrigins: String(env('ALLOWED_ORIGINS', '')).split(',').map(s => s.trim().toLowerCase().replace(/\/+$/, '')).filter(Boolean),
+  // Behind a reverse proxy, read the client address and host from X-Forwarded-* headers.
+  trustProxy: bool(env('TRUST_PROXY', 'false')),
 };
 
 const ROOT = path.join(__dirname, '..');
@@ -115,7 +123,7 @@ function onSocket(ws) {
   ws.on('close', () => { if (game && p) game.remove(p); game = null; });
 }
 
-// keep connections honest: ping idle sockets, drop dead ones
+// Heartbeat: ping every 15 s; a client silent for 45 s (no frames, no pongs) is dropped.
 const sockets = new Set();
 setInterval(() => {
   const now = Date.now();
@@ -159,18 +167,66 @@ const server = http.createServer((req, res) => {
   }
   if (p === '/api/scores') return json(res, scores.slice(0, 10));
   if (p === '/maze.js') return sendFile(res, path.join(ROOT, 'shared', 'maze.js'));
-  const rel = p === '/' ? 'index.html' : decodeURIComponent(p).replace(/^\/+/, '');
+  let rel;
+  try { rel = p === '/' ? 'index.html' : decodeURIComponent(p).replace(/^\/+/, ''); }
+  catch (e) { res.writeHead(400); res.end(); return; }          // malformed %-escape
+  if (rel.includes('\0')) { res.writeHead(400); res.end(); return; }
   const file = path.normalize(path.join(PUBLIC, rel));
   if (!file.startsWith(PUBLIC + path.sep)) { res.writeHead(403); res.end(); return; }
   sendFile(res, file);
 });
 
+/* ---------- who may open a game connection ---------- */
+const firstHeader = v => String(Array.isArray(v) ? v[0] : (v || '')).split(',')[0].trim();
+function clientIp(req) {
+  const ip = (CFG.trustProxy && firstHeader(req.headers['x-forwarded-for'])) || req.socket.remoteAddress || '?';
+  return ip.replace(/^::ffff:/, '');
+}
+function requestHost(req) {
+  return ((CFG.trustProxy && firstHeader(req.headers['x-forwarded-host'])) || String(req.headers.host || '')).toLowerCase();
+}
+/* Browsers always send Origin on WebSocket requests. Same-origin pages (the game itself)
+   are allowed; other sites only if listed in ALLOWED_ORIGINS. Non-browser clients send
+   no Origin and can't be stopped this way, so the connection limits below still apply. */
+function originAllowed(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  if (CFG.allowedOrigins.includes('*')) return true;
+  let u; try { u = new URL(origin); } catch (e) { return false; }
+  if (u.host.toLowerCase() === requestHost(req)) return true;
+  return CFG.allowedOrigins.includes(u.origin.toLowerCase());
+}
+const perIp = new Map(); // ip -> open game connections
+function admit(req) {
+  if (!originAllowed(req)) { console.warn('[ws] refused origin', String(req.headers.origin).slice(0, 100)); return [403, 'Forbidden']; }
+  if (CFG.maxConnections && sockets.size >= CFG.maxConnections) return [503, 'Service Unavailable'];
+  const ip = clientIp(req);
+  if (CFG.maxConnectionsPerIp && (perIp.get(ip) || 0) >= CFG.maxConnectionsPerIp) return [429, 'Too Many Requests'];
+  return null;
+}
+
 server.on('upgrade', (req, sock) => {
+  sock.on('error', () => {});   // a reset during the handshake must not crash the server
   let pathname = '';
   try { pathname = new URL(req.url, 'http://x').pathname; } catch (e) { /* ignore */ }
   if (!pathname.endsWith('/ws')) { sock.destroy(); return; }
-  handleUpgrade(req, sock, ws => { sockets.add(ws); ws.on('close', () => sockets.delete(ws)); onSocket(ws); });
+  handleUpgrade(req, sock, admit, ws => {
+    const ip = clientIp(req);
+    perIp.set(ip, (perIp.get(ip) || 0) + 1);
+    sockets.add(ws);
+    ws.on('close', () => {
+      sockets.delete(ws);
+      const n = (perIp.get(ip) || 1) - 1;
+      if (n > 0) perIp.set(ip, n); else perIp.delete(ip);
+    });
+    onSocket(ws);
+  });
 });
+
+// Slow or idle HTTP clients can't hold sockets open for long.
+server.headersTimeout = 15000;
+server.requestTimeout = 20000;
+if (CFG.maxConnections) server.maxConnections = CFG.maxConnections + 256; // room for page loads
 
 prepareDataDir();
 loadScores();

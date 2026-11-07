@@ -35,14 +35,24 @@ npm test         # end-to-end smoke test
 | `SHOW_LOBBY` | `true` | List running mazes on the start screen; set `false` for private games |
 | `DEFAULT_SEED` | *(empty)* | Seed used when a player leaves it blank; empty means random |
 | `TICK_RATE` | `30` | Simulation steps per second (10–60) |
+| `MAX_CONNECTIONS` | `1000` | Most players connected at once across the server; `0` = no limit |
+| `MAX_CONNECTIONS_PER_IP` | `20` | Most connections from one address; `0` = no limit |
+| `ALLOWED_ORIGINS` | *(empty)* | Other websites allowed to open game connections, comma-separated (`https://site.example`), or `*` for any |
+| `TRUST_PROXY` | `false` | Set `true` behind a reverse proxy so per-IP limits and Origin checks use `X-Forwarded-For` / `X-Forwarded-Host` |
 | `DATA_DIR` | `/data` | Where `scores.json` lives |
 | `PUID` / `PGID` | `1000` / `1000` | Owner of the data folder. Unraid's template uses `99` / `100` |
 
 The container starts as root only to `chown` the data folder, then switches to `PUID:PGID`.
 
+### Connection safety
+
+- Only the game's own page can open game connections. Browsers on other websites are refused unless listed in `ALLOWED_ORIGINS`.
+- Each address can hold `MAX_CONNECTIONS_PER_IP` connections, and the server holds `MAX_CONNECTIONS` in total. Players who disconnect free their slot straight away; dead connections are dropped after 45 seconds of silence.
+- The WebSocket layer follows RFC 6455 strictly: unmasked, oversized, badly fragmented or non-UTF-8 frames close the connection. `npm test` checks all of this.
+
 ### Behind a reverse proxy
 
-The game uses a WebSocket at `/ws`, so the proxy must pass `Upgrade` and `Connection` headers. In Nginx Proxy Manager, tick **Websockets Support**. SWAG and Traefik handle it by default. Serving from a sub-path works as long as the proxy strips the prefix.
+The game uses a WebSocket at `/ws`, so the proxy must pass `Upgrade` and `Connection` headers. Set `TRUST_PROXY=true`, otherwise every player appears to come from the proxy's address and the per-IP limit applies to all of them together. If the proxy rewrites the `Host` header, also set `ALLOWED_ORIGINS` to your public address (for example `https://maze.example.com`). In Nginx Proxy Manager, tick **Websockets Support**. SWAG and Traefik handle it by default. Serving from a sub-path works as long as the proxy strips the prefix.
 
 ## How it works
 
