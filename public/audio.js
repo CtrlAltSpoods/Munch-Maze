@@ -216,6 +216,8 @@ function scheduler() {
 }
 function startMusic(level = 1) {
   if (!unlock()) return;
+  clearTimeout(fadeTimer);
+  if (!music.on) { const g = musicBus.gain; g.cancelScheduledValues(ctx.currentTime); g.setValueAtTime(curve(musicVol) * MUSIC_TRIM, ctx.currentTime); }
   music.baseBpm = 128 + Math.min(12, (level - 1) * 1.5);
   music.bpm = music.mode === 'boss' ? bossBpm() : music.baseBpm;
   music.pendingTrans = KEYS[(level - 1) % KEYS.length];
@@ -237,7 +239,16 @@ function beat() {
   }
   const p = (performance.now() / 1000 / beatLen) % 1; return Math.pow(1 - p, 2.2) * 0.6;
 }
+let fadeTimer = 0;
+/** Fade the music out over `dur` seconds, then stop it (it restarts with the next level). */
+function fadeOutMusic(dur = DROP_TIME) {
+  if (!ready() || !music.on) return;
+  const t = ctx.currentTime, g = musicBus.gain;
+  g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0.0001, t + dur);
+  clearTimeout(fadeTimer); fadeTimer = setTimeout(() => { stopMusic(); }, dur * 1000 + 50);
+}
 function stopMusic() {
+  clearTimeout(fadeTimer);
   music.on = false; clearInterval(music.timer); music.kicks = []; music.mode = 'normal'; frightOn = false;
   if (tracks) { const t = ctx.currentTime; tracks.boss.bus.gain.cancelScheduledValues(t); tracks.boss.bus.gain.setValueAtTime(0, t); tracks.normal.bus.gain.cancelScheduledValues(t); tracks.normal.bus.gain.setValueAtTime(1, t); }
   if (music.pad && ctx) { const t = ctx.currentTime; music.pad.oscs.forEach(o => { try { o.stop(t + 0.05); } catch (e) { /* ignore */ } }); music.pad.node.disconnect(); music.pad = null; }
@@ -270,6 +281,12 @@ function setFright(on) {
 
 /* ---------- sound effects ---------- */
 let wakaFlip = false, lastWaka = 0, lastOther = 0;
+const DROP_TIME = 2.6, PU_SPIN_S = 1.6;
+function kickTo(dest, t, vol) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(170, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.18);
+  env(g, t, 0.002, vol, 0.45); o.connect(g); g.connect(dest); o.start(t); o.stop(t + 0.5);
+}
 function panned(pan) {
   if (!pan || !ctx.createStereoPanner) return sfxBus;
   const p = ctx.createStereoPanner(); p.pan.value = Math.max(-0.85, Math.min(0.85, pan)); p.connect(sfxBus);
@@ -302,6 +319,103 @@ const FX = {
     const out = panned(o.pan);
     tone(out, { type: 'sawtooth', f: 160, f2: 1300, t, dur: 0.38, vol: 0.2, filter: [800, 5000, 6] });
     tone(out, { type: 'square', f: 80, f2: 650, t: t + 0.02, dur: 0.36, vol: 0.1 });
+  },
+  /* ---- level clear ---- */
+  // A big bass drop: impact, then a sub-bass dive with a filtered whoosh. DROP_TIME long.
+  drop(t) {
+    const D = DROP_TIME;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(26, t + D);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.95, t + 0.02); g.gain.setValueAtTime(0.95, t + D * 0.55); g.gain.exponentialRampToValueAtTime(0.0001, t + D);
+    o.connect(g); g.connect(sfxBus); o.start(t); o.stop(t + D + 0.05);
+    const ws = ctx.createWaveShaper(); ws.curve = distCurve(30);
+    const o2 = ctx.createOscillator(), g2 = ctx.createGain(), lp = ctx.createBiquadFilter();
+    o2.type = 'sawtooth'; o2.frequency.setValueAtTime(75, t); o2.frequency.exponentialRampToValueAtTime(22, t + D);
+    lp.type = 'lowpass'; lp.frequency.setValueAtTime(900, t); lp.frequency.exponentialRampToValueAtTime(90, t + D);
+    g2.gain.setValueAtTime(0.0001, t); g2.gain.exponentialRampToValueAtTime(0.22, t + 0.03); g2.gain.exponentialRampToValueAtTime(0.0001, t + D);
+    o2.connect(ws); ws.connect(lp); lp.connect(g2); g2.connect(sfxBus); o2.start(t); o2.stop(t + D + 0.05);
+    kickTo(sfxBus, t, 1.0);
+    const s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), gn = ctx.createGain();
+    s.buffer = noiseBuf; s.loop = true; f.type = 'lowpass'; f.Q.value = 6;
+    f.frequency.setValueAtTime(7000, t); f.frequency.exponentialRampToValueAtTime(70, t + D);
+    gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(0.3, t + 0.05); gn.gain.exponentialRampToValueAtTime(0.0001, t + D);
+    s.connect(f); f.connect(gn); gn.connect(sfxBus); s.start(t); s.stop(t + D + 0.05);
+  },
+  // Bright level-up fanfare over the drop.
+  levelup(t) {
+    [60, 64, 67, 72, 76, 79, 84].forEach((m, i) => tone(sfxBus, { type: 'square', f: hz(m + 12), t: t + i * 0.07, dur: 0.12, vol: 0.12 }));
+    [72, 76, 79, 84].forEach(m => tone(sfxBus, { type: 'sawtooth', f: hz(m + 12), t: t + 0.5, dur: 1.4, vol: 0.05, detune: 7, filter: [5000, 1500, 1] }));
+    [96, 100, 103, 108].forEach((m, i) => tone(sfxBus, { type: 'sine', f: hz(m), t: t + 0.55 + i * 0.09, dur: 0.6, vol: 0.06 }));
+  },
+  /* ---- power-ups ---- */
+  crate(t) {   // a loot crate appears
+    [88, 92, 95, 100].forEach((m, i) => tone(sfxBus, { type: 'sine', f: hz(m), t: t + i * 0.06, dur: 0.35, vol: 0.08 }));
+    noise(sfxBus, { t, dur: 0.4, vol: 0.06, freq: 9000 });
+  },
+  puOpen(t) {   // crate cracked open, the slot spins with slowing ticks
+    noise(sfxBus, { t, dur: 0.12, vol: 0.3, type: 'bandpass', freq: 1200, q: 1.5 });
+    tone(sfxBus, { type: 'square', f: hz(83), t, dur: 0.07, vol: 0.12 }); tone(sfxBus, { type: 'square', f: hz(88), t: t + 0.07, dur: 0.3, vol: 0.12 });
+    let tt = t + 0.12, gap = 0.045;
+    while (tt < t + PU_SPIN_S - 0.05) { tone(sfxBus, { type: 'square', f: 1400, t: tt, dur: 0.012, vol: 0.05 }); tt += gap; gap *= 1.07; }
+  },
+  puLand(t, good) {   // result revealed
+    FX.reel(t);
+    if (good) [72, 76, 79, 84, 88].forEach((m, i) => tone(sfxBus, { type: 'square', f: hz(m), t: t + 0.05 + i * 0.07, dur: 0.16, vol: 0.13 }));
+    else [62, 61, 60, 59].forEach((m, i) => tone(sfxBus, { type: 'sawtooth', f: hz(m), f2: hz(m - (i === 3 ? 2 : 0)), t: t + 0.08 + i * 0.26, dur: i === 3 ? 0.7 : 0.22, vol: 0.13, filter: [1400, 500, 3] }));
+  },
+  megaghost(t) {   // monstrous growl
+    const o = ctx.createOscillator(), g = ctx.createGain(), lf = ctx.createOscillator(), lg = ctx.createGain(), ws = ctx.createWaveShaper();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(70, t); o.frequency.exponentialRampToValueAtTime(45, t + 1.2);
+    lf.frequency.value = 23; lg.gain.value = 18; lf.connect(lg); lg.connect(o.frequency); ws.curve = distCurve(25);
+    env(g, t, 0.05, 0.3, 1.2); o.connect(ws); ws.connect(g); g.connect(sfxBus); o.start(t); lf.start(t); o.stop(t + 1.3); lf.stop(t + 1.3);
+  },
+  nukeSiren(t) { for (let k = 0; k < 2; k++) tone(sfxBus, { type: 'sawtooth', f: 380, f2: 900, t: t + k * 0.45, dur: 0.42, vol: 0.12, filter: [2500, 2500, 1] }); },
+  nukeBlast(t) {
+    kickTo(sfxBus, t, 1.0);
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(18, t + 2.6);
+    env(g, t, 0.005, 1.0, 2.6); o.connect(g); g.connect(sfxBus); o.start(t); o.stop(t + 2.7);
+    const s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), gn = ctx.createGain();
+    s.buffer = noiseBuf; s.loop = true; f.type = 'lowpass'; f.frequency.setValueAtTime(5000, t); f.frequency.exponentialRampToValueAtTime(100, t + 2.6);
+    env(gn, t, 0.005, 0.6, 2.6); s.connect(f); f.connect(gn); gn.connect(sfxBus); s.start(t); s.stop(t + 2.7);
+  },
+  reverse(t) {   // tape rewind wobble
+    const o = ctx.createOscillator(), g = ctx.createGain(), lf = ctx.createOscillator(), lg = ctx.createGain();
+    o.type = 'square'; o.frequency.setValueAtTime(900, t); o.frequency.exponentialRampToValueAtTime(140, t + 0.5); o.frequency.exponentialRampToValueAtTime(700, t + 0.9);
+    lf.frequency.value = 30; lg.gain.value = 120; lf.connect(lg); lg.connect(o.frequency);
+    env(g, t, 0.01, 0.1, 0.9); o.connect(g); g.connect(sfxBus); o.start(t); lf.start(t); o.stop(t + 1); lf.stop(t + 1);
+  },
+  laser(t) {   // charge up, then zap
+    tone(sfxBus, { type: 'sine', f: 200, f2: 2400, t, dur: 0.45, vol: 0.12 });
+    tone(sfxBus, { type: 'sawtooth', f: 2400, f2: 300, t: t + 0.45, dur: 0.3, vol: 0.14, filter: [6000, 1500, 4] });
+    noise(sfxBus, { t: t + 0.45, dur: 0.25, vol: 0.12, freq: 5000 });
+  },
+  megapellet(t) { FX.power(t); FX.power(t + 0.18); [72, 76, 79, 84].forEach(m => tone(sfxBus, { type: 'sawtooth', f: hz(m), t: t + 0.4, dur: 0.8, vol: 0.05, filter: [4000, 1500, 1] })); },
+  bomb(t) {
+    tone(sfxBus, { type: 'sine', f: 1200, f2: 300, t, dur: 0.35, vol: 0.08 });   // whistle
+    kickTo(sfxBus, t + 0.35, 1.0);
+    noise(sfxBus, { t: t + 0.35, dur: 0.8, vol: 0.5, type: 'lowpass', freq: 1400, q: 0.7 });
+  },
+  quake(t) {   // seven seconds of rumble
+    const D = 7, s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain(), lf = ctx.createOscillator(), lg = ctx.createGain();
+    s.buffer = noiseBuf; s.loop = true; f.type = 'lowpass'; f.frequency.value = 110; f.Q.value = 2;
+    lf.frequency.value = 5; lg.gain.value = 0.25; lf.connect(lg); lg.connect(g.gain);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.7, t + 0.4); g.gain.setValueAtTime(0.7, t + D - 1); g.gain.exponentialRampToValueAtTime(0.0001, t + D);
+    s.connect(f); f.connect(g); g.connect(sfxBus); s.start(t); lf.start(t); s.stop(t + D + 0.05); lf.stop(t + D + 0.05);
+    kickTo(sfxBus, t, 0.9);
+  },
+  unplugged(t) {   // power-down and static
+    tone(sfxBus, { type: 'sine', f: 900, f2: 40, t, dur: 0.9, vol: 0.2 });
+    noise(sfxBus, { t: t + 0.1, dur: 1.2, vol: 0.12, type: 'bandpass', freq: 3000, q: 0.5 });
+  },
+  replugged(t) { [72, 79].forEach((m, i) => tone(sfxBus, { type: 'square', f: hz(m), t: t + i * 0.08, dur: 0.1, vol: 0.1 })); },
+  autopilot(t) { [84, 84, 91, 96].forEach((m, i) => tone(sfxBus, { type: 'square', f: hz(m), t: t + i * 0.11, dur: 0.08, vol: 0.1, filter: [3500, 3500, 1] })); },
+  autopilotOff(t) { [91, 84].forEach((m, i) => tone(sfxBus, { type: 'square', f: hz(m), t: t + i * 0.11, dur: 0.08, vol: 0.09 })); },
+  phone(t) {   // old phone ring, twice
+    for (let r = 0; r < 2; r++) for (let k = 0; k < 10; k++) {
+      const tt = t + r * 0.65 + k * 0.04;
+      tone(sfxBus, { type: 'sine', f: 440, t: tt, dur: 0.035, vol: 0.09 }); tone(sfxBus, { type: 'sine', f: 480, t: tt, dur: 0.035, vol: 0.09 });
+    }
   },
   coin(t) {
     tone(sfxBus, { type: 'square', f: hz(83), t, dur: 0.07, vol: 0.12 });
@@ -365,5 +479,5 @@ document.addEventListener('visibilitychange', () => {
   else ctx.resume().then(() => { if (music.on) music.next = Math.max(music.next, ctx.currentTime + 0.05); }).catch(() => {});
 });
 
-window.MazeAudio = { get mode() { return music.mode; }, /* for tests */ levels() { return tracks ? { normal: +tracks.normal.bus.gain.value.toFixed(3), boss: +tracks.boss.bus.gain.value.toFixed(3) } : null; }, get bpm() { return music.bpm; }, unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, beat, get supported() { return !!AC; } };
+window.MazeAudio = { fadeOutMusic, DROP_TIME, get playing() { return music.on; }, get mode() { return music.mode; }, /* for tests */ levels() { return tracks ? { normal: +tracks.normal.bus.gain.value.toFixed(3), boss: +tracks.boss.bus.gain.value.toFixed(3) } : null; }, get bpm() { return music.bpm; }, unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, beat, get supported() { return !!AC; } };
 })();

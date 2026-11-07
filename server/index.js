@@ -85,7 +85,7 @@ function getGame(seed, key) {
   let g = games.get(id);
   if (!g) {
     if (games.size >= CFG.maxMazes) return null;
-    g = new Game(seed, key, { onScore: addScore });
+    g = new Game(seed, key, { onScore: addScore, testHooks: process.env.TEST_HOOKS === '1' });
     g.title = '';
     if (!key) { do { g.pubId = crypto.randomBytes(6).toString('base64url'); } while (byPublicId.has(g.pubId)); byPublicId.set(g.pubId, g); }
     games.set(id, g);

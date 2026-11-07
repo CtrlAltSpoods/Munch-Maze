@@ -39,6 +39,7 @@ const S = {
   ph: 0, fr: 0, fid: 0, roster: new Map(), players: [], gTarget: [], gv: [], ov: new Map(),
   streak: 0, streakT: 0, streakTier: 0, shownScore: 0, mazeGlow: null, bulbs: [],
   host: 0, eatQ: [],
+  crates: [], fx: [], grabbing: 0, nuked: false, prevFx: '',
   time: 0, lastT: performance.now(), bannerT: 0, camX: null, camY: null, mazeKey: '', mazeCv: null, mazeFlash: null
 };
 { // remembered character and colour
@@ -53,7 +54,7 @@ function loadLevel(L, b64, ph = 0) {
   S.L = L; S.lvl = M.genLevel(S.seed, L);
   S.myBits = new Uint8Array(S.lvl.bytes);
   S.srvBits = b64 ? M.fromB64(b64, S.lvl.bytes) : new Uint8Array(S.lvl.bytes);
-  S.ge = []; S.gv = []; S.gTarget = []; S.ph = ph; S.fr = 0;
+  S.ge = []; S.gv = []; S.gTarget = []; S.ph = ph; S.fr = 0; S.crates = []; S.fx = []; S.grabbing = 0; S.nuked = false;
   S.alive = true; respawn(); S.mazeKey = '';
   const n = M.ghostCount(L);
   endStreak(true);
@@ -114,6 +115,22 @@ function onMsg(m) {
       MazeFX.ring(x, y, '#ffcc33', 3.2, 0.5); MazeFX.sparks(x, y, '#ffcc33', 14, 7, 0.5);
       break;
     }
+    case 'crate': {   // a loot crate appeared
+      if (!S.lvl) break;
+      A.sfx('crate'); MazeFX.ring(m.x, m.y, '#ffcc33', 2.5, 0.6); MazeFX.sparks(m.x, m.y, '#ffcc33', 12, 5, 0.6);
+      if (!S.crates.some(c => c[0] === m.id)) S.crates.push([m.id, m.x, m.y]);
+      break;
+    }
+    case 'pu': {   // someone opened a crate: everyone sees the slot
+      const pu = M.POWERUPS[m.kind | 0]; if (!pu) break;
+      S.crates = S.crates.filter(c => c[0] !== m.crate);
+      MazeFX.coins(m.x, m.y, 10, 8); MazeFX.ring(m.x, m.y, '#ffcc33', 3, 0.5); MazeFX.flash('#ffcc33', 0.2);
+      A.sfx('puOpen');
+      MazeFX.powerSlot({ items: M.POWERUPS, final: m.kind | 0, by: (m.by | 0) === S.id ? 'You' : String(m.nm || 'Someone'), spin: M.PU_SPIN, hold: M.PU_HOLD, onLand: () => A.sfx('puLand', pu.good) });
+      break;
+    }
+    case 'puon': powerupStarted(m.kind | 0, m.by | 0); break;
+    case 'nuke': nukeStarted(m.x, m.y); break;
     case 'pts': MazeFX.text(+m.x || 0, (+m.y || 0) - 0.3, String(m.v | 0), '#41e0f0', 0.95); break;
     case 'error':
       S.wantGame = false;
@@ -141,7 +158,10 @@ function onMsg(m) {
       if (S.ph !== wasPh || S.host !== hostWas) updateReady();
       A.setFright(S.fr > 0 && S.ph === 0);
       if (m.fid !== S.fid) { S.fid = m.fid; }
-      S.gTarget = (m.g || []).map((a, i) => ({ i, x: +a[0], y: +a[1], d: a[2] | 0, st: a[3] | 0, ep: a[4] | 0 }));
+      S.gTarget = (m.g || []).map((a, i) => ({ i, x: +a[0], y: +a[1], d: a[2] | 0, st: a[3] | 0, ep: a[4] | 0, phone: a[5] === 1 }));
+      S.crates = (m.c || []).filter(c => Array.isArray(c));
+      S.fx = (m.fx || []).map(f => ({ id: (M.POWERUPS[f[0] | 0] || {}).id, rem: +f[1] || 0, by: f[2] | 0 })).filter(f => f.id);
+      effectEdges();
       const pl = [];
       for (const a of m.p || []) {
         const id = a[0], r = S.roster.get(id) || { nm: 'Player', col: '#ffcc33' };
@@ -209,22 +229,27 @@ function playerStep(dt) {
     return;
   }
   if (S.ph !== 0) return;
-  if (S.streak) { S.streakT += dt; if (S.streakT > STREAK_WINDOW) endStreak(false); }
+  for (const f of S.fx) f.rem -= dt;   // count down locally between server updates
+  if (S.streak && !effectOn('autopilot')) { S.streakT += dt; if (S.streakT > STREAK_WINDOW) endStreak(false); }   // autopilot holds the streak
+  if (effectOn('autopilot')) S.me.want = autoDir();
+  if (effectOn('unplugged')) { checkGhosts(); return; }   // controller died: you stand still
   if (S.inv > 0) S.inv -= dt;
   // move in small steps and check for ghosts after each, so fast levels can't skip past one
   const dist = M.playerSpeed(S.L) * dt, steps = Math.max(1, Math.ceil(dist / 0.3));
   for (let k = 0; k < steps && S.alive; k++) { movePlayer(S.me, dist / steps); checkGhosts(); }
+  if (effectOn('laser')) laserEat();
 }
 function checkGhosts() {
   const [px, py] = M.entPos(S.me);
+  for (const c of S.crates) if (c[0] !== S.grabbing && Math.hypot(c[1] - px, c[2] - py) < 0.75) { S.grabbing = c[0]; send({ t: 'grab', id: c[0], x: Math.round(px * 100) / 100, y: Math.round(py * 100) / 100, f: S.me.face }); }
   for (const g of S.gv) {
     if (g.st !== 1 && g.st !== 2) continue;
-    if (Math.hypot(g.x - px, g.y - py) > 0.62) continue;
+    if (Math.hypot(g.x - px, g.y - py) > (effectOn('megaghost') ? 1.05 : 0.62)) continue;   // mega ghosts reach further
     if (g.st === 2) {
       S.ge.push([g.i, g.ep]); if (S.ge.length > 8) S.ge.shift();
       g.st = 3; send({ t: 'ghost', i: g.i, ep: g.ep }); A.sfx('ghost');
       MazeFX.ring(g.x, g.y, '#41e0f0', 3, 0.45); MazeFX.sparks(g.x, g.y, GCOL[g.i % GCOL.length], 22, 10, 0.55); MazeFX.coins(g.x, g.y, 5); MazeFX.shake(7); A.sfx('coin');
-    } else if (S.inv <= 0) {
+    } else if (S.inv <= 0 && !effectOn('autopilot')) {   // autopilot never gets caught
       S.alive = false; S.deadT = 1.4; send({ t: 'die' }); A.sfx('die');
       MazeFX.sparks(px, py, S.color, 40, 9, 0.9); MazeFX.ring(px, py, '#ff4d5e', 3, 0.6); MazeFX.flash('#ff4d5e', 0.35); MazeFX.shake(12); endStreak(true); break;
     }
@@ -239,7 +264,7 @@ function updateGhostView(dt) {
     const prev = S.gv.find(g => g.i === s.i);
     let vx = x, vy = y;
     if (prev && Math.hypot(prev.x - x, prev.y - y) < 2.5) { vx = prev.x + (x - prev.x) * k; vy = prev.y + (y - prev.y) * k; }
-    next.push({ i: s.i, x: vx, y: vy, d: s.d, st, ep: s.ep });
+    next.push({ i: s.i, x: vx, y: vy, d: s.d, st, ep: s.ep, phone: s.phone });
   }
   S.gv = next;
 }
@@ -435,8 +460,8 @@ function drawPac(x, y, T, paint, face, mouth, glow = true, mdl = 0, dying = 0) {
   MazeModels.draw(ctx, mdl, cx, cy, r, paint, face, chew, S.time);
 }
 function shade(hex, k) { const n = parseInt(hex.slice(1), 16); const f = v => Math.max(0, Math.min(255, Math.round(v + (k < 0 ? v * k : (255 - v) * k)))); return `rgb(${f(n >> 16 & 255)},${f(n >> 8 & 255)},${f(n & 255)})`; }
-function drawGhost(x, y, T, col, st, d, flash) {
-  const cx = (x + .5) * T, cy = (y + .5) * T, r = T * .44;
+function drawGhost(x, y, T, col, st, d, flash, scale = 1) {
+  const cx = (x + .5) * T, cy = (y + .5) * T, r = T * .44 * scale;
   if (st !== 3) {
     const body = st === 2 ? (flash ? '#e8ecff' : '#2f45ff') : col;
     ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.5; blit(glowSprite(st === 2 ? '#2f45ff' : col, T * 0.3, T * 0.5), cx, cy); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
@@ -511,7 +536,14 @@ function render(dt) {
   }
   if (S.inGame) {
     const fl = S.fr > 0 && S.fr < 2 && Math.floor(S.time * 5) % 2 === 0;
-    for (const g of S.gv) drawGhost(g.x, g.y, T, GCOL[g.i % GCOL.length], g.st, g.d, fl);
+    drawCrates(T);
+    const mega = effectOn('megaghost') ? 2 : 1;
+    if (!S.nuked) for (const g of S.gv) {
+      if (mega > 1 && g.st !== 3) { ctx.globalAlpha = 0.35; blit(glowSprite('#7a0020', T * 0.6, T * 0.9), (g.x + .5) * T, (g.y + .5) * T); ctx.globalAlpha = 1; }
+      drawGhost(g.x, g.y, T, g.phone ? '#ffcc33' : GCOL[g.i % GCOL.length], g.st, g.d, fl, g.st === 3 ? 1 : mega);
+      if (g.phone && g.st !== 3) MazeFX.icon(ctx, 'phone', (g.x + .5) * T, (g.y + .5) * T - T * 0.75 * mega, T * 0.55, S.time);
+    }
+    drawLasers(T);
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     const kx = 1 - Math.exp(-dt * 16);
     for (const p of S.players) {
@@ -551,6 +583,7 @@ function render(dt) {
       }
     }
   }
+  drawEffectMarks(T);
   MazeFX.drawWorld(ctx, T);
   ctx.restore();
   // screen-space: fright tint, vignette, then banners and confetti
@@ -613,15 +646,15 @@ function hud(dt, now) {
 
 /* ---------- input ---------- */
 const KEYS = { ArrowRight: 0, KeyD: 0, ArrowDown: 1, KeyS: 1, ArrowLeft: 2, KeyA: 2, ArrowUp: 3, KeyW: 3 };
-addEventListener('keydown', e => { if (e.code === 'KeyM' && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) { toggleMute(); return; } if (!S.inGame || /INPUT|SELECT/.test(e.target.tagName)) return; if (e.code in KEYS) { S.me.want = KEYS[e.code]; e.preventDefault(); } });
+addEventListener('keydown', e => { if (e.code === 'KeyM' && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) { toggleMute(); return; } if (!S.inGame || /INPUT|SELECT/.test(e.target.tagName)) return; if (e.code in KEYS) { setWant(KEYS[e.code]); e.preventDefault(); } });
 let touch = null;
 cv.addEventListener('touchstart', e => { const t = e.changedTouches[0]; touch = [t.clientX, t.clientY]; }, { passive: true });
 cv.addEventListener('touchmove', e => {
   if (!touch || !S.inGame) return; const t = e.changedTouches[0], dx = t.clientX - touch[0], dy = t.clientY - touch[1];
-  if (Math.max(Math.abs(dx), Math.abs(dy)) > 18) { S.me.want = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 0 : 2) : (dy > 0 ? 1 : 3); touch = [t.clientX, t.clientY]; }
+  if (Math.max(Math.abs(dx), Math.abs(dy)) > 18) { setWant(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 0 : 2) : (dy > 0 ? 1 : 3)); touch = [t.clientX, t.clientY]; }
   e.preventDefault();
 }, { passive: false });
-document.querySelectorAll('#dpad button').forEach(b => b.addEventListener('pointerdown', e => { e.preventDefault(); if (S.inGame) S.me.want = +b.dataset.d; }));
+document.querySelectorAll('#dpad button').forEach(b => b.addEventListener('pointerdown', e => { e.preventDefault(); if (S.inGame) setWant(+b.dataset.d); }));
 $('startForm').addEventListener('submit', e => { e.preventDefault(); join(); });
 $('seedIn').addEventListener('input', () => { if (!$('joinPwField').hidden && S.pwRoom) { $('joinPwField').hidden = true; S.pwRoom = ''; $('joinErr').hidden = true; updateVisHint(); } });
 $('leaveBtn').addEventListener('click', leave);
@@ -633,6 +666,176 @@ $('seedBtn').addEventListener('click', () => {
   if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(link).then(done, () => prompt('Invite link', link));
   else prompt('Invite link', link);
 });
+
+/* ---------- power-ups ---------- */
+/** Seconds left on an effect for *you*. Reverse lasts 15 s for whoever opened it and 10 s for everyone else. */
+function effectLeft(id) {
+  let best = 0;
+  for (const f of S.fx) if (f.id === id) best = Math.max(best, id === 'reverse' && f.by !== S.id ? f.rem - 5 : f.rem);
+  return best;
+}
+const effectOn = id => S.ph === 0 && effectLeft(id) > 0;
+function setWant(d) { S.me.want = effectOn('reverse') ? (d + 2) % 4 : d; }
+/** Sounds for effects ending (computed from what's active now vs before). */
+function effectEdges() {
+  const now = ['unplugged', 'autopilot', 'reverse'].filter(effectOn).join(',');
+  if (now === S.prevFx) return;
+  const had = S.prevFx.split(','); S.prevFx = now;
+  if (had.includes('unplugged') && !now.includes('unplugged')) A.sfx('replugged');
+  if (had.includes('autopilot') && !now.includes('autopilot')) A.sfx('autopilotOff');
+}
+function powerupStarted(kind, by) {
+  const pu = M.POWERUPS[kind]; if (!pu) return;
+  S.grabbing = 0;
+  const lv = S.lvl, [px, py] = M.entPos(S.me);
+  switch (pu.id) {
+    case 'megaghost': A.sfx('megaghost'); MazeFX.flash('#7a0020', 0.3); MazeFX.shake(5); for (const g of S.gv) MazeFX.ring(g.x, g.y, '#ff4d5e', 3, 0.6); break;
+    case 'reverse': A.sfx('reverse'); MazeFX.flash('#9b5fd6', 0.3); MazeFX.ring(px, py, '#c77dff', 3, 0.6); break;
+    case 'laser': A.sfx('laser'); MazeFX.flash('#ff3d5e', 0.2); break;
+    case 'megapellet': A.sfx('megapellet'); MazeFX.flash('#2f45ff', 0.35); for (const g of S.gv) MazeFX.ring(g.x, g.y, '#41e0f0', 2.5, 0.5); break;
+    case 'bomb':
+      A.sfx('bomb');
+      setTimeout(() => { for (const g of S.gv) { MazeFX.sparks(g.x, g.y, '#ff9a3c', 26, 10, 0.7); MazeFX.ring(g.x, g.y, '#ffcc33', 3, 0.5); } MazeFX.shake(10); MazeFX.flash('#ff9a3c', 0.3); }, 350);
+      break;
+    case 'quake': A.sfx('quake'); MazeFX.flash('#8a5a2a', 0.25); break;
+    case 'unplugged': A.sfx('unplugged'); MazeFX.flash('#000000', 0.45); break;
+    case 'autopilot': A.sfx('autopilot'); MazeFX.ring(px, py, '#41e0f0', 3, 0.6); break;
+    case 'phone': A.sfx('phone'); MazeFX.ring(lv.mid, lv.cy - 2, '#ffcc33', 3, 0.7); break;
+  }
+}
+function nukeStarted(x, y) {
+  A.sfx('nukeSiren');
+  setTimeout(() => {
+    if (!S.lvl) return;
+    const lv = S.lvl, pel = [];
+    for (const i of lv.pList) if (!eaten(i)) pel.push([i % lv.W, (i / lv.W) | 0]);
+    for (let k = pel.length - 1; k > 0; k--) { const j = Math.random() * (k + 1) | 0; [pel[k], pel[j]] = [pel[j], pel[k]]; }
+    MazeFX.nuke(x, y, pel.slice(0, 500), S.gv.map(g => [g.x, g.y]));
+    A.sfx('nukeBlast');
+    for (const i of lv.pList) M.setBit(S.srvBits, i);   // everything is gone
+    S.nuked = true; S.crates = [];
+  }, 500);
+}
+/* Autopilot: head for the nearest pellet, never through tiles a ghost is on or next to. */
+function autoDir() {
+  const lv = S.lvl, W = lv.W, H = lv.H, e = S.me;
+  let sx = e.tx, sy = e.ty;
+  if (e.d >= 0 && e.t > 0.5) { sx = M.wrapX(lv, sx + DIRS[e.d][0]); sy += DIRS[e.d][1]; }
+  const danger = new Uint8Array(W * H);
+  for (const g of S.gv) if (g.st === 1) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    if (Math.abs(dx) + Math.abs(dy) > 1) continue;
+    const x = M.wrapX(lv, Math.round(g.x) + dx), y = Math.round(g.y) + dy; if (y >= 0 && y < H) danger[y * W + x] = 1;
+  }
+  const prev = new Int16Array(W * H).fill(-1), first = new Int8Array(W * H).fill(-1), q = [sy * W + sx];
+  prev[q[0]] = q[0];
+  for (let h = 0; h < q.length; h++) {
+    const i = q[h], x = i % W, y = (i / W) | 0;
+    if (h > 0 && lv.p[i] && !eaten(i)) return first[i];
+    for (let d = 0; d < 4; d++) {
+      if (!M.canGo(lv, x, y, d)) continue;
+      const nx = M.wrapX(lv, x + DIRS[d][0]), ny = y + DIRS[d][1], j = ny * W + nx;
+      if (prev[j] !== -1 || danger[j]) continue;
+      prev[j] = i; first[j] = h === 0 ? d : first[i]; q.push(j);
+    }
+  }
+  // nothing reachable safely: move away from the nearest ghost
+  let best = e.d, bd = -1;
+  for (let d = 0; d < 4; d++) {
+    if (!M.canGo(lv, sx, sy, d)) continue;
+    const nx = sx + DIRS[d][0], ny = sy + DIRS[d][1];
+    const dist = Math.min(99, ...S.gv.filter(g => g.st === 1).map(g => Math.abs(g.x - nx) + Math.abs(g.y - ny)));
+    if (dist > bd) { bd = dist; best = d; }
+  }
+  return best;
+}
+/* Laser Beamz: your beam eats every pellet down the corridor you're facing. */
+function beamEnd(x, y, face) {
+  const lv = S.lvl; let cx = Math.round(x), cy = Math.round(y), n = 0;
+  while (n++ < lv.W + lv.H) {
+    const nx = cx + DIRS[face][0], ny = cy + DIRS[face][1];
+    if (nx < 0 || ny < 0 || nx >= lv.W || ny >= lv.H || lv.t[ny * lv.W + nx] !== 0) break;
+    cx = nx; cy = ny;
+  }
+  return [cx, cy];
+}
+function laserEat() {
+  const lv = S.lvl, [px, py] = M.entPos(S.me), face = S.me.face & 3, [ex, ey] = beamEnd(px, py, face);
+  let x = Math.round(px), y = Math.round(py), n = 0, got = 0;
+  while (n++ < lv.W + lv.H) {
+    const i = y * lv.W + x;
+    if (lv.p[i] && !eaten(i)) { M.setBit(S.myBits, i); S.eatQ.push(i); bumpStreak(x, y); MazeFX.sparks(x, y, '#ff6b8b', 4, 4, 0.3); got++; if (lv.p[i] === 2) A.sfx('power'); }
+    if (x === ex && y === ey) break;
+    x += DIRS[face][0]; y += DIRS[face][1];
+  }
+  if (got) A.sfx('eat', S.streak);
+}
+function drawLasers(T) {
+  if (!effectOn('laser')) return;
+  const beams = [];
+  if (S.alive && !S.over) { const [px, py] = M.entPos(S.me); beams.push([px, py, S.me.face & 3]); }
+  for (const p of S.players) if (p.al && !p.over) { const o = S.ov.get(p.id) || p; beams.push([o.x, o.y, p.f & 3]); }
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
+  const flick = 0.85 + 0.15 * Math.sin(S.time * 40);
+  for (const [x, y, f] of beams) {
+    const [ex, ey] = beamEnd(x, y, f), x0 = (x + .5 + DIRS[f][0] * 0.35) * T, y0 = (y + .5 + DIRS[f][1] * 0.35) * T, x1 = (ex + .5) * T, y1 = (ey + .5) * T;
+    ctx.strokeStyle = `rgba(255,40,70,${0.35 * flick})`; ctx.lineWidth = T * 0.5; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    ctx.strokeStyle = `rgba(255,120,140,${0.7 * flick})`; ctx.lineWidth = T * 0.2; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    ctx.strokeStyle = '#fff0f3'; ctx.lineWidth = Math.max(1.5, T * 0.07); ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    blit(glowSprite('#ff3d5e', T * 0.12, T * 0.4, '#ffffff'), x1, y1, 0.8 + 0.3 * Math.sin(S.time * 30));
+  }
+  ctx.restore();
+}
+/* The loot crate: same glowing icon whatever is inside. */
+function drawCrates(T) {
+  for (const [, x, y] of S.crates) {
+    const cx = (x + .5) * T, cy = (y + .5) * T - T * 0.08 * Math.sin(S.time * 3 + x), s = T * 0.78;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.55 + 0.25 * Math.sin(S.time * 4);
+    blit(glowSprite('#ffcc33', T * 0.35, T * 0.75), cx, cy); ctx.restore();
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.sin(S.time * 2 + y) * 0.06);
+    const g = ctx.createLinearGradient(0, -s / 2, 0, s / 2); g.addColorStop(0, '#8a5cff'); g.addColorStop(1, '#3a1f8a');
+    ctx.fillStyle = g; ctx.fillRect(-s / 2, -s / 2 + s * 0.12, s, s * 0.88);                 // body
+    ctx.fillStyle = '#a77bff'; ctx.fillRect(-s / 2 - s * 0.04, -s / 2, s * 1.08, s * 0.24);  // lid
+    ctx.fillStyle = '#ffcc33';
+    ctx.fillRect(-s / 2 - s * 0.04, -s / 2 + s * 0.2, s * 1.08, s * 0.07);                     // gold band
+    ctx.fillRect(-s * 0.07, -s / 2, s * 0.14, s);                                               // gold strap
+    ctx.fillRect(-s / 2, s / 2 - s * 0.08, s, s * 0.08);
+    ctx.fillStyle = '#fff3b0'; ctx.beginPath(); ctx.arc(0, -s * 0.12, s * 0.11, 0, Math.PI * 2); ctx.fill();   // lock
+    ctx.fillStyle = '#3a1f8a'; ctx.fillRect(-s * 0.025, -s * 0.13, s * 0.05, s * 0.08);
+    ctx.restore();
+    if (Math.floor(S.time * 5 + x) % 6 === 0) MazeFX.sparks(x + (Math.random() - 0.5) * 0.6, y - 0.3, '#fff3b0', 1, 1.5, 0.5);
+  }
+}
+/* Markers on players for active effects. */
+function drawEffectMarks(T) {
+  // header badges with time left
+  const badges = M.POWERUPS.filter(p => p.dur > 0 && effectOn(p.id)).map(p => [p, effectLeft(p.id)]);
+  const sig = badges.map(([p, r]) => p.id + Math.ceil(r)).join(',');
+  if (sig !== drawEffectMarks.sig) {
+    drawEffectMarks.sig = sig;
+    const box = $('fxBadges'); box.textContent = ''; $('fxPanel').hidden = !badges.length;
+    for (const [p, r] of badges) { const b = document.createElement('span'); b.className = 'fxb ' + (p.good ? 'good' : 'bad'); b.textContent = p.name + ' ' + Math.ceil(r) + 's'; box.appendChild(b); }
+  }
+  if (!S.inGame || S.ph !== 0) return;
+  const [px, py] = M.entPos(S.me), cx = (px + .5) * T, cy = (py + .5) * T;
+  ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.font = '600 ' + Math.max(9, Math.round(T * .34)) + 'px "IBM Plex Mono", ui-monospace, monospace';
+  const tag = (txt, col) => { ctx.lineWidth = 3; ctx.strokeStyle = '#0a0c1c'; ctx.strokeText(txt, cx, cy - T * 0.62); ctx.fillStyle = col; ctx.fillText(txt, cx, cy - T * 0.62); };
+  if (effectOn('autopilot')) {
+    ctx.strokeStyle = '#41e0f0'; ctx.setLineDash([T * 0.15, T * 0.1]); ctx.lineDashOffset = -S.time * 20; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, T * 0.7, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); tag('AUTO', '#41e0f0');
+  }
+  if (effectOn('unplugged')) {
+    for (let k = 0; k < 14; k++) { ctx.fillStyle = `rgba(${200 + Math.random() * 55 | 0},${200 + Math.random() * 55 | 0},255,${Math.random() * 0.5})`; ctx.fillRect(cx - T * 0.5 + Math.random() * T, cy - T * 0.5 + Math.random() * T, T * 0.12, T * 0.04); }
+    tag('NO SIGNAL', '#ff4d5e');
+  }
+  if (effectOn('reverse')) {
+    ctx.strokeStyle = '#c77dff'; ctx.lineWidth = 2;
+    for (let k = 0; k < 2; k++) { const a = -S.time * 4 + k * Math.PI; ctx.beginPath(); ctx.arc(cx, cy, T * 0.72, a, a + 1.6); ctx.stroke(); }
+    if (!effectOn('autopilot') && !effectOn('unplugged')) tag('REVERSED', '#c77dff');
+  }
+  ctx.restore();
+
+}
 
 /* ---------- streaks & jackpots ----------
    Eat pellets back to back to build a streak. Stop for STREAK_WINDOW seconds and it ends.
@@ -674,7 +877,7 @@ function drawStreakHud() {
 }
 function levelClear() {
   if (S.alive || !S.over) recordCleared(S.L);
-  A.sfx('clear'); endStreak(false);
+  A.sfx('drop'); A.sfx('levelup'); A.fadeOutMusic(A.DROP_TIME); endStreak(false);
   const nx = M.genLevel(S.seed, S.L + 1);
   const syms = [String(nx.W), '×', String(nx.H)];
   MazeFX.confetti(160, CW); MazeFX.flash('#ffcc33', 0.2);
@@ -897,7 +1100,7 @@ addEventListener('keydown', () => A.unlock(), { once: true });
 function frame() {
   const now = performance.now(), dt = Math.min(.05, (now - S.lastT) / 1000); S.lastT = now; S.time += dt;
   if (S.inGame && S.lvl) { playerStep(dt); updateGhostView(dt); }
-  MazeFX.setRumble(S.inGame && S.streak >= 100 ? 1.6 : 0);   // a small steady shake from a 100 streak until it ends
+  MazeFX.setRumble(S.inGame && effectOn('quake') ? 11 : S.inGame && S.streak >= 100 ? 1.6 : 0);   // earthquake, or a small steady shake from a 100 streak
   MazeFX.update(dt);
   animatePicker(S.time);
   render(dt); hud(dt, now);

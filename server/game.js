@@ -6,8 +6,8 @@
 const M = require('../shared/maze.js');
 const { DIRS } = M;
 
-const RESUME_MS = 2 * 60 * 1000;
-const MAX_START_LEVEL = 50;       // highest level a host can start a new maze on // keep a disconnected player's score/lives this long
+const RESUME_MS = 2 * 60 * 1000;   // keep a disconnected player's score/lives this long
+const MAX_START_LEVEL = 50;       // highest level a host can start a new maze on
 
 class Game {
   constructor(seed, key, opts) {
@@ -38,6 +38,9 @@ class Game {
       this.ghosts.push({ i, tx: 0, ty: 0, d: -1, t: 0, st: 0, ep: 0, home: 1.5 + i * 2.5, rev: false });
     this.fr = 0; this.fid = 0; this.ph = lobby ? 3 : 0; this.ct = 0; this.clock = 0; this.lastMode = -1;
     this.eatenSince = [];
+    // loot crates: from level 3, 1 or 2 appear at random moments in the level
+    this.crates = []; this.effects = []; this.pending = null; this.crateSeq = this.crateSeq || 0;
+    this.spawns = L >= M.POWERUP_FROM_LEVEL ? Array.from({ length: Math.random() < 0.5 ? 1 : 2 }, () => 6 + Math.random() * 30).sort((a, b) => a - b) : [];
     for (const p of this.players.values()) {
       p.x = this.lv.sx; p.y = this.lv.sy; p.combo = 0;
       if (!p.over) { p.al = true; p.spawnAt = Date.now(); if (advance) p.li = Math.min(5, p.li + 1); }
@@ -59,7 +62,8 @@ class Game {
       t: 'welcome', id: p.id, seed: this.seed, key: this.key, vis: this.isPrivate ? 'private' : 'public', title: this.title || '', locked: !!this.pass,
       lv: this.L, b: M.toB64(this.bits),
       roster: [...this.players.values()].map(q => [q.id, q.nm, q.col, q.mdl, q.ci]),
-      sc: p.sc, li: p.li, over: p.over, host: this.hostId, ph: this.ph
+      sc: p.sc, li: p.li, over: p.over, host: this.hostId, ph: this.ph,
+      pu: this.pending ? { kind: this.pending.kind, by: this.pending.by, x: this.pending.x, y: this.pending.y } : null
     });
     this.broadcast({ t: 'join', id: p.id, nm: p.nm, col: p.col, mdl: p.mdl, ci: p.ci }, p.id);
   }
@@ -127,6 +131,24 @@ class Game {
         return;
       }
         return;
+      case 'grab': {   // walked into a loot crate
+        const c = this.crates.find(k => k.id === (m.id | 0));
+        if (this.ph !== 0 || !c || !p.al || p.over) return;
+        if (m.x !== undefined) this.onMessage(p, { t: 'p', x: m.x, y: m.y, f: m.f });
+        let dx = Math.abs(p.x - c.x); dx = Math.min(dx, this.lv.W - dx);
+        if (dx + Math.abs(p.y - c.y) > 1.6 + M.playerSpeed(this.L) * 0.08) return;
+        this.crates = this.crates.filter(k => k !== c);
+        const kind = this.opts.forcePowerup != null ? this.opts.forcePowerup : M.rollPowerup();   // forcing is for tests only
+        this.pending = { kind, by: p.id, x: c.x, y: c.y };
+        this.ph = 4; this.ct = M.PU_SPIN + M.PU_HOLD;
+        this.broadcast({ t: 'pu', kind, by: p.id, nm: p.nm, x: c.x, y: c.y, crate: c.id });
+        return;
+      }
+      case 'testcrate':   // tests only: put a crate right here (needs TEST_HOOKS=1)
+        if (!this.opts.testHooks || this.ph !== 0) return;
+        if (m.kind != null) this.opts.forcePowerup = m.kind | 0;
+        { const c = { id: ++this.crateSeq, x: Math.round(p.x), y: Math.round(p.y) }; this.crates.push(c); this.broadcast({ t: 'crate', id: c.id, x: c.x, y: c.y }); }
+        return;
       case 'again':
         if (!p.over) return;
         p.sc = 0; p.li = 3; p.over = false; p.al = true; p.spawnAt = Date.now();
@@ -140,16 +162,80 @@ class Game {
     // the player has to be close to the pellet they claim
     const tx = i % lv.W, ty = (i / lv.W) | 0;
     let dx = Math.abs(Math.round(p.x) - tx); dx = Math.min(dx, lv.W - dx);
-    if (dx + Math.abs(Math.round(p.y) - ty) > 2 + M.playerSpeed(this.L) * 0.06) return;   // pellets eaten since the last update
+    if (dx + Math.abs(Math.round(p.y) - ty) > 2 + M.playerSpeed(this.L) * 0.06 && !this.laserCanReach(p, tx, ty)) return;   // pellets eaten since the last update
     M.setBit(this.bits, i); this.left--; this.eatenSince.push(i);
     p.sc += lv.p[i] === 2 ? 50 : 10;
     if (lv.p[i] === 2) { this.frighten(); this.broadcast({ t: 'pw', id: p.id, i }); }   // everyone hears who powered up
     if (this.left <= 0) { this.ph = 1; this.ct = 3.9; }   // long enough for the slot reels to finish
   }
 
-  frighten() {
-    this.fr = M.frightDuration(this.L); this.fid++;
+  frighten(dur) {
+    this.fr = dur || M.frightDuration(this.L); this.fid++;
     for (const g of this.ghosts) if (g.st === 1 || g.st === 2) { g.st = 2; g.rev = true; }
+  }
+
+  /* ---------- power-ups ---------- */
+  effect(id) { return this.effects.find(e => M.POWERUPS[e.kind].id === id); }
+  /** A laser reaches a pellet on the player's row or column with no wall in between. */
+  laserCanReach(p, tx, ty) {
+    if (!this.effect('laser')) return false;
+    const lv = this.lv, px = Math.round(p.x), py = Math.round(p.y);
+    if (px !== tx && py !== ty) return false;
+    const sx = Math.sign(tx - px), sy = Math.sign(ty - py);
+    for (let x = px, y = py, n = 0; n < lv.W + lv.H; n++) {
+      if (x === tx && y === ty) return true;
+      x += sx; y += sy;
+      if (x < 0 || y < 0 || x >= lv.W || y >= lv.H || lv.t[y * lv.W + x] !== 0) return false;
+    }
+    return false;
+  }
+  tickPowerups(dt, players) {
+    // spawn crates on schedule, away from players and the ghost box
+    while (this.spawns.length && this.clock >= this.spawns[0]) {
+      this.spawns.shift();
+      const lv = this.lv, open = [];
+      for (let y = 1; y < lv.H - 1; y++) for (let x = 1; x < lv.W - 1; x++) {
+        if (lv.t[y * lv.W + x] !== 0) continue;
+        if (Math.abs(x - lv.mid) <= 4 && Math.abs(y - lv.cy) <= 3) continue;
+        if (players.some(p => Math.abs(p.x - x) + Math.abs(p.y - y) < 6)) continue;
+        if (this.crates.some(c => c.x === x && c.y === y)) continue;
+        open.push([x, y]);
+      }
+      if (!open.length) continue;
+      const [x, y] = open[Math.random() * open.length | 0], c = { id: ++this.crateSeq, x, y };
+      this.crates.push(c);
+      this.broadcast({ t: 'crate', id: c.id, x, y });
+    }
+    // count down running effects
+    for (const e of this.effects) e.rem -= dt;
+    for (const e of this.effects.filter(e => e.rem <= 0)) this.expire(e);
+    this.effects = this.effects.filter(e => e.rem > 0);
+  }
+  activate({ kind, by }) {
+    const pu = M.POWERUPS[kind];
+    switch (pu.id) {
+      case 'megapellet': this.frighten(10); break;
+      case 'bomb':   // every ghost out on the maze is sent back to the box as eyes
+        for (const g of this.ghosts) if (g.st === 1 || g.st === 2) { g.st = 3; g.ep++; }
+        break;
+      case 'phone': {
+        const g = { i: this.ghosts.length, tx: this.lv.mid, ty: this.lv.cy - 2, d: -1, t: 0, st: 1, ep: 0, home: 0, rev: false, phone: true };
+        this.ghosts.push(g);
+        break;
+      }
+    }
+    if (pu.dur > 0) {
+      const same = this.effects.find(e => e.kind === kind);
+      if (same && pu.id !== 'phone') { same.rem = pu.dur; same.by = by; }   // a repeat refreshes the timer
+      else this.effects.push({ kind, by, rem: pu.dur });
+    }
+    this.broadcast({ t: 'puon', kind, by });
+  }
+  expire(e) {
+    if (M.POWERUPS[e.kind].id === 'phone') {   // the extra ghost hangs up
+      const idx = this.ghosts.findIndex(g => g.phone);
+      if (idx >= 0) { this.ghosts.splice(idx, 1); this.ghosts.forEach((g, i) => { g.i = i; }); }
+    }
   }
 
   /* ---------- ghost AI ---------- */
@@ -211,6 +297,20 @@ class Game {
     if (this.ph === 1) {             // celebrating
       this.ct -= dt;
       if (this.ct <= 0) { this.ph = 2; this.ct = 0; }
+    } else if (this.ph === 4) {      // power-up slot on screen; everything is paused
+      this.ct -= dt;
+      if (this.ct <= 0) {
+        const pu = M.POWERUPS[this.pending.kind];
+        if (pu.id === 'nuke') { this.ph = 5; this.ct = M.NUKE_TIME; this.broadcast({ t: 'nuke', x: this.pending.x, y: this.pending.y }); }
+        else { this.ph = 0; this.activate(this.pending); this.pending = null; }
+      }
+    } else if (this.ph === 5) {      // nuke going off; still paused
+      this.ct -= dt;
+      if (this.ct <= 0) {
+        for (const i of this.lv.pList) M.setBit(this.bits, i);
+        this.left = 0; this.pending = null; this.effects = [];
+        this.ph = 1; this.ct = 3.9;   // level passed: on to the usual celebration
+      }
     } else if (this.ph === 2 || this.ph === 3) {   // waiting for the host
       if (!this.players.has(this.hostId)) { const next = this.players.values().next().value; this.hostId = next ? next.id : 0; }
     } else {
@@ -221,6 +321,7 @@ class Game {
       const players = [];
       for (const p of this.players.values()) if (p.al && !p.over) players.push(p);
       const base = M.ghostSpeed(this.L), lv = this.lv;
+      this.tickPowerups(dt, players);
       for (const g of this.ghosts) {
         if (g.st === 0) { g.home -= dt; if (g.home <= 0) { g.st = 1; g.tx = lv.mid; g.ty = lv.cy - 2; g.t = 0; g.d = -1; } continue; }
         this.moveGhost(g, (g.st === 3 ? M.eyesSpeed(this.L) : g.st === 2 ? M.frightGhostSpeed(this.L) : base) * dt, players);
@@ -233,7 +334,9 @@ class Game {
     const r2 = v => Math.round(v * 100) / 100;
     const msg = JSON.stringify({
       t: 's', lv: this.L, ph: this.ph, ct: r2(this.ct), fr: r2(this.fr), fid: this.fid, h: this.hostId,
-      g: this.ghosts.map(g => { const [x, y] = M.entPos(g); return [r2(x), r2(y), g.d, g.st, g.ep]; }),
+      g: this.ghosts.map(g => { const [x, y] = M.entPos(g); return [r2(x), r2(y), g.d, g.st, g.ep, g.phone ? 1 : 0]; }),
+      fx: this.effects.map(e => [e.kind, r2(e.rem), e.by]),
+      c: this.crates.map(c => [c.id, c.x, c.y]),
       p: [...this.players.values()].map(p => [p.id, r2(p.x), r2(p.y), p.f, p.al ? 1 : 0, p.sc, p.li, p.over ? 1 : 0]),
       e: this.eatenSince
     });

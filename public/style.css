@@ -215,3 +215,10 @@ input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer;margin:0}
 .games .s .chip{font-size:9px;padding:1px 6px;vertical-align:middle}
 .pwjoin{background:var(--ink-2);border:1px solid var(--accent);border-radius:8px;padding:10px 12px}
 .pwjoin input{background:var(--panel)}
+
+/* power-up badges */
+.fxpanel{display:flex;flex-direction:column;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.fxbadges{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.fxb{font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:999px;border:1px solid;white-space:nowrap;font-variant-numeric:tabular-nums}
+.fxb.good{color:#7ee081;border-color:#7ee081;box-shadow:0 0 10px color-mix(in srgb, #7ee081 35%, transparent)}
+.fxb.bad{color:#ff6b7a;border-color:#ff6b7a;box-shadow:0 0 10px color-mix(in srgb, #ff6b7a 35%, transparent)}

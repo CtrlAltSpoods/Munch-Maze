@@ -63,6 +63,30 @@
     return { mdl: i, ci: k, col: prem ? prem.base : m.colors[k], paint: prem ? 'p:' + prem.id : m.colors[k] };
   };
 
+  /* Power-ups from loot crates (level 3 onwards). dur in seconds (0 = instant).
+     weight sets how often each comes up; the nuke is rare. */
+  const POWERUPS = [
+    { id: 'megaghost',  name: 'Mega Ghost',       good: false, dur: 15, weight: 10, desc: 'The ghosts grow to twice their size' },
+    { id: 'nuke',       name: 'Nuke',             good: true,  dur: 0,  weight: 3,  desc: 'Everything is blown away. Level passed!' },
+    { id: 'reverse',    name: 'Reverse Controls', good: false, dur: 15, weight: 10, desc: 'Controls reversed: 10 s for everyone, 15 s for the opener' },
+    { id: 'laser',      name: 'Laser Beamz',      good: true,  dur: 10, weight: 10, desc: 'Everyone fires a pellet-eating laser for 10 s' },
+    { id: 'megapellet', name: 'Mega Pellet',      good: true,  dur: 10, weight: 10, desc: 'Every ghost turns blue for 10 s' },
+    { id: 'bomb',       name: 'Just A Lil Bomb',  good: true,  dur: 0,  weight: 10, desc: 'Every ghost is blown back to the box' },
+    { id: 'quake',      name: 'EARTHQUAKE',       good: false, dur: 7,  weight: 10, desc: 'The whole maze shakes for 7 s' },
+    { id: 'unplugged',  name: 'Controller Died',  good: false, dur: 3,  weight: 10, desc: 'Nobody can move for 3 s' },
+    { id: 'autopilot',  name: 'Autopilot',        good: true,  dur: 10, weight: 10, desc: 'Your browser plays for you for 10 s' },
+    { id: 'phone',      name: 'Phone A Ghost',    good: false, dur: 20, weight: 10, desc: 'An extra ghost joins for 20 s' }
+  ];
+  const POWERUP_FROM_LEVEL = 3;
+  const PU_SPIN = 1.6, PU_HOLD = 2.0;   // slot spins, then shows the result this long before play resumes
+  const NUKE_TIME = 3.2;
+  function rollPowerup(rnd = Math.random) {
+    const total = POWERUPS.reduce((n, p) => n + p.weight, 0);
+    let r = rnd() * total;
+    for (let i = 0; i < POWERUPS.length; i++) { r -= POWERUPS[i].weight; if (r < 0) return i; }
+    return POWERUPS.length - 1;
+  }
+
   // Level rules
   const levelSize = L => [Math.min(15 + 4 * (L - 1), 63), Math.min(11 + 4 * (L - 1), 51)];
   const ghostCount = L => Math.min(1 + Math.floor(L / 2), 6);
@@ -181,6 +205,6 @@
     return o;
   }
 
-  return { DIRS, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
+  return { DIRS, POWERUPS, POWERUP_FROM_LEVEL, PU_SPIN, PU_HOLD, NUKE_TIME, rollPowerup, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
     genLevel, wrapX, canGo, entPos, getBit, setBit, toB64, fromB64 };
 });
