@@ -580,8 +580,8 @@ function bumpStreak(x, y) {
     MazeFX.bigText(name, 'STREAK ×' + S.streak, col, t >= 4 ? 1.9 : 1.3);
     MazeFX.coins(x, y, 4 + t * 3, 7 + t);
     MazeFX.ring(x, y, col, 2 + t, 0.6);
-    if (t >= 4) { MazeFX.confetti(t >= 5 || mega ? 220 : 140, CW); MazeFX.flash('#ffcc33', 0.25); MazeFX.shake(6); A.sfx('jackpot'); }
-    else A.sfx('streak', t);
+    if (t >= 4) { MazeFX.confetti(t >= 5 || mega ? 220 : 140, CW); MazeFX.flash('#ffcc33', 0.25); MazeFX.shake(6); A.sfx('jackpot', S.streak); }
+    else A.sfx('streak', S.streak);
   }
 }
 function endStreak(silent) {

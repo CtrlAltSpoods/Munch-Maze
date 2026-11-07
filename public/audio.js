@@ -184,29 +184,34 @@ function setFright(on) {
 
 /* ---------- sound effects ---------- */
 let wakaFlip = false, lastWaka = 0;
+// Streak pitch: every pellet in a streak raises the streak sounds a little, with no ceiling.
+// (7/60 of a semitone per pellet: a fifth by 60, an octave by about 100, two octaves by about 200.)
+const STREAK_STEP = 7 / 60;
+const streakSemis = n => Math.max(0, n | 0) * STREAK_STEP;
 const FX = {
   eat(t, streak = 0) {
     if (t - lastWaka < 0.06) return; lastWaka = t; wakaFlip = !wakaFlip;
-    // pitch climbs with the streak, up to a fifth higher
-    const up = Math.pow(2, Math.min(streak, 60) / 60 * 7 / 12);
+    // pitch climbs with the streak and keeps climbing
+    const up = Math.pow(2, streakSemis(streak) / 12);
     tone(sfxBus, { type: 'triangle', f: (wakaFlip ? 300 : 620) * up, f2: (wakaFlip ? 620 : 300) * up, t, dur: 0.075, vol: 0.32 });
-    if (streak >= 25 && streak % 5 === 0) tone(sfxBus, { type: 'sine', f: hz(88 + Math.min(12, Math.floor(streak / 25))), t: t + 0.02, dur: 0.12, vol: 0.08 });
+    if (streak >= 25 && streak % 5 === 0) tone(sfxBus, { type: 'sine', f: hz(88 + streakSemis(streak - 25)), t: t + 0.02, dur: 0.12, vol: 0.08 });
   },
   coin(t) {
     tone(sfxBus, { type: 'square', f: hz(83), t, dur: 0.07, vol: 0.12 });
     tone(sfxBus, { type: 'square', f: hz(88), t: t + 0.07, dur: 0.25, vol: 0.12 });
   },
-  streak(t, tier = 1) {
-    const base = 72 + tier * 2;
-    [0, 4, 7, 12, 16].slice(0, 3 + Math.min(2, tier)).forEach((iv, i) => tone(sfxBus, { type: 'square', f: hz(base + iv), t: t + i * 0.055, dur: 0.09, vol: 0.13 }));
+  streak(t, streak = 10) {
+    const base = 72 + streakSemis(streak), notes = streak >= 50 ? 5 : streak >= 25 ? 4 : 3;
+    [0, 4, 7, 12, 16].slice(0, notes).forEach((iv, i) => tone(sfxBus, { type: 'square', f: hz(base + iv), t: t + i * 0.055, dur: 0.09, vol: 0.13 }));
     tone(sfxBus, { type: 'sine', f: hz(base + 24), t: t + 0.25, dur: 0.35, vol: 0.08 });
   },
-  jackpot(t) {
-    // bell chord, then a cascade of coin dings
-    [84, 88, 91, 96].forEach(m => tone(sfxBus, { type: 'sine', f: hz(m), t, dur: 0.9, vol: 0.09, a: 0.002 }));
-    [84, 88, 91, 96].forEach(m => tone(sfxBus, { type: 'triangle', f: hz(m + 12), t, dur: 0.4, vol: 0.05 }));
+  jackpot(t, streak) {
+    // bell chord, then a cascade of coin dings; streak jackpots rise with the streak
+    const up = streak ? streakSemis(streak - 100) : 0;
+    [84, 88, 91, 96].forEach(m => tone(sfxBus, { type: 'sine', f: hz(m + up), t, dur: 0.9, vol: 0.09, a: 0.002 }));
+    [84, 88, 91, 96].forEach(m => tone(sfxBus, { type: 'triangle', f: hz(m + 12 + up), t, dur: 0.4, vol: 0.05 }));
     for (let i = 0; i < 14; i++) {
-      const tt = t + 0.12 + i * 0.055 + Math.random() * 0.02, m = 88 + [0, 3, 7, 10, 12][i % 5];
+      const tt = t + 0.12 + i * 0.055 + Math.random() * 0.02, m = 88 + up + [0, 3, 7, 10, 12][i % 5];
       tone(sfxBus, { type: 'square', f: hz(m), t: tt, dur: 0.05, vol: 0.06 });
     }
   },
