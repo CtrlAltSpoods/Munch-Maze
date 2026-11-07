@@ -1,18 +1,18 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>MunchMaze</Name>
-  <Repository>ghcr.io/CtrlAltSpoods/munch-maze:latest</Repository>
-  <Registry>https://github.com/CtrlAltSpoods/munch-maze/pkgs/container/munch-maze</Registry>
+  <Repository>ghcr.io/ctrlaltspoods/munch-maze:latest</Repository>
+  <Registry>https://github.com/CtrlAltSpoods/Munch-Maze/pkgs/container/munch-maze</Registry>
   <Network>bridge</Network>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/CtrlAltSpoods/munch-maze/issues</Support>
-  <Project>https://github.com/CtrlAltSpoods/munch-maze</Project>
+  <Support>https://github.com/CtrlAltSpoods/Munch-Maze/issues</Support>
+  <Project>https://github.com/CtrlAltSpoods/Munch-Maze</Project>
   <Overview>Munch Maze is a self-hosted multiplayer maze-chase game that runs in any web browser. Everyone who enters the same seed shares one maze: players eat pellets together, dodge ghosts, and clear the level to unlock the next one, which is bigger. Levels are generated from the seed, starting at a small 15x11 maze with one ghost and growing up to 63x51 with six. There is no player limit, no accounts and no external services. Open the Web UI, pick a name, and share the invite link.[br][br]High scores are kept in the appdata folder.</Overview>
   <Category>GameServers: Other:</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/CtrlAltSpoods/munch-maze/main/unraid/munch-maze.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/CtrlAltSpoods/munch-maze/main/public/icon.png</Icon>
+  <TemplateURL>https://raw.githubusercontent.com/CtrlAltSpoods/Munch-Maze/main/unraid/munch-maze.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/CtrlAltSpoods/Munch-Maze/main/public/icon.png</Icon>
   <ExtraParams/>
   <PostArgs/>
   <CPUset/>
