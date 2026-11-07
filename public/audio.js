@@ -369,15 +369,41 @@ const FX = {
     lf.frequency.value = 23; lg.gain.value = 18; lf.connect(lg); lg.connect(o.frequency); ws.curve = distCurve(25);
     env(g, t, 0.05, 0.3, 1.2); o.connect(ws); ws.connect(g); g.connect(sfxBus); o.start(t); lf.start(t); o.stop(t + 1.3); lf.stop(t + 1.3);
   },
-  nukeSiren(t) { for (let k = 0; k < 2; k++) tone(sfxBus, { type: 'sawtooth', f: 380, f2: 900, t: t + k * 0.45, dur: 0.42, vol: 0.12, filter: [2500, 2500, 1] }); },
+  jetFlyby(t) {   // fighter screams across left to right
+    const dur = 3.4, pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null, out = ctx.createGain();
+    out.gain.value = 1; if (pan) { pan.pan.setValueAtTime(-0.9, t); pan.pan.linearRampToValueAtTime(0.9, t + dur); out.connect(pan); pan.connect(sfxBus); } else out.connect(sfxBus);
+    // roar: noise swelling to the pass at 1.6 s, then trailing off
+    const s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    s.buffer = noiseBuf; s.loop = true; f.type = 'bandpass'; f.Q.value = 0.7;
+    f.frequency.setValueAtTime(500, t); f.frequency.exponentialRampToValueAtTime(2600, t + 1.6); f.frequency.exponentialRampToValueAtTime(380, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.55, t + 1.55); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(out); s.start(t); s.stop(t + dur + 0.1);
+    // turbine whine with doppler drop at the pass
+    const o = ctx.createOscillator(), og = ctx.createGain();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(1100, t); o.frequency.setValueAtTime(1100, t + 1.45); o.frequency.exponentialRampToValueAtTime(520, t + 1.9);
+    og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(0.05, t + 1.5); og.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    const of = ctx.createBiquadFilter(); of.type = 'lowpass'; of.frequency.value = 2400;
+    o.connect(of); of.connect(og); og.connect(out); o.start(t); o.stop(t + dur + 0.1);
+    // low rumble you feel
+    tone(out, { type: 'sawtooth', f: 48, f2: 40, t: t + 0.6, dur: 2.2, vol: 0.18, a: 0.6, filter: [160, 120, 1] });
+    setTimeout(() => { try { out.disconnect(); if (pan) pan.disconnect(); } catch (e) { /* ignore */ } }, (dur + 1) * 1000);
+  },
+  bombRelease(t) { noise(sfxBus, { t, dur: 0.12, vol: 0.25, type: 'lowpass', freq: 1800 }); tone(sfxBus, { type: 'square', f: 140, f2: 70, t, dur: 0.1, vol: 0.12 }); },
+  bombWhistle(t) {   // falling whistle, 1.2 s
+    tone(sfxBus, { type: 'sine', f: 2100, f2: 520, t, dur: 1.2, vol: 0.09, a: 0.08 });
+    tone(sfxBus, { type: 'triangle', f: 1050, f2: 260, t, dur: 1.2, vol: 0.04, a: 0.08 });
+  },
   nukeBlast(t) {
-    kickTo(sfxBus, t, 1.0);
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.type = 'sine'; o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(18, t + 2.6);
-    env(g, t, 0.005, 1.0, 2.6); o.connect(g); g.connect(sfxBus); o.start(t); o.stop(t + 2.7);
+    kickTo(sfxBus, t, 1.0); kickTo(sfxBus, t + 0.09, 0.8);
+    const o = ctx.createOscillator(), g = ctx.createGain(), ws = ctx.createWaveShaper(); ws.curve = distCurve(6);
+    o.type = 'sine'; o.frequency.setValueAtTime(95, t); o.frequency.exponentialRampToValueAtTime(16, t + 4.2);
+    env(g, t, 0.005, 1.0, 4.2); o.connect(ws); ws.connect(g); g.connect(sfxBus); o.start(t); o.stop(t + 4.3);
+    // the roar: wideband crack that closes down into a long rumble
     const s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), gn = ctx.createGain();
-    s.buffer = noiseBuf; s.loop = true; f.type = 'lowpass'; f.frequency.setValueAtTime(5000, t); f.frequency.exponentialRampToValueAtTime(100, t + 2.6);
-    env(gn, t, 0.005, 0.6, 2.6); s.connect(f); f.connect(gn); gn.connect(sfxBus); s.start(t); s.stop(t + 2.7);
+    s.buffer = noiseBuf; s.loop = true; f.type = 'lowpass'; f.frequency.setValueAtTime(9000, t); f.frequency.exponentialRampToValueAtTime(70, t + 4.5);
+    env(gn, t, 0.003, 0.9, 4.5); s.connect(f); f.connect(gn); gn.connect(sfxBus); s.start(t); s.stop(t + 4.6);
+    // debris crackle
+    for (let i = 0; i < 26; i++) noise(sfxBus, { t: t + 0.3 + Math.random() * 2.6, dur: 0.03 + Math.random() * 0.08, vol: 0.06 + Math.random() * 0.12, type: 'bandpass', freq: 600 + Math.random() * 3000, q: 2 });
   },
   reverse(t) {   // tape rewind wobble
     const o = ctx.createOscillator(), g = ctx.createGain(), lf = ctx.createOscillator(), lg = ctx.createGain();
@@ -464,6 +490,35 @@ const FX = {
   respawn(t) { tone(sfxBus, { type: 'sine', f: 400, f2: 1200, t, dur: 0.18, vol: 0.22 }); },
   join(t) { [79, 84].forEach((m, i) => tone(sfxBus, { type: 'sine', f: hz(m), t: t + i * 0.07, dur: 0.18, vol: 0.12 })); }
 };
+/* Nuke alarm: a rising electronic "whoop" every second, warbling, until stopped. */
+let alarm = null;
+function alarmWhoop(t, out) {
+  const g = ctx.createGain(), bp = ctx.createBiquadFilter(), ws = ctx.createWaveShaper();
+  bp.type = 'bandpass'; bp.Q.value = 0.8; bp.frequency.setValueAtTime(700, t); bp.frequency.exponentialRampToValueAtTime(2400, t + 0.85);
+  ws.curve = distCurve(5);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.14, t + 0.05); g.gain.setValueAtTime(0.14, t + 0.78); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.93);
+  for (const [det, type] of [[-16, 'sawtooth'], [0, 'square'], [15, 'sawtooth']]) {
+    const o = ctx.createOscillator(); o.type = type; o.detune.value = det;
+    o.frequency.setValueAtTime(280, t); o.frequency.exponentialRampToValueAtTime(900, t + 0.88);
+    o.connect(ws); o.start(t); o.stop(t + 0.97);
+  }
+  const lfo = ctx.createOscillator(), lg = ctx.createGain();   // fast warble
+  lfo.frequency.value = 17; lg.gain.value = 0.045; lfo.connect(lg); lg.connect(g.gain); lfo.start(t); lfo.stop(t + 0.97);
+  ws.connect(bp); bp.connect(g); g.connect(out);
+}
+function nukeAlarm(on) {
+  if (!ready()) return;
+  if (on && !alarm) {
+    const out = ctx.createGain(); out.gain.value = 1; out.connect(sfxBus);
+    alarm = { out, next: ctx.currentTime + 0.05 };
+    const pump = () => { if (!alarm) return; while (alarm.next < ctx.currentTime + 0.35) { alarmWhoop(alarm.next, alarm.out); alarm.next += 1.0; } };
+    pump(); alarm.timer = setInterval(pump, 100);
+  } else if (!on && alarm) {
+    const a = alarm; alarm = null; clearInterval(a.timer);
+    a.out.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.05);
+    setTimeout(() => { try { a.out.disconnect(); } catch (e) { /* ignore */ } }, 1500);
+  }
+}
 function sfx(name, arg) {
   if (!ready() || ctx.state !== 'running' || sfxVol <= 0 || !FX[name]) return;
   try { FX[name](ctx.currentTime + 0.005, arg); } catch (e) { /* ignore */ }
@@ -479,5 +534,5 @@ document.addEventListener('visibilitychange', () => {
   else ctx.resume().then(() => { if (music.on) music.next = Math.max(music.next, ctx.currentTime + 0.05); }).catch(() => {});
 });
 
-window.MazeAudio = { fadeOutMusic, DROP_TIME, get playing() { return music.on; }, get mode() { return music.mode; }, /* for tests */ levels() { return tracks ? { normal: +tracks.normal.bus.gain.value.toFixed(3), boss: +tracks.boss.bus.gain.value.toFixed(3) } : null; }, get bpm() { return music.bpm; }, unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, beat, get supported() { return !!AC; } };
+window.MazeAudio = { nukeAlarm, get alarmOn() { return !!alarm; }, fadeOutMusic, DROP_TIME, get playing() { return music.on; }, get mode() { return music.mode; }, /* for tests */ levels() { return tracks ? { normal: +tracks.normal.bus.gain.value.toFixed(3), boss: +tracks.boss.bus.gain.value.toFixed(3) } : null; }, get bpm() { return music.bpm; }, unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, beat, get supported() { return !!AC; } };
 })();

@@ -67,7 +67,7 @@
      weight sets how often each comes up; the nuke is rare. */
   const POWERUPS = [
     { id: 'megaghost',  name: 'Mega Ghost',       good: false, dur: 15, weight: 10, desc: 'The ghosts grow to twice their size' },
-    { id: 'nuke',       name: 'Nuke',             good: true,  dur: 0,  weight: 3,  desc: 'Everything is blown away. Level passed!' },
+    { id: 'nuke',       name: 'Nuke',             good: true,  dur: 0,  weight: 3,  desc: 'Survive until the nuke arrives. Then the whole maze goes. Level passed!' },
     { id: 'reverse',    name: 'Reverse Controls', good: false, dur: 6, weight: 10, desc: 'Controls reversed for everyone for 6 s' },
     { id: 'laser',      name: 'Laser Beamz',      good: true,  dur: 10, weight: 10, desc: 'Everyone fires a laser for 10 s: it eats pellets and zaps ghosts' },
     { id: 'megapellet', name: 'Mega Pellet',      good: true,  dur: 10, weight: 10, desc: 'Every ghost turns blue for 10 s' },
@@ -79,7 +79,8 @@
   ];
   const POWERUP_FROM_LEVEL = 3;
   const PU_SPIN = 1.6, PU_HOLD = 2.0;   // slot spins, then shows the result this long before play resumes
-  const NUKE_TIME = 3.2;
+  const NUKE_WARN = 10;    // seconds everyone has to survive after the slot lands
+  const NUKE_TIME = 7.0;   // the jet, the drop and the blast (everything paused)
   function rollPowerup(rnd = Math.random) {
     const total = POWERUPS.reduce((n, p) => n + p.weight, 0);
     let r = rnd() * total;
@@ -205,6 +206,6 @@
     return o;
   }
 
-  return { DIRS, POWERUPS, POWERUP_FROM_LEVEL, PU_SPIN, PU_HOLD, NUKE_TIME, rollPowerup, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
+  return { DIRS, POWERUPS, POWERUP_FROM_LEVEL, PU_SPIN, PU_HOLD, NUKE_WARN, NUKE_TIME, rollPowerup, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
     genLevel, wrapX, canGo, entPos, getBit, setBit, toB64, fromB64 };
 });

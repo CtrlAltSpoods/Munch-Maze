@@ -54,7 +54,7 @@ function loadLevel(L, b64, ph = 0) {
   S.L = L; S.lvl = M.genLevel(S.seed, L);
   S.myBits = new Uint8Array(S.lvl.bytes);
   S.srvBits = b64 ? M.fromB64(b64, S.lvl.bytes) : new Uint8Array(S.lvl.bytes);
-  S.ge = []; S.gv = []; S.gTarget = []; S.ph = ph; S.fr = 0; S.crates = []; S.fx = []; S.grabbing = 0; S.nuked = false; S.pend.clear(); S.left = -1;
+  S.ge = []; S.gv = []; S.gTarget = []; S.ph = ph; S.fr = 0; S.crates = []; S.fx = []; S.grabbing = 0; S.nuked = false; S.nukeIn = 0; S.nukeSnap = null; MazeNuke.clear(); A.nukeAlarm && A.nukeAlarm(false); S.pend.clear(); S.left = -1;
   S.alive = true; respawn(); S.mazeKey = '';
   const n = M.ghostCount(L);
   endStreak(true);
@@ -134,7 +134,11 @@ function onMsg(m) {
       break;
     }
     case 'puon': powerupStarted(m.kind | 0, m.by | 0); break;
-    case 'nuke': nukeStarted(m.x, m.y); break;
+    case 'nukewarn':
+      S.nukeIn = +m.s || 0; if (A.nukeAlarm) A.nukeAlarm(true);
+      MazeFX.flash('#ff2a3a', 0.35);
+      break;
+    case 'nuke': nukeStarted(); break;
     case 'zap': { const x = +m.x || 0, y = +m.y || 0; A.sfx('ghost'); MazeFX.sparks(x, y, '#ff3d5e', 18, 6, 0.5); MazeFX.ring(x, y, '#ff6b8b', 1.6, 0.4); break; }
     case 'pts': MazeFX.text(+m.x || 0, (+m.y || 0) - 0.3, String(m.v | 0), '#41e0f0', 0.95); break;
     case 'error':
@@ -149,7 +153,7 @@ function onMsg(m) {
       if ((m.lv | 0) !== S.L) return;
       let heard = -1;
       for (const i of m.e || []) if (i >= 0 && i < S.lvl.W * S.lvl.H) {
-        if (!M.getBit(S.myBits, i) && !M.getBit(S.srvBits, i)) {   // eaten by someone else
+        if (m.ph !== 5 && !M.getBit(S.myBits, i) && !M.getBit(S.srvBits, i)) {   // eaten by someone else (not the nuke)
           MazeFX.sparks(i % S.lvl.W, (i / S.lvl.W) | 0, '#ffdcae', 4, 4, 0.3);
           if (S.lvl.p[i] === 1) heard = i;
         }
@@ -160,6 +164,11 @@ function onMsg(m) {
       const wasPh = S.ph;
       S.ph = m.ph | 0; S.fr = +m.fr || 0; S.ct = +m.ct || 0;
       if (S.ph === 1 && wasPh !== 1) levelClear();
+      if (S.ph === 0) {   // the nuke countdown (also catches players who join mid-countdown)
+        const nk = typeof m.nk === 'number' ? m.nk : 0;
+        if (nk > 0) { if (Math.abs(nk - S.nukeIn) > 0.25) S.nukeIn = nk; if (A.nukeAlarm && !A.alarmOn) A.nukeAlarm(true); }
+        else if (S.nukeIn > 0) { S.nukeIn = 0; if (A.nukeAlarm && !MazeNuke.active) A.nukeAlarm(false); }
+      }
       if (S.ph === 0) recordLevel(S.L);
       const hostWas = S.host; S.host = m.h | 0;
       if (S.ph !== wasPh || S.host !== hostWas) updateReady();
@@ -387,7 +396,7 @@ function leave() {
   if (S.ws) { const old = S.ws; S.ws = null; old.close(); }
   $('startOv').hidden = false; $('overOv').hidden = true; $('leaveBtn').hidden = true; $('app').classList.remove('ingame');
   $('seedIn').value = S.seed; setNet('Not in a maze yet.');
-  A.stopMusic(); A.setFright(false); MazeFX.clear(); endStreak(true); S.eatQ = []; S.ph = 0; S.host = 0; updateReady();
+  A.stopMusic(); A.setFright(false); MazeFX.clear(); MazeNuke.clear(); if (A.nukeAlarm) A.nukeAlarm(false); S.nukeIn = 0; endStreak(true); S.eatQ = []; S.ph = 0; S.host = 0; updateReady();
   $('visChip').hidden = true; S.key = ''; clearInvite();
   try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
   refreshLobby();
@@ -555,6 +564,8 @@ function render(dt) {
   ctx.save(); ctx.translate(ox, oy);
   // maze + beat pulse
   // a dark floor under the maze keeps the space scenery outside the play area
+  const gone = S.inGame && S.nuked;   // the nuke blew the maze away
+  if (!gone) {
   ctx.fillStyle = 'rgba(6,7,20,0.86)'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(T * 0.2, T * 0.2, mw - T * 0.4, mh - T * 0.4, T * 0.5) : ctx.rect(0, 0, mw, mh); ctx.fill();
   ctx.drawImage(S.mazeCv, -T, -T);
   const swell = S.inGame && S.ph === 1 ? 0.25 + 0.2 * Math.sin(S.time * 4) : 0;   // gentle glow on level clear, no flashing
@@ -562,6 +573,7 @@ function render(dt) {
   ctx.globalAlpha = 0.18 + beat * 0.18 + (S.streakTier >= 3 ? 0.12 : 0) + swell; ctx.drawImage(S.mazeGlow, -T, -T);
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
   drawBulbs(T);
+  }
   // pellets
   const x0 = Math.max(0, Math.floor(-ox / T) - 1), x1 = Math.min(lv.W - 1, Math.ceil((CW - ox) / T) + 1);
   const y0 = Math.max(0, Math.floor(-oy / T) - 1), y1 = Math.min(lv.H - 1, Math.ceil((CH - oy) / T) + 1);
@@ -570,7 +582,7 @@ function render(dt) {
   const pulse = .8 + .2 * Math.sin(S.time * 7);
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const i = y * lv.W + x, k = lv.p[i]; if (!k) continue;
-    if (S.inGame && eaten(i)) continue;
+    if (S.inGame && (gone || (S.nukeSnap ? !S.nukeSnap.has(i) : eaten(i)))) continue;
     const cx = (x + .5) * T, cy = (y + .5) * T;
     if (k === 1) {
       const tw = ((x * 7 + y * 13 + Math.floor(S.time * 3)) % 23 === 0) ? 1.6 : 1;   // a few twinkle at a time
@@ -584,7 +596,7 @@ function render(dt) {
   }
   if (S.inGame) {
     const fl = S.fr > 0 && S.fr < 2 && Math.floor(S.time * 5) % 2 === 0;
-    drawCrates(T);
+    if (!gone) drawCrates(T);
     const mega = effectOn('megaghost') ? 2 : 1;
     if (!S.nuked) for (const g of S.gv) {
       if (mega > 1 && g.st !== 3) { ctx.globalAlpha = 0.35; blit(glowSprite('#7a0020', T * 0.6, T * 0.9), (g.x + .5) * T, (g.y + .5) * T); ctx.globalAlpha = 1; }
@@ -642,6 +654,8 @@ function render(dt) {
   }
   const vg = ctx.createRadialGradient(CW / 2, CH / 2, Math.min(CW, CH) * 0.45, CW / 2, CH / 2, Math.max(CW, CH) * 0.75);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.45)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, CW, CH);
+  if (S.inGame && S.nukeIn > 0 && S.ph === 0) MazeNuke.drawWarning(ctx, CW, CH, S.nukeIn, S.time, false);
+  if (MazeNuke.active) MazeNuke.draw(ctx, CW, CH, { ox, oy, T });
   MazeFX.drawScreen(ctx, CW, CH);
 }
 
@@ -780,18 +794,21 @@ function powerupStarted(kind, by) {
     case 'phone': A.sfx('phone'); MazeFX.ring(lv.mid, lv.cy - 2, '#ffcc33', 3, 0.7); break;
   }
 }
-function nukeStarted(x, y) {
-  A.sfx('nukeSiren');
-  setTimeout(() => {
-    if (!S.lvl) return;
-    const lv = S.lvl, pel = [];
-    for (const i of lv.pList) if (!eaten(i)) pel.push([i % lv.W, (i / lv.W) | 0]);
-    for (let k = pel.length - 1; k > 0; k--) { const j = Math.random() * (k + 1) | 0; [pel[k], pel[j]] = [pel[j], pel[k]]; }
-    MazeFX.nuke(x, y, pel.slice(0, 500), S.gv.map(g => [g.x, g.y]));
-    A.sfx('nukeBlast');
-    for (const i of lv.pList) M.setBit(S.srvBits, i);   // everything is gone
-    S.nuked = true; S.crates = [];
-  }, 500);
+function nukeStarted() {
+  S.nukeIn = 0;
+  S.nukeSnap = S.lvl ? new Set(S.lvl.pList.filter(i => !eaten(i))) : null;   // pellets stay until impact
+  if (A.nukeAlarm) A.nukeAlarm(true);   // keeps wailing until the bomb lands
+  A.sfx('jetFlyby');
+  MazeNuke.start({
+    lv: S.lvl, mazeCv: S.mazeCv,
+    onRelease() { A.sfx('bombRelease'); A.sfx('bombWhistle'); },
+    onDetonate() {
+      if (A.nukeAlarm) A.nukeAlarm(false);
+      A.sfx('nukeBlast'); MazeFX.shake(34);
+      if (S.lvl) for (const i of S.lvl.pList) M.setBit(S.srvBits, i);   // everything is gone
+      S.nuked = true; S.crates = []; S.nukeSnap = null;
+    }
+  });
 }
 /* Autopilot: head for the nearest pellet, never through tiles a ghost is on or next to. */
 function autoDir() {
@@ -1195,7 +1212,8 @@ function frame() {
   const now = performance.now(), dt = Math.min(.05, (now - S.lastT) / 1000); S.lastT = now; S.time += dt;
   if (S.inGame && S.lvl) { playerStep(dt); updateGhostView(dt); }
   MazeFX.setRumble(S.inGame && effectOn('quake') ? 11 : S.inGame && S.streak >= 100 ? 1.6 : 0);   // earthquake, or a small steady shake from a 100 streak
-  MazeFX.update(dt);
+  MazeFX.update(dt); MazeNuke.update(dt);
+  if (S.nukeIn > 0 && S.ph === 0) S.nukeIn = Math.max(0, S.nukeIn - dt);
   animatePicker(S.time);
   render(dt); hud(dt, now);
   requestAnimationFrame(frame);

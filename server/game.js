@@ -39,7 +39,7 @@ class Game {
     this.fr = 0; this.fid = 0; this.ph = lobby ? 3 : 0; this.ct = 0; this.clock = 0; this.lastMode = -1;
     this.eatenSince = [];
     // loot crates: from level 3, 1 or 2 appear at random moments in the level
-    this.crates = []; this.effects = []; this.pending = null; this.crateSeq = this.crateSeq || 0;
+    this.crates = []; this.effects = []; this.pending = null; this.nukeIn = 0; this.crateSeq = this.crateSeq || 0;
     this.spawns = L >= M.POWERUP_FROM_LEVEL ? Array.from({ length: Math.random() < 0.5 ? 1 : 2 }, () => 6 + Math.random() * 30).sort((a, b) => a - b) : [];
     for (const p of this.players.values()) {
       p.x = this.lv.sx; p.y = this.lv.sy; p.combo = 0;
@@ -178,7 +178,7 @@ class Game {
     M.setBit(this.bits, i); this.left--; this.eatenSince.push(i);
     p.sc += lv.p[i] === 2 ? 50 : 10;
     if (lv.p[i] === 2) { this.frighten(); this.broadcast({ t: 'pw', id: p.id, i }); }   // everyone hears who powered up
-    if (this.left <= 0) { this.ph = 1; this.ct = 3.9; }   // long enough for the slot reels to finish
+    if (this.left <= 0) { this.ph = 1; this.ct = 3.9; this.nukeIn = 0; }   // long enough for the slot reels to finish
   }
 
   frighten(dur) {
@@ -388,14 +388,18 @@ class Game {
       this.ct -= dt;
       if (this.ct <= 0) {
         const pu = M.POWERUPS[this.pending.kind];
-        if (pu.id === 'nuke') {
-          this.ph = 5; this.ct = M.NUKE_TIME;
-          for (const i of this.lv.pList) M.setBit(this.bits, i);
-          this.left = 0;
-          this.broadcast({ t: 'nuke', x: this.pending.x, y: this.pending.y });
+        if (pu.id === 'nuke') {   // play on: everyone has to survive until it arrives
+          this.ph = 0; this.nukeIn = this.nukeIn > 0 ? Math.min(this.nukeIn, M.NUKE_WARN) : M.NUKE_WARN;
+          this.broadcast({ t: 'nukewarn', s: this.nukeIn, by: this.pending.by });
+          this.pending = null;
         }
         else { this.ph = 0; this.activate(this.pending); this.pending = null; }
       }
+    } else if (this.ph === 0 && this.nukeIn > 0 && (this.nukeIn -= dt) <= 0) {   // it's here: jet, drop, blast
+      this.nukeIn = 0; this.ph = 5; this.ct = M.NUKE_TIME;
+      for (const i of this.lv.pList) M.setBit(this.bits, i);
+      this.left = 0; this.crates = [];
+      this.broadcast({ t: 'nuke' });
     } else if (this.ph === 5) {      // nuke going off; still paused
       this.ct -= dt;
       if (this.ct <= 0) {
@@ -427,6 +431,7 @@ class Game {
       t: 's', lv: this.L, ph: this.ph, ct: r2(this.ct), fr: r2(this.fr), fid: this.fid, h: this.hostId,
       g: this.ghosts.map(g => { const [x, y] = M.entPos(g); return [r2(x), r2(y), g.d, g.st, g.ep, g.phone ? 1 : 0]; }),
       fx: this.effects.map(e => [e.kind, r2(e.rem), e.by]),
+      nk: this.nukeIn > 0 ? r2(this.nukeIn) : undefined,
       c: this.crates.map(c => [c.id, c.x, c.y]),
       p: [...this.players.values()].map(p => [p.id, r2(p.x), r2(p.y), p.f, p.al ? 1 : 0, p.sc, p.li, p.over ? 1 : 0]),
       e: this.eatenSince,

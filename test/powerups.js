@@ -6,7 +6,7 @@ const M = require('../shared/maze.js');
 const PORT = 20000 + (Math.random() * 1000 | 0), DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'munch-pu-'));
 let srv;
 const fail = msg => { console.error('FAIL:', msg); try { srv.kill(); } catch (e) { /* ignore */ } process.exit(1); };
-setTimeout(() => fail('timed out'), 150000);
+setTimeout(() => fail('timed out'), 200000);
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const idx = id => M.POWERUPS.findIndex(p => p.id === id);
 
@@ -112,10 +112,20 @@ async function trigger(r, id) {
   // nuke: stays paused, then the level is passed
   const nk = await room('pu-nuke', 4);
   await trigger(nk, 'nuke');
-  await until(nk.b, m => m.t === 'nuke', 6000);
-  if (lastS(nk.b).ph !== 5 && lastS(nk.b).ph !== 4) fail('nuke keeps the game paused');
-  await until(nk.b, m => m.t === 's' && m.ph === 1, 6000);
-  console.log('ok  Nuke: stays paused through the blast, then the level is passed');
+  const warn = await until(nk.b, m => m.t === 'nukewarn', 6000);
+  await wait(300);
+  const sw = lastS(nk.b);
+  if (sw.ph !== 0 || !(sw.nk > M.NUKE_WARN - 1 && sw.nk <= M.NUKE_WARN)) fail('after the slot, play resumes with a ' + M.NUKE_WARN + ' s survival countdown');
+  if (warn.s !== M.NUKE_WARN) fail('nukewarn should carry the countdown');
+  const t0n = Date.now();
+  await until(nk.b, m => m.t === 'nuke', (M.NUKE_WARN + 3) * 1000);
+  const waited = (Date.now() - t0n) / 1000 + 0.3;
+  if (waited < M.NUKE_WARN - 1) fail('the nuke arrived early (' + waited.toFixed(1) + ' s)');
+  await wait(200);
+  if (lastS(nk.b).ph !== 5) fail('the jet and blast keep the game paused');
+  if (lastS(nk.b).nk) fail('countdown cleared once the nuke arrives');
+  await until(nk.b, m => m.t === 's' && m.ph === 1, (M.NUKE_TIME + 2) * 1000);
+  console.log('ok  Nuke: ' + M.NUKE_WARN + ' s survival countdown with play running, then a paused ' + M.NUKE_TIME + ' s strike, then the level is passed');
 
   // TEST_MODE: the host picks an effect; it goes through the paused slot with no randomness
   const tm = await room('pu-testmode', 3);

@@ -19,7 +19,6 @@ let flashA = 0, flashCol = '#ffffff';
 let banner = null;    // { text, sub, color, t, dur }
 let reel = null;      // slot-reel reveal state
 let pslot = null;     // power-up slot
-let nukeFx = null;    // nuclear blast in tile space
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = a => a[Math.random() * a.length | 0];
@@ -189,44 +188,6 @@ function drawPowerSlot(ctx, W, H) {
   ctx.restore();
 }
 
-/* ---------- nuke ---------- */
-function nuke(x, y, pelletTiles, ghostTiles) {
-  nukeFx = { x, y, t: 0 };
-  flash('#ffffff', 0.9); shake(18);
-  for (const [px, py] of pelletTiles) {   // pellets blown outwards
-    if (!room()) break;
-    const dx = px - x, dy = py - y, d = Math.hypot(dx, dy) || 1, sp = 6 + Math.random() * 10;
-    world.push({ k: 'spark', x: px, y: py, vx: dx / d * sp, vy: dy / d * sp, life: 0, max: rnd(0.6, 1.3), size: rnd(0.06, 0.12), color: '#ffdcae', drag: 1.2 });
-  }
-  for (const [gx, gy] of ghostTiles) { sparks(gx, gy, '#ff7a1a', 30, 12, 0.9); ring(gx, gy, '#ffcc33', 3, 0.6); }
-}
-function drawNuke(ctx, T) {
-  const n = nukeFx, t = n.t, cx = (n.x + 0.5) * T, cy = (n.y + 0.5) * T;
-  ctx.save(); ctx.globalCompositeOperation = 'lighter';
-  // fireball
-  const fr = Math.min(1, t / 0.6), R = T * (2 + 28 * (1 - Math.pow(1 - fr, 3))), fa = Math.max(0, 1 - Math.max(0, t - 0.4) / 2.2);
-  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
-  g.addColorStop(0, `rgba(255,255,230,${fa})`); g.addColorStop(0.25, `rgba(255,210,90,${fa * 0.9})`); g.addColorStop(0.6, `rgba(255,90,30,${fa * 0.6})`); g.addColorStop(1, 'rgba(120,20,10,0)');
-  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
-  // shockwaves
-  for (const delay of [0, 0.25, 0.5]) { const k = (t - delay) / 1.2; if (k < 0 || k > 1) continue;
-    ctx.strokeStyle = `rgba(255,240,200,${(1 - k) * 0.8})`; ctx.lineWidth = T * 0.4 * (1 - k); ctx.beginPath(); ctx.arc(cx, cy, T * 40 * k, 0, Math.PI * 2); ctx.stroke(); }
-  ctx.globalCompositeOperation = 'source-over';
-  // mushroom cloud: stem and a rolling cap rising from the blast
-  if (t > 0.3) {
-    const k = Math.min(1, (t - 0.3) / 2), rise = T * 10 * (1 - Math.pow(1 - k, 2)), alpha = Math.min(1, (t - 0.3) * 3) * Math.max(0, 1 - Math.max(0, t - 2.4) / 0.8);
-    ctx.globalAlpha = alpha;
-    for (let i = 0; i < 7; i++) { const yy = cy - rise * (i / 7), w = T * (1.1 + Math.sin(i + t * 3) * 0.2);
-      ctx.fillStyle = i < 2 ? '#ff9a3c' : '#a8603a'; ctx.beginPath(); ctx.arc(cx + Math.sin(i * 2 + t) * T * 0.2, yy, w, 0, Math.PI * 2); ctx.fill(); }
-    for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2 + t * 0.8, rr = T * (3.5 + k * 2);
-      const px = cx + Math.cos(a) * rr, py = cy - rise + Math.sin(a) * rr * 0.45;
-      const pg = ctx.createRadialGradient(px, py - T * 0.5, 0, px, py, T * 2.2); pg.addColorStop(0, '#ffd0a0'); pg.addColorStop(0.5, '#e07040'); pg.addColorStop(1, '#5a2a20');
-      ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(px, py, T * (1.8 + Math.sin(i + t * 4) * 0.25), 0, Math.PI * 2); ctx.fill(); }
-    ctx.globalAlpha = 1;
-  }
-  ctx.restore();
-}
-
 /* ---------- update ---------- */
 function update(dt) {
   for (let i = world.length - 1; i >= 0; i--) {
@@ -254,7 +215,6 @@ function update(dt) {
     if (!pslot.landed && pslot.t >= pslot.spin) { pslot.landed = true; if (pslot.onLand) pslot.onLand(); }
     if (pslot.t > pslot.spin + pslot.hold) pslot = null;
   }
-  if (nukeFx) { nukeFx.t += dt; if (nukeFx.t > 3.4) nukeFx = null; }
   if (reel) {
     reel.t += dt;
     reel.stopAt.forEach((at, i) => { if (!reel.stopped[i] && reel.t >= at) { reel.stopped[i] = true; if (reel.onStop) reel.onStop(i); } });
@@ -270,7 +230,6 @@ function drawCoin(ctx, x, y, r, spin) {
   if (w > r * 0.45) { ctx.fillStyle = GOLD_HI; ctx.beginPath(); ctx.ellipse(x - w * 0.25, y - r * 0.3, w * 0.25, r * 0.22, 0, 0, Math.PI * 2); ctx.fill(); }
 }
 function drawWorld(ctx, T) {
-  if (nukeFx) drawNuke(ctx, T);
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   for (const p of world) {
@@ -392,10 +351,10 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
 function setRumble(a) { rumble = Math.max(0, a); }
-function clear() { rumble = 0; pslot = null; nukeFx = null; world.length = 0; texts.length = 0; screen.length = 0; banner = null; reel = null; shakeAmt = 0; flashA = 0; }
+function clear() { rumble = 0; pslot = null; world.length = 0; texts.length = 0; screen.length = 0; banner = null; reel = null; shakeAmt = 0; flashA = 0; }
 
 window.MazeFX = {
-  icon, powerSlot, nuke, get slotActive() { return !!pslot; }, get nukeActive() { return !!nukeFx; },
+  icon, powerSlot, get slotActive() { return !!pslot; },
   sparks, coins, ring, text, shake, setRumble, flash, bigText, confetti, reels, update, drawWorld, drawScreen, clear,
   get shakeX() { return shakeX; }, get shakeY() { return shakeY; }, get reelActive() { return !!reel; }, reduced
 };
