@@ -73,10 +73,17 @@
           <div class="field" id="lnameField">
             <label class="k" for="lnameIn">Lobby name (optional)</label>
             <input id="lnameIn" maxlength="32" placeholder="Shown in “Mazes running now”">
+            <label class="k" for="setpwIn">Password (optional)</label>
+            <input id="setpwIn" type="password" maxlength="64" autocomplete="new-password" placeholder="Leave blank for an open lobby">
+            <p class="hint">With a password, your lobby is still listed, but people need the password to join.</p>
           </div>
           <div class="invite" id="inviteNote" hidden>
             <p>You’re joining a private maze from an invite link.</p>
             <button class="linkbtn" id="ownBtn" type="button">Start my own maze instead</button>
+          </div>
+          <div class="field pwjoin" id="joinPwField" hidden>
+            <label class="k" for="joinPwIn" id="joinPwLabel">Lobby password</label>
+            <input id="joinPwIn" type="password" maxlength="64" autocomplete="off">
           </div>
           <div class="err" id="joinErr" hidden></div>
           <button class="cta" id="playBtn" type="submit">Enter the maze</button>
@@ -99,7 +106,7 @@
         <div class="card lobby" role="dialog" aria-labelledby="lobbyTitle">
           <div class="lobby-head">
             <h1 id="lobbyTitle">Lobby</h1>
-            <span class="chip" id="lobbyVis">Public</span>
+            <span class="lobby-chips"><span class="chip" id="lobbyVis">Public</span><span class="chip private" id="lobbyLock" hidden>Password</span></span>
           </div>
           <p id="lobbyMaze">Level 1 · 15 × 11 maze · 1 ghost</p>
           <div class="field" id="lobbyLevelField" hidden>

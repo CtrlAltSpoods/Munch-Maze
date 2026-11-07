@@ -166,6 +166,29 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   if (bogus.last.welcome.vis !== 'public') fail('a malformed key must not create or join a private maze');
   console.log('ok  malformed keys are ignored');
 
+  // password-protected public lobby
+  const tryJoin = extra => new Promise(res => {
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
+    ws.onopen = () => ws.send(JSON.stringify(Object.assign({ t: 'join', nm: 'pw-test', seed: 'locked-room' }, extra)));
+    ws.onmessage = e => { const m = JSON.parse(e.data); if (m.t === 'welcome' || m.t === 'error') { res(m); ws.close(); } };
+  });
+  const owner = await client('owner', { seed: 'locked-room', setpw: 'hunter2', lname: 'Secret Club', tok: 'owner' });
+  if (!owner.last.welcome.locked) fail('owner should see the lobby is password protected');
+  const listedPw = (await (await fetch(base + '/api/games')).json()).find(g => g.name === 'Secret Club');
+  if (!listedPw || !listedPw.locked) fail('password lobbies should be listed and marked locked');
+  if ((await tryJoin({})).code !== 'pw_needed') fail('joining without a password should be refused');
+  if ((await tryJoin({ pw: 'nope' })).code !== 'pw_wrong') fail('a wrong password should be refused');
+  const okJoin = await tryJoin({ pw: 'hunter2' });
+  if (okJoin.t !== 'welcome') fail('the right password should let you in');
+  if ((await tryJoin({ room: listedPw.id, pw: 'hunter2' })).t !== 'welcome') fail('joining from the list with the password should work');
+  const setpwIgnored = await tryJoin({ pw: 'hunter2', setpw: 'takeover' });
+  if (setpwIgnored.t !== 'welcome' || (await tryJoin({ pw: 'takeover' })).code !== 'pw_wrong') fail('a joiner must not be able to change the password');
+  console.log('ok  password lobby: listed as locked, wrong/missing refused, right one joins');
+  let limited = false;
+  for (let i = 0; i < 9 && !limited; i++) limited = (await tryJoin({ pw: 'guess' + i })).code === 'pw_limit';
+  if (!limited) fail('repeated wrong passwords should be rate limited');
+  console.log('ok  repeated wrong guesses are locked out');
+
   console.log('\nAll smoke tests passed.');
   cleanup(0);
 })().catch(e => fail(e.message));

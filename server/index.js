@@ -112,7 +112,24 @@ const cleanTitle = s => stripCtl(s).slice(0, 32);
 // Public mazes are listed by name with an opaque id, so the list never shows seeds.
 const byPublicId = new Map();   // pubId -> Game
 
-function onSocket(ws) {
+/* ---------- lobby passwords ----------
+   Stored only as a salted scrypt hash. Wrong guesses are limited per address. */
+function hashPassword(pw) {
+  const salt = crypto.randomBytes(16);
+  return { salt, hash: crypto.scryptSync(pw, salt, 32) };
+}
+function checkPassword(stored, pw) {
+  if (typeof pw !== 'string' || !pw) return false;
+  const h = crypto.scryptSync(pw.slice(0, 64), stored.salt, 32);
+  return crypto.timingSafeEqual(h, stored.hash);
+}
+const PW_MAX_FAILS = 8, PW_WINDOW = 10 * 60 * 1000;
+const pwFails = new Map();   // ip -> { n, since }
+function pwBlocked(ip) { const f = pwFails.get(ip); if (!f) return false; if (Date.now() - f.since > PW_WINDOW) { pwFails.delete(ip); return false; } return f.n >= PW_MAX_FAILS; }
+function pwFailed(ip) { const f = pwFails.get(ip); if (!f || Date.now() - f.since > PW_WINDOW) pwFails.set(ip, { n: 1, since: Date.now() }); else f.n++; }
+setInterval(() => { const now = Date.now(); for (const [ip, f] of pwFails) if (now - f.since > PW_WINDOW) pwFails.delete(ip); }, 60000).unref();
+
+function onSocket(ws, ip = '?') {
   let p = null, game = null, budget = 60, lastRefill = Date.now();
   ws.on('message', text => {
     const now = Date.now();
@@ -132,7 +149,17 @@ function onSocket(ws) {
       const g = getGame(seed, key);
       if (!g) { ws.send(JSON.stringify({ t: 'error', msg: 'This server is at its maze limit. Try a seed that is already running.' })); return; }
       if (CFG.maxPlayersPerMaze && g.players.size >= CFG.maxPlayersPerMaze) { ws.send(JSON.stringify({ t: 'error', msg: 'That maze is full. Try another seed.' })); return; }
-      if (!g.players.size && !g.title && !g.isPrivate) g.title = cleanTitle(m.lname) || cleanName(m.nm) + '’s maze';   // whoever opens a public maze names it
+      const opening = !g.players.size && !g.title && !g.isPrivate;   // this player is opening a new public maze
+      if (g.pass && !opening) {
+        const err = code => { ws.send(JSON.stringify({ t: 'error', code, msg: code === 'pw_limit' ? 'Too many wrong passwords. Try again in a few minutes.' : m.pw ? 'That password isn’t right.' : 'This lobby needs a password.' })); };
+        if (pwBlocked(ip)) return err('pw_limit');
+        if (!checkPassword(g.pass, m.pw)) { if (m.pw) pwFailed(ip); return err(m.pw ? 'pw_wrong' : 'pw_needed'); }
+      }
+      if (opening) {
+        g.title = cleanTitle(m.lname) || cleanName(m.nm) + '’s maze';   // whoever opens a public maze names it
+        const pw = typeof m.setpw === 'string' ? m.setpw.slice(0, 64) : '';
+        g.pass = pw ? hashPassword(pw) : null;
+      }
       const look = M.pickModel(m.mdl, m.ci);   // validated character + colour
       p = { id: nextId++, ws, nm: cleanName(m.nm), col: look.col, mdl: look.mdl, ci: look.ci, x: 0, y: 0, f: 2, al: true, sc: 0, li: 3, over: false, spawnAt: Date.now(), fid: -1, combo: 0 };
       game = g;
@@ -182,7 +209,7 @@ const server = http.createServer((req, res) => {
   if (p === '/api/info') return json(res, { name: CFG.serverName, lobby: CFG.showLobby, defaultSeed: CFG.defaultSeed, maxPlayersPerMaze: CFG.maxPlayersPerMaze });
   if (p === '/api/games') {
     if (!CFG.showLobby) return json(res, []);
-    const list = [...games.values()].filter(g => g.players.size && !g.isPrivate).map(g => ({ id: g.pubId, name: g.title || 'Unnamed maze', players: g.players.size, level: g.L, lobby: g.ph === 3 }))
+    const list = [...games.values()].filter(g => g.players.size && !g.isPrivate).map(g => ({ id: g.pubId, name: g.title || 'Unnamed maze', players: g.players.size, level: g.L, lobby: g.ph === 3, locked: !!g.pass }))
       .sort((a, b) => b.players - a.players).slice(0, 20);
     return json(res, list);
   }
@@ -240,7 +267,7 @@ server.on('upgrade', (req, sock) => {
       const n = (perIp.get(ip) || 1) - 1;
       if (n > 0) perIp.set(ip, n); else perIp.delete(ip);
     });
-    onSocket(ws);
+    onSocket(ws, ip);
   });
 });
 

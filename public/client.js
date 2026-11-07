@@ -68,7 +68,7 @@ function connect() {
   url.hash = ''; url.search = '';
   const ws = new WebSocket(url.href);
   S.ws = ws;
-  ws.onopen = () => send({ t: 'join', nm: S.name, seed: S.seed, mdl: S.model, ci: S.ci, tok: token, vis: S.vis, key: S.key || S.inviteKey, room: S.room || undefined, lname: S.lname });
+  ws.onopen = () => send({ t: 'join', nm: S.name, seed: S.seed, mdl: S.model, ci: S.ci, tok: token, vis: S.vis, key: S.key || S.inviteKey, room: S.room || undefined, lname: S.lname, setpw: S.setpw || undefined, pw: S.pw || undefined });
   ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } onMsg(m); };
   ws.onclose = () => {
     if (S.ws !== ws) return;
@@ -87,7 +87,9 @@ function onMsg(m) {
       $('startOv').hidden = true; $('overOv').hidden = !S.over; $('leaveBtn').hidden = false; $('app').classList.add('ingame');
       $('playBtn').disabled = false; $('playBtn').textContent = 'Enter the maze';
       S.key = typeof m.key === 'string' ? m.key : ''; S.vis = m.vis === 'private' ? 'private' : 'public';
-      S.title = typeof m.title === 'string' ? m.title : ''; S.room = '';
+      S.title = typeof m.title === 'string' ? m.title : ''; S.locked = !!m.locked; S.room = '';
+      S.setpw = '';   // only sent when opening the lobby
+      $('joinPwField').hidden = true; S.pwRoom = '';
       S.host = m.host | 0; S.ph = m.ph | 0; updateReady();
       $('seedBtn').textContent = S.seed;
       $('seedBtn').title = S.vis === 'private' ? 'Copy invite link (only people with it can join)' : 'Copy link to this maze';
@@ -109,6 +111,7 @@ function onMsg(m) {
     case 'error':
       S.wantGame = false;
       $('joinErr').textContent = String(m.msg || 'Could not join.'); $('joinErr').hidden = false;
+      if (m.code === 'pw_needed' || m.code === 'pw_wrong') askPassword(S.room, '');
       $('playBtn').disabled = false; $('playBtn').textContent = 'Enter the maze';
       if (S.ws) S.ws.close();
       break;
@@ -236,7 +239,12 @@ async function refreshLobby() {
       const b = document.createElement('button'); b.type = 'button';
       const a = document.createElement('span'); a.className = 's'; a.textContent = g.name;
       const c = document.createElement('span'); c.className = 'c'; c.textContent = g.players + (g.players === 1 ? ' player' : ' players') + ' · ' + (g.lobby ? 'in lobby' : 'L' + g.level);
-      b.append(a, c); b.addEventListener('click', () => { clearInvite(); $('visIn').value = 'public'; updateVisHint(); join(g.id); }); box.appendChild(b);
+      if (g.locked) { const lk = document.createElement('span'); lk.className = 'chip private'; lk.textContent = 'Password'; a.append(' ', lk); b.title = 'Password protected'; }
+      b.append(a, c); b.addEventListener('click', () => {
+        clearInvite(); $('visIn').value = 'public'; updateVisHint();
+        if (g.locked && ($('joinPwField').hidden || S.pwRoom !== g.id)) { $('joinErr').hidden = true; askPassword(g.id, g.name); return; }
+        join(g.id);
+      }); box.appendChild(b);
     }
   } catch (e) { /* server busy; try again later */ }
   try {
@@ -259,8 +267,16 @@ getJSON('api/info').then(info => {
 }).catch(() => {});
 refreshLobby(); setInterval(refreshLobby, 3000);
 
+function askPassword(room, name) {
+  S.pwRoom = room || '';   // remembered so pressing Enter the maze retries the same lobby
+  $('joinPwLabel').textContent = name ? 'Password for ' + name : 'Lobby password';
+  $('joinPwField').hidden = false; $('joinPwIn').value = ''; updateVisHint(); $('joinPwIn').focus();
+}
 function join(roomId) {
+  if (typeof roomId !== 'string' && !$('joinPwField').hidden && S.pwRoom) roomId = S.pwRoom;   // retrying a locked lobby
   S.room = typeof roomId === 'string' ? roomId : '';   // set when joining from the list
+  S.pw = $('joinPwField').hidden ? '' : $('joinPwIn').value.slice(0, 64);
+  S.setpw = $('visIn').value === 'public' && !S.inviteKey ? $('setpwIn').value.slice(0, 64) : '';
   S.lname = $('lnameIn').value.trim().slice(0, 32); store.set('mm.lname', S.lname);
   S.name = ($('nameIn').value.trim() || 'Player').slice(0, 16);
   store.set('mm.name', S.name); store.set('mm.model', String(S.model)); store.set('mm.ci', String(S.ci));
@@ -589,6 +605,7 @@ cv.addEventListener('touchmove', e => {
 }, { passive: false });
 document.querySelectorAll('#dpad button').forEach(b => b.addEventListener('pointerdown', e => { e.preventDefault(); if (S.inGame) S.me.want = +b.dataset.d; }));
 $('startForm').addEventListener('submit', e => { e.preventDefault(); join(); });
+$('seedIn').addEventListener('input', () => { if (!$('joinPwField').hidden && S.pwRoom) { $('joinPwField').hidden = true; S.pwRoom = ''; $('joinErr').hidden = true; updateVisHint(); } });
 $('leaveBtn').addEventListener('click', leave);
 $('againBtn').addEventListener('click', () => { send({ t: 'again' }); S.over = false; S.alive = true; respawn(); $('overOv').hidden = true; });
 $('seedBtn').addEventListener('click', () => {
@@ -678,6 +695,7 @@ function updateLobby() {
   $('lobbyTitle').textContent = 'Lobby · ' + (S.vis === 'private' ? 'Private maze' : (S.title || S.seed));
   $('lobbyVis').textContent = S.vis === 'private' ? 'Invite only' : 'Public';
   $('lobbyVis').classList.toggle('private', S.vis === 'private');
+  $('lobbyLock').hidden = !S.locked;
   $('lobbyMaze').textContent = 'Level ' + S.L + ' · ' + lv.W + ' × ' + lv.H + ' maze · ' + g + (g > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(S.L) + (S.vis === 'private' ? ' · only people with the link can join' : ' · listed for everyone on this server');
   if ($('lobbyLink').value !== inviteLink()) $('lobbyLink').value = inviteLink();
   $('lobbyStart').hidden = !isHost; $('lobbyHint').hidden = !isHost; $('lobbyWait').hidden = isHost;
@@ -820,7 +838,7 @@ function clearInvite() {
   $('inviteNote').hidden = true; $('visField').hidden = false; $('seedIn').readOnly = false; updateVisHint();
 }
 function updateVisHint() {
-  $('lnameField').hidden = $('visIn').value === 'private' || !!S.inviteKey;
+  $('lnameField').hidden = $('visIn').value === 'private' || !!S.inviteKey || !!S.pwRoom;   // no create options while joining someone's locked lobby
   $('visHint').textContent = $('visIn').value === 'private'
     ? 'Your maze stays off the list. You’ll get a link to share; only people with it can join.'
     : 'Anyone on this server can see your maze and join it.';

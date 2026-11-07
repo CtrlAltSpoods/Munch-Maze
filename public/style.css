@@ -208,3 +208,10 @@ input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer;margin:0}
 @keyframes spinHue{to{filter:hue-rotate(360deg)}}
 #unlockHint{margin-top:2px}
 @media (prefers-reduced-motion:reduce){ .swatch.premium,.model.nope,.swatch.nope{animation:none!important} }
+
+/* lobby passwords */
+#lnameField input + .k{margin-top:8px}
+.lobby-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
+.games .s .chip{font-size:9px;padding:1px 6px;vertical-align:middle}
+.pwjoin{background:var(--ink-2);border:1px solid var(--accent);border-radius:8px;padding:10px 12px}
+.pwjoin input{background:var(--panel)}

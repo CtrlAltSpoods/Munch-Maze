@@ -56,7 +56,7 @@ class Game {
     this.players.set(p.id, p);
     this.emptySince = 0;
     this.send(p, {
-      t: 'welcome', id: p.id, seed: this.seed, key: this.key, vis: this.isPrivate ? 'private' : 'public', title: this.title || '',
+      t: 'welcome', id: p.id, seed: this.seed, key: this.key, vis: this.isPrivate ? 'private' : 'public', title: this.title || '', locked: !!this.pass,
       lv: this.L, b: M.toB64(this.bits),
       roster: [...this.players.values()].map(q => [q.id, q.nm, q.col, q.mdl, q.ci]),
       sc: p.sc, li: p.li, over: p.over, host: this.hostId, ph: this.ph
