@@ -80,8 +80,8 @@ function onMsg(m) {
       break;
     }
     case 'level': S.ph = 0; updateReady(); loadLevel(m.lv | 0, ''); A.startMusic(S.L); A.setFright(false); if (S.L > 1 && !S.over) A.sfx('life'); break;
-    case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col) }); A.sfx('join'); break;
-    case 'leave': S.roster.delete(m.id); S.ov.delete(m.id); break;
+    case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col) }); A.sfx('join'); updateLobby(); break;
+    case 'leave': S.roster.delete(m.id); S.ov.delete(m.id); updateLobby(); break;
     case 'pts': MazeFX.text(+m.x || 0, (+m.y || 0) - 0.3, String(m.v | 0), '#41e0f0', 0.95); break;
     case 'error':
       S.wantGame = false;
@@ -211,7 +211,7 @@ async function refreshLobby() {
     for (const g of list) {
       const b = document.createElement('button'); b.type = 'button';
       const a = document.createElement('span'); a.className = 's'; a.textContent = g.seed;
-      const c = document.createElement('span'); c.className = 'c'; c.textContent = g.players + (g.players === 1 ? ' player' : ' players') + ' · L' + g.level;
+      const c = document.createElement('span'); c.className = 'c'; c.textContent = g.players + (g.players === 1 ? ' player' : ' players') + ' · ' + (g.lobby ? 'in lobby' : 'L' + g.level);
       b.append(a, c); b.addEventListener('click', () => { clearInvite(); $('seedIn').value = g.seed; $('visIn').value = 'public'; updateVisHint(); join(); }); box.appendChild(b);
     }
   } catch (e) { /* server busy; try again later */ }
@@ -283,25 +283,22 @@ function hexA(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >
 function hsl(h, s, l) { return `hsl(${h} ${s}% ${l}%)`; }
 function blit(sp, x, y, scale = 1) { const w = sp.width * scale; ctx.drawImage(sp, x - w / 2, y - w / 2, w, w); }
 
-/* Background: slow drifting starfield tinted by the level colour. */
-let stars = [];
-function makeStars() {
-  const n = Math.round(Math.min(220, CW * CH / 4500));
-  stars = Array.from({ length: n }, () => ({ x: Math.random() * CW, y: Math.random() * CH, z: Math.random(), tw: Math.random() * 6 }));
-}
+/* Background: flying through space (see space.js). Warp speed follows the game:
+   a slow cruise in the lobby, faster as levels speed up, and a hyperspace burst between levels. */
+function makeStars() { /* space.js sizes itself */ }
 new ResizeObserver(resize).observe(stage); resize();
+function warpTarget() {
+  if (!S.inGame) return 0.07;
+  if (S.ph === 3) return 0.06;                 // lobby: cruising
+  if (S.ph === 1) return 0.55;                 // level clear: jump to hyperspace
+  if (S.ph === 2) return 0.1;
+  return 0.12 * Math.min(2.5, Math.pow(M.speedMult(S.L), 0.8));
+}
 function drawBackground(dt, hue, beat) {
   const g = ctx.createRadialGradient(CW / 2, CH / 2, 0, CW / 2, CH / 2, Math.max(CW, CH) * 0.75);
-  g.addColorStop(0, `hsl(${hue} 55% ${10 + beat * 3}%)`); g.addColorStop(0.55, '#0b0d22'); g.addColorStop(1, '#05060f');
+  g.addColorStop(0, `hsl(${hue} 50% ${9 + beat * 2}%)`); g.addColorStop(0.55, '#090b1e'); g.addColorStop(1, '#04050d');
   ctx.fillStyle = g; ctx.fillRect(0, 0, CW, CH);
-  const drift = MazeFX.reduced() ? 0 : dt;
-  ctx.fillStyle = '#ffffff';
-  for (const s of stars) {
-    s.y += drift * (6 + s.z * 22); if (s.y > CH) { s.y = -2; s.x = Math.random() * CW; }
-    ctx.globalAlpha = 0.15 + s.z * 0.5 * (0.6 + 0.4 * Math.sin(S.time * 2 + s.tw));
-    const r = 0.5 + s.z * 1.3; ctx.fillRect(s.x, s.y, r, r);
-  }
-  ctx.globalAlpha = 1;
+  if (window.MazeSpace) MazeSpace.draw(ctx, dt, CW, CH, { warp: warpTarget(), hue, reduced: MazeFX.reduced() });
 }
 
 /* Maze: neon tubes with a baked glow, plus a separate glow layer that pulses with the beat. */
@@ -333,8 +330,8 @@ function buildMaze(lv, T, col, hot) {
 function ensureMaze(T) {
   const lv = S.lvl, key = S.seed + '|' + lv.L + '|' + T; if (S.mazeKey === key) return;
   S.mazeKey = key;
-  const m = buildMaze(lv, T, hsl(lv.hue, 85, 62), hsl(lv.hue, 100, 88)), f = buildMaze(lv, T, '#f4f6ff', '#ffffff');
-  S.mazeCv = m.c; S.mazeGlow = m.gl; S.mazeFlash = f.c;
+  const m = buildMaze(lv, T, hsl(lv.hue, 85, 62), hsl(lv.hue, 100, 88));
+  S.mazeCv = m.c; S.mazeGlow = m.gl;
   // marquee bulbs sit on the outer wall
   S.bulbs = [];
   for (let x = 0; x < lv.W; x++) S.bulbs.push([x, 0]);
@@ -343,19 +340,24 @@ function ensureMaze(T) {
   for (let y = lv.H - 2; y > 0; y--) S.bulbs.push([0, y]);
   S.bulbs = S.bulbs.filter(([x, y]) => lv.t[y * lv.W + x] === 1);
 }
-function drawBulbs(T, beat) {
-  const n = S.bulbs.length, clear = S.ph !== 0, hot = S.streakTier >= 3;
-  const speed = clear ? 0 : hot ? 22 : 9, phase = Math.floor(S.time * speed), alt = Math.floor(S.time * 2.5) % 2;
-  const reduced = MazeFX.reduced();
+function drawBulbs(T) {
+  // Marquee bulbs on the outer wall: small, soft and slow so they frame the maze without glaring.
+  const n = S.bulbs.length, hot = S.streakTier >= 3, between = S.ph === 1 || S.ph === 2;
+  const speed = MazeFX.reduced() ? 0 : hot ? 14 : between ? 4 : 6, phase = Math.floor(S.time * speed);
+  ctx.save();
   for (let i = 0; i < n; i++) {
-    const [x, y] = S.bulbs[i];
-    let on = clear ? (i % 2 === alt) : reduced ? i % 3 === 0 : ((i + phase) % 4 === 0 || (hot && (i - phase + n * 4) % 4 === 0));
-    const col = hot ? hsl((i * 12 + S.time * 200) % 360, 100, 60) : (i % 2 ? '#ffcc33' : '#ff9ad5');
-    const cx = (x + .5) * T, cy = (y + .5) * T;
-    if (on) blit(glowSprite(hot ? '#ffffff' : col, T * 0.1, T * 0.35, '#ffffff'), cx, cy, 1 + beat * 0.25);
-    else { ctx.fillStyle = 'rgba(255,255,255,0.13)'; ctx.beginPath(); ctx.arc(cx, cy, T * 0.07, 0, Math.PI * 2); ctx.fill(); }
-    if (hot && on) { ctx.globalCompositeOperation = 'lighter'; blit(glowSprite('#ff6a00', T * 0.05, T * 0.3), cx, cy); ctx.globalCompositeOperation = 'source-over'; }
+    const [x, y] = S.bulbs[i], cx = (x + .5) * T, cy = (y + .5) * T;
+    const on = (i + phase) % 5 === 0;
+    if (on) {
+      const col = hot ? hsl((i * 12 + S.time * 120) % 360, 80, 62) : (i % 2 ? '#e8b84a' : '#e58cc0');
+      ctx.globalAlpha = hot ? 0.75 : 0.55;
+      blit(glowSprite(col.startsWith('#') ? col : '#ff9a3c', T * 0.07, T * 0.18, col.startsWith('#') ? '#fff0d0' : '#ffffff'), cx, cy);
+    } else {
+      ctx.globalAlpha = 1; ctx.fillStyle = 'rgba(255,255,255,0.07)';
+      ctx.beginPath(); ctx.arc(cx, cy, T * 0.06, 0, Math.PI * 2); ctx.fill();
+    }
   }
+  ctx.restore();
 }
 
 function drawPac(x, y, T, col, face, mouth, glow = true) {
@@ -414,12 +416,14 @@ function render(dt) {
   const ox = Math.round(S.camX + MazeFX.shakeX), oy = Math.round(S.camY + MazeFX.shakeY);
   ctx.save(); ctx.translate(ox, oy);
   // maze + beat pulse
-  const clearFlash = S.inGame && S.ph === 1 && Math.floor(S.time * 2.5) % 2 === 0;   // ≤3 flashes/s
-  ctx.drawImage(clearFlash ? S.mazeFlash : S.mazeCv, -T, -T);
+  // a dark floor under the maze keeps the space scenery outside the play area
+  ctx.fillStyle = 'rgba(6,7,20,0.86)'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(T * 0.2, T * 0.2, mw - T * 0.4, mh - T * 0.4, T * 0.5) : ctx.rect(0, 0, mw, mh); ctx.fill();
+  ctx.drawImage(S.mazeCv, -T, -T);
+  const swell = S.inGame && S.ph === 1 ? 0.25 + 0.2 * Math.sin(S.time * 4) : 0;   // gentle glow on level clear, no flashing
   ctx.globalCompositeOperation = 'lighter';
-  ctx.globalAlpha = 0.25 + beat * 0.45 + (S.streakTier >= 3 ? 0.25 : 0); ctx.drawImage(S.mazeGlow, -T, -T);
+  ctx.globalAlpha = 0.18 + beat * 0.18 + (S.streakTier >= 3 ? 0.12 : 0) + swell; ctx.drawImage(S.mazeGlow, -T, -T);
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-  drawBulbs(T, beat);
+  drawBulbs(T);
   // pellets
   const x0 = Math.max(0, Math.floor(-ox / T) - 1), x1 = Math.min(lv.W - 1, Math.ceil((CW - ox) / T) + 1);
   const y0 = Math.max(0, Math.floor(-oy / T) - 1), y1 = Math.min(lv.H - 1, Math.ceil((CH - oy) / T) + 1);
@@ -610,6 +614,7 @@ function hostName() {
   const r = S.roster.get(S.host); return r ? r.nm : 'the host';
 }
 function updateReady() {
+  updateLobby();
   const show = S.inGame && S.ph === 2;
   const ov = $('readyOv'); ov.hidden = !show;
   if (!show) return;
@@ -622,9 +627,49 @@ function updateReady() {
   $('readyWait').textContent = 'Waiting for ' + hostName() + ' to start level ' + next + '…';
   if (isHost) setTimeout(() => { if (!$('readyOv').hidden) $('readyBtn').focus({ preventScroll: true }); }, 50);
 }
-function sendReady() { if (S.ph === 2 && S.host === S.id) { send({ t: 'ready' }); $('readyBtn').disabled = true; setTimeout(() => { $('readyBtn').disabled = false; }, 1500); A.sfx('start'); } }
+/* Pre-game lobby: everyone gathers on the maze until the host presses Start. */
+function inviteLink() { return location.origin + location.pathname + '#' + inviteHash(); }
+function updateLobby() {
+  const show = S.inGame && S.ph === 3;
+  const ov = $('lobbyOv'), wasHidden = ov.hidden; ov.hidden = !show;
+  if (!show) return;
+  const isHost = S.host === S.id, lv = M.genLevel(S.seed, 1), g = M.ghostCount(1);
+  $('lobbyTitle').textContent = 'Lobby · ' + S.seed;
+  $('lobbyVis').textContent = S.vis === 'private' ? 'Invite only' : 'Public';
+  $('lobbyVis').classList.toggle('private', S.vis === 'private');
+  $('lobbyMaze').textContent = 'Level 1 · ' + lv.W + ' × ' + lv.H + ' maze · ' + g + (g > 1 ? ' ghosts' : ' ghost') + (S.vis === 'private' ? ' · only people with the link can join' : ' · listed for everyone on this server');
+  if ($('lobbyLink').value !== inviteLink()) $('lobbyLink').value = inviteLink();
+  $('lobbyStart').hidden = !isHost; $('lobbyHint').hidden = !isHost; $('lobbyWait').hidden = isHost;
+  $('lobbyWait').textContent = 'Waiting for ' + hostName() + ' to start the game…';
+  renderLobbyPlayers();
+  if (isHost && wasHidden) setTimeout(() => { if (!$('lobbyOv').hidden) $('lobbyStart').focus({ preventScroll: true }); }, 50);
+}
+let lobbySig = '';
+function renderLobbyPlayers() {
+  const ids = [...S.roster.keys()];
+  const sig = ids.join(',') + '|' + S.host;
+  if (sig === lobbySig) return; lobbySig = sig;
+  $('lobbyCount').textContent = String(ids.length);
+  const ul = $('lobbyPlayers'); ul.textContent = '';
+  for (const id of ids) {
+    const r = S.roster.get(id), li = document.createElement('li');
+    const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = /^#[0-9a-f]{6}$/i.test(r.col) ? r.col : '#ffcc33';
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.nm;
+    const tags = [id === S.host ? 'host' : '', id === S.id ? 'you' : ''].filter(Boolean).join(' · ');
+    if (tags) { const sm = document.createElement('small'); sm.textContent = tags; nm.appendChild(sm); }
+    li.append(sw, nm); ul.appendChild(li);
+  }
+}
+$('lobbyStart').addEventListener('click', () => sendReady());
+$('lobbyCopy').addEventListener('click', () => {
+  const link = inviteLink(), b = $('lobbyCopy');
+  const done = () => { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 1200); };
+  const select = () => { const i = $('lobbyLink'); i.focus(); i.select(); b.textContent = 'Press Ctrl+C'; setTimeout(() => { b.textContent = 'Copy'; }, 1800); };
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(link).then(done, select); else select();
+});
+function sendReady() { if ((S.ph === 2 || S.ph === 3) && S.host === S.id) { send({ t: 'ready' }); $('readyBtn').disabled = true; $('lobbyStart').disabled = true; setTimeout(() => { $('readyBtn').disabled = false; $('lobbyStart').disabled = false; }, 1500); A.sfx('start'); } }
 $('readyBtn').addEventListener('click', sendReady);
-addEventListener('keydown', e => { if ((e.code === 'Enter' || e.code === 'Space') && S.ph === 2 && S.host === S.id && e.target.tagName !== 'BUTTON' && !/INPUT|SELECT/.test(e.target.tagName)) { e.preventDefault(); sendReady(); } });
+addEventListener('keydown', e => { if ((e.code === 'Enter' || e.code === 'Space') && (S.ph === 2 || S.ph === 3) && S.host === S.id && e.target.tagName !== 'BUTTON' && !/INPUT|SELECT/.test(e.target.tagName)) { e.preventDefault(); sendReady(); } });
 
 /* ---------- visibility ---------- */
 function inviteHash() { return S.vis === 'private' && S.key ? S.seed + '~' + S.key : S.seed; }
@@ -645,7 +690,7 @@ $('ownBtn').addEventListener('click', () => {
 });
 
 /* ---------- sound ---------- */
-const VOL = { music: 20, sfx: 40 };
+const VOL = { music: 10, sfx: 40 };
 { const m = parseInt(store.get('mm.music'), 10), f = parseInt(store.get('mm.sfx'), 10);
   if (m >= 0 && m <= 100) VOL.music = m; if (f >= 0 && f <= 100) VOL.sfx = f; }
 let muted = null; // remembered levels while muted with M

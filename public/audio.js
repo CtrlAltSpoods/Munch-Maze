@@ -12,7 +12,7 @@
 'use strict';
 const AC = window.AudioContext || window.webkitAudioContext;
 let ctx = null, master, musicBus, musicFilter, sfxBus, noiseBuf, delaySend;
-let musicVol = 0.2, sfxVol = 0.4;
+let musicVol = 0.1, sfxVol = 0.4;
 
 // Slider position -> gain. A gentle curve so the low end of the slider stays usable.
 const curve = v => Math.pow(Math.max(0, Math.min(1, v)), 1.3);

@@ -161,3 +161,18 @@ input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer;margin:0}
 .card.ready .wait{margin:0;font-size:14px;color:var(--fg);animation:waitPulse 1.6s ease-in-out infinite}
 @keyframes waitPulse{50%{opacity:.55}}
 @media (prefers-reduced-motion:reduce){ .card.ready .wait{animation:none} }
+
+/* pre-game lobby */
+.card.lobby{max-width:440px;text-align:left}
+.lobby-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.card.lobby h1{font-size:26px;overflow-wrap:anywhere}
+.card.lobby #lobbyMaze{color:var(--fg);font-size:13px}
+.lobby-players{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:180px;overflow:auto}
+.lobby-players li{display:grid;grid-template-columns:12px minmax(0,1fr);gap:8px;align-items:center;font-size:14px;animation:slideIn .3s ease-out}
+.lobby-players .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lobby-players small{color:var(--muted);font-size:10px;margin-left:6px;text-transform:uppercase;letter-spacing:.1em}
+@keyframes slideIn{from{opacity:0;transform:translateX(-8px)}}
+.linkrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.linkrow input{font:inherit;font-size:12px;background:var(--ink-2);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
+.card.lobby .k b{color:var(--fg);margin-left:6px}
+@media (prefers-reduced-motion:reduce){ .lobby-players li{animation:none} }

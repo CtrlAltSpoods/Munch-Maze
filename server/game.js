@@ -23,6 +23,7 @@ class Game {
     this.hostId = 0;
     this.creatorToken = '';
     this.startLevel(1);
+    this.ph = 3;   // pre-game lobby: players gather until the host starts
   }
 
   /* ---------- levels ---------- */
@@ -114,7 +115,9 @@ class Game {
         p.al = true; p.spawnAt = Date.now(); p.x = this.lv.sx; p.y = this.lv.sy;
         return;
       case 'ready':   // host starts the next level
-        if (this.ph === 2 && p.id === this.hostId) this.startLevel(this.L + 1);
+        if (p.id !== this.hostId) return;
+        if (this.ph === 2) this.startLevel(this.L + 1);
+        else if (this.ph === 3) this.startLevel(1);
         return;
       case 'again':
         if (!p.over) return;
@@ -200,7 +203,7 @@ class Game {
     if (this.ph === 1) {             // celebrating
       this.ct -= dt;
       if (this.ct <= 0) { this.ph = 2; this.ct = 0; }
-    } else if (this.ph === 2) {      // waiting for the host
+    } else if (this.ph === 2 || this.ph === 3) {   // waiting for the host
       if (!this.players.has(this.hostId)) { const next = this.players.values().next().value; this.hostId = next ? next.id : 0; }
     } else {
       if (this.fr > 0) { this.fr -= dt; if (this.fr <= 0) { this.fr = 0; for (const g of this.ghosts) if (g.st === 2) g.st = 1; } }

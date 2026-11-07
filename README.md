@@ -6,11 +6,12 @@ Everyone who enters the same **seed** shares one maze. Players eat pellets toget
 
 - Level 1 is a 15×11 maze with 1 ghost. Each level adds 4 tiles in each direction, up to 63×51, and more ghosts (up to 6).
 - Every completed level makes the game **10% faster** (compounding: ×1.10, ×1.21, ×1.33 … about ×2.14 by level 9), for players and ghosts alike.
+- Every new maze opens in a **lobby**: players gather, see who's in and copy the invite link, and the host presses *Start game* when everyone's ready. The running-mazes list marks mazes that are still in their lobby.
 - Between levels the maze pauses for the **host**, the player who started it, who presses *Start level N* (or Enter/Space) when everyone is ready. Other players see who they're waiting for. If the host leaves, the longest-present player takes over, and the original host gets it back if they return.
 - No player limit, no accounts, no external services, no npm dependencies.
 - Each maze is **Public** (listed under “Mazes running now” for anyone on the server) or **Invite only** (never listed; joined through a private link like `http://your-server:8080/#seed-name~k3j9x2m4p8qa`). Typing the same seed without the link starts a separate maze, so private games stay private.
-- Neon arcade presentation: glowing mazes that pulse with the music, chasing marquee lights, sparks, coin showers and confetti. Eat pellets back to back to build a **streak** (NICE → SWEET → ON FIRE → JACKPOT → MEGA JACKPOT), and clearing a level spins slot reels to reveal the next maze. These are visual and sound rewards only; scores come from the server. Players with *reduce motion* turned on get no screen shake, softer flashes and fewer particles. Fonts load from Google Fonts, falling back to system fonts offline.
-- An original electro soundtrack and arcade sound effects, generated live in the browser. Music and effects have their own volume sliders (20% and 40% by default, remembered per browser); press **M** to mute.
+- Neon arcade presentation: glowing mazes that pulse with the music, softly chasing marquee lights, a warp-speed starfield (with the rare planet drifting past) that speeds up with the game, sparks, coin showers and confetti. Eat pellets back to back to build a **streak** (NICE → SWEET → ON FIRE → JACKPOT → MEGA JACKPOT), and clearing a level spins slot reels to reveal the next maze. These are visual and sound rewards only; scores come from the server. Players with *reduce motion* turned on get no screen shake, softer flashes and fewer particles. Fonts load from Google Fonts, falling back to system fonts offline.
+- An original electro soundtrack and arcade sound effects, generated live in the browser. Music and effects have their own volume sliders (10% and 40% by default, remembered per browser); press **M** to mute.
 - High scores are kept in `/data/scores.json`.
 
 ## Run it

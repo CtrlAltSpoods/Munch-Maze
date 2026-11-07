@@ -63,7 +63,17 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
 
   // both clients must build the same maze as the server
   const lv = M.genLevel(wa.seed, 1);
-  const s1 = await waitFor(b, 's');
+  // new mazes open in a lobby; only the host (alice) can start
+  const lob = await waitFor(b, 's');
+  if (lob.ph !== 3) fail('a new maze should start in the lobby (phase 3), got ' + lob.ph);
+  if (!games.find(g => g.seed === 'smoke-test').lobby) fail('lobby list should mark the maze as in its lobby');
+  b.ws.send(JSON.stringify({ t: 'ready' }));
+  await new Promise(r => setTimeout(r, 300));
+  if (b.last.s.ph !== 3) fail('a non-host must not start the game');
+  a.ws.send(JSON.stringify({ t: 'ready' }));
+  await waitFor(b, 'level', m => m.lv === 1, 3000);
+  console.log('ok  maze opens in a lobby; host starts the game');
+  const s1 = await waitFor(b, 's', m => m.ph === 0);
   if (s1.g.length !== M.ghostCount(1)) fail('ghost count');
   console.log('ok  state stream running,', s1.g.length, 'ghost(s)');
 

@@ -170,7 +170,7 @@ const server = http.createServer((req, res) => {
   if (p === '/api/info') return json(res, { name: CFG.serverName, lobby: CFG.showLobby, defaultSeed: CFG.defaultSeed, maxPlayersPerMaze: CFG.maxPlayersPerMaze });
   if (p === '/api/games') {
     if (!CFG.showLobby) return json(res, []);
-    const list = [...games.values()].filter(g => g.players.size && !g.isPrivate).map(g => ({ seed: g.seed, players: g.players.size, level: g.L }))
+    const list = [...games.values()].filter(g => g.players.size && !g.isPrivate).map(g => ({ seed: g.seed, players: g.players.size, level: g.L, lobby: g.ph === 3 }))
       .sort((a, b) => b.players - a.players).slice(0, 20);
     return json(res, list);
   }

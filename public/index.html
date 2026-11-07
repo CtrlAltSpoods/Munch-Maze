@@ -85,6 +85,29 @@
           </div>
         </form>
       </div>
+      <div class="overlay ready-ov" id="lobbyOv" hidden>
+        <div class="card lobby" role="dialog" aria-labelledby="lobbyTitle">
+          <div class="lobby-head">
+            <h1 id="lobbyTitle">Lobby</h1>
+            <span class="chip" id="lobbyVis">Public</span>
+          </div>
+          <p id="lobbyMaze">Level 1 · 15 × 11 maze · 1 ghost</p>
+          <div class="field">
+            <span class="k">Players here <b id="lobbyCount">1</b></span>
+            <ul class="lobby-players" id="lobbyPlayers"></ul>
+          </div>
+          <div class="field">
+            <label class="k" for="lobbyLink">Invite link</label>
+            <div class="linkrow">
+              <input id="lobbyLink" readonly>
+              <button class="btn" id="lobbyCopy" type="button">Copy</button>
+            </div>
+          </div>
+          <button class="cta" id="lobbyStart" type="button">Start game</button>
+          <p class="hint" id="lobbyHint">Start when everyone’s in. Late arrivals can still join once the game is running. Press Enter or Space.</p>
+          <p class="wait" id="lobbyWait" hidden>Waiting for the host to start the game…</p>
+        </div>
+      </div>
       <div class="overlay ready-ov" id="readyOv" hidden>
         <div class="card ready" role="dialog" aria-labelledby="readyTitle">
           <h1 id="readyTitle">Level 1 clear</h1>
@@ -114,8 +137,8 @@
       <div class="sound" role="group" aria-label="Sound">
         <div class="slider">
           <label class="k" for="musicVol">Music</label>
-          <input type="range" id="musicVol" min="0" max="100" step="1" value="20">
-          <output class="sc" id="musicOut" for="musicVol">20%</output>
+          <input type="range" id="musicVol" min="0" max="100" step="1" value="10">
+          <output class="sc" id="musicOut" for="musicVol">10%</output>
         </div>
         <div class="slider">
           <label class="k" for="sfxVol">Effects</label>
@@ -130,6 +153,7 @@
 <script src="maze.js"></script>
 <script src="audio.js"></script>
 <script src="fx.js"></script>
+<script src="space.js"></script>
 <script src="client.js"></script>
 </body>
 </html>
