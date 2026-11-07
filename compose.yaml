@@ -1,0 +1,19 @@
+services:
+  munch-maze:
+    image: ghcr.io/ctrlaltspoods/munch-maze:latest
+    # build: .          # uncomment to build from this folder instead
+    container_name: munch-maze
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      SERVER_NAME: "Munch Maze"
+      MAX_PLAYERS_PER_MAZE: "0"   # 0 = unlimited
+      MAX_MAZES: "200"
+      SHOW_LOBBY: "true"
+      DEFAULT_SEED: ""
+      TICK_RATE: "30"
+      PUID: "1000"
+      PGID: "1000"
+    restart: unless-stopped

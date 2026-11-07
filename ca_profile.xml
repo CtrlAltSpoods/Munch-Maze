@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<CommunityApplications>
+  <Profile>Munch Maze: a self-hosted multiplayer maze-chase game for the browser. Report problems or ask questions on the GitHub issues page.</Profile>
+  <Icon>https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/munch-maze/main/public/icon.png</Icon>
+  <WebPage>https://github.com/CtrlAltSpoods/munch-maze</WebPage>
+</CommunityApplications>

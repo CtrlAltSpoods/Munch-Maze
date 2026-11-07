@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Munch Maze</title>
+<meta name="description" content="A multiplayer maze-chase game. Share a seed, share a maze.">
+<meta name="theme-color" content="#0a0c1c">
+<link rel="icon" href="icon.png" type="image/png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app" id="app">
+  <header class="hud">
+    <div class="brand" id="brand">Munch<span>Maze</span></div>
+    <div class="stats">
+      <div class="stat"><span class="k">Level</span><span class="v" id="hLevel">1</span></div>
+      <div class="stat"><span class="k">Maze</span><span class="v" id="hSize">15×11</span></div>
+      <div class="stat"><span class="k">Score</span><span class="v" id="hScore">0</span></div>
+      <div class="stat"><span class="k">Lives</span><span class="lives" id="hLives"></span></div>
+    </div>
+    <div class="seedbox">
+      <span class="k">Seed</span>
+      <button class="btn seed" id="seedBtn" type="button" title="Copy invite link">—</button>
+      <button class="btn" id="leaveBtn" type="button" hidden>Leave maze</button>
+    </div>
+  </header>
+  <main class="main">
+    <div class="stage" id="stage">
+      <canvas id="cv" aria-label="Maze game board"></canvas>
+      <div class="banner" id="banner" hidden><div class="t" id="bannerT"></div><div class="s" id="bannerS"></div></div>
+      <div class="dpad" id="dpad">
+        <button type="button" data-d="3" aria-label="Up">▲</button>
+        <button type="button" data-d="2" aria-label="Left">◀</button>
+        <button type="button" data-d="0" aria-label="Right">▶</button>
+        <button type="button" data-d="1" aria-label="Down">▼</button>
+      </div>
+      <div class="overlay" id="startOv">
+        <form class="card" id="startForm" autocomplete="off">
+          <h1>Munch<span>Maze</span></h1>
+          <p>A maze chase for however many people show up. Everyone on the same seed shares one maze: clear every pellet together and the next level opens, bigger than the last.</p>
+          <div class="field">
+            <label class="k" for="nameIn">Your name</label>
+            <input id="nameIn" maxlength="16" placeholder="Player">
+          </div>
+          <div class="field">
+            <label class="k" for="seedIn">Seed (optional)</label>
+            <input id="seedIn" maxlength="40" placeholder="Leave blank for a random maze">
+          </div>
+          <div class="err" id="joinErr" hidden></div>
+          <button class="cta" id="playBtn" type="submit">Enter the maze</button>
+          <div class="field" id="lobbyBox">
+            <span class="k">Mazes running now</span>
+            <div class="games" id="games"><div class="empty">Loading…</div></div>
+          </div>
+          <div class="field">
+            <span class="k">Top scores on this server</span>
+            <ol class="scores" id="scores"><li class="empty">No scores yet.</li></ol>
+          </div>
+          <div class="field">
+            <span class="k">Level growth</span>
+            <div class="ladder" aria-hidden="true"><i style="height:30%"></i><i style="height:42%"></i><i style="height:54%"></i><i style="height:66%"></i><i style="height:78%"></i><i style="height:90%"></i><i style="height:100%"></i></div>
+            <p>Level 1 is a 15×11 maze with one ghost. Each level adds 4 tiles in each direction, up to 63×51, and brings faster, more numerous ghosts (up to 6).</p>
+          </div>
+        </form>
+      </div>
+      <div class="overlay" id="overOv" hidden>
+        <div class="card">
+          <h1>Game over</h1>
+          <p id="overTxt">You scored 0.</p>
+          <button class="cta" id="againBtn" type="button">Play again</button>
+          <p>You rejoin this maze at the level it's on now, with a fresh score and 3 lives.</p>
+        </div>
+      </div>
+    </div>
+    <aside class="side">
+      <h2>In this maze <span id="pCount">0</span></h2>
+      <ol class="board" id="board"></ol>
+      <div class="meta">
+        <div class="row"><span class="k">Pellets left</span><span class="sc" id="pLeft">—</span></div>
+        <div class="row"><span class="k">Ghosts</span><span class="sc" id="gCount">—</span></div>
+        <div class="net" id="netState">Not in a maze yet.</div>
+      </div>
+      <p class="help">Steer with the arrow keys or WASD; swipe or use the pad on touch screens. Big pellets turn ghosts blue for a few seconds, so you can eat them. A cleared level gives everyone an extra life (max 5).</p>
+    </aside>
+  </main>
+</div>
+<script src="maze.js"></script>
+<script src="client.js"></script>
+</body>
+</html>

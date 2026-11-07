@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>MunchMaze</Name>
+  <Repository>ghcr.io/CtrlAltSpoods/munch-maze:latest</Repository>
+  <Registry>https://github.com/CtrlAltSpoods/munch-maze/pkgs/container/munch-maze</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/CtrlAltSpoods/munch-maze/issues</Support>
+  <Project>https://github.com/CtrlAltSpoods/munch-maze</Project>
+  <Overview>Munch Maze is a self-hosted multiplayer maze-chase game that runs in any web browser. Everyone who enters the same seed shares one maze: players eat pellets together, dodge ghosts, and clear the level to unlock the next one, which is bigger. Levels are generated from the seed, starting at a small 15x11 maze with one ghost and growing up to 63x51 with six. There is no player limit, no accounts and no external services. Open the Web UI, pick a name, and share the invite link.[br][br]High scores are kept in the appdata folder.</Overview>
+  <Category>GameServers: Other:</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/CtrlAltSpoods/munch-maze/main/unraid/munch-maze.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/CtrlAltSpoods/munch-maze/main/public/icon.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="Web UI port" Target="8080" Default="8080" Mode="tcp" Description="Port players open in their browser." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/munch-maze" Mode="rw" Description="Holds the high-score table (scores.json)." Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/munch-maze</Config>
+  <Config Name="Server name" Target="SERVER_NAME" Default="Munch Maze" Mode="" Description="Shown in the browser tab." Type="Variable" Display="always" Required="false" Mask="false">Munch Maze</Config>
+  <Config Name="Max players per maze" Target="MAX_PLAYERS_PER_MAZE" Default="0" Mode="" Description="0 means unlimited." Type="Variable" Display="always" Required="false" Mask="false">0</Config>
+  <Config Name="Show running mazes" Target="SHOW_LOBBY" Default="true" Mode="" Description="List active seeds on the start screen (true/false). Turn off for private games." Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="Default seed" Target="DEFAULT_SEED" Default="" Mode="" Description="Seed used when a player leaves the seed blank. Empty gives everyone a random maze." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Max mazes" Target="MAX_MAZES" Default="200" Mode="" Description="How many different seeds can run at once." Type="Variable" Display="advanced" Required="false" Mask="false">200</Config>
+  <Config Name="Tick rate" Target="TICK_RATE" Default="30" Mode="" Description="Simulation steps per second (10-60)." Type="Variable" Display="advanced" Required="false" Mask="false">30</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User id that owns the appdata files." Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group id that owns the appdata files." Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+</Container>
