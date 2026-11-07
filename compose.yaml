@@ -18,6 +18,7 @@ services:
       MAX_CONNECTIONS_PER_IP: "20"  # 0 = no limit
       ALLOWED_ORIGINS: ""           # other sites allowed to connect, comma-separated
       TRUST_PROXY: "false"          # true when behind a reverse proxy
+      TEST_MODE: "false"            # true gives hosts a menu to fire any power-up
       PUID: "1000"
       PGID: "1000"
     restart: unless-stopped

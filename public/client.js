@@ -93,6 +93,7 @@ function onMsg(m) {
       S.setpw = '';   // only sent when opening the lobby
       $('joinPwField').hidden = true; S.pwRoom = '';
       S.host = m.host | 0; S.ph = m.ph | 0; updateReady();
+      S.testMode = !!m.testMode;
       $('seedBtn').textContent = S.seed;
       $('seedBtn').title = S.vis === 'private' ? 'Copy invite link (only people with it can join)' : 'Copy link to this maze';
       const chip = $('visChip'); chip.hidden = false; chip.textContent = S.vis === 'private' ? 'Invite only' : 'Public'; chip.classList.toggle('private', S.vis === 'private');
@@ -127,7 +128,9 @@ function onMsg(m) {
       S.crates = S.crates.filter(c => c[0] !== m.crate);
       MazeFX.coins(m.x, m.y, 10, 8); MazeFX.ring(m.x, m.y, '#ffcc33', 3, 0.5); MazeFX.flash('#ffcc33', 0.2);
       A.sfx('puOpen');
-      MazeFX.powerSlot({ items: M.POWERUPS, final: m.kind | 0, by: (m.by | 0) === S.id ? 'You' : String(m.nm || 'Someone'), spin: M.PU_SPIN, hold: M.PU_HOLD, onLand: () => A.sfx('puLand', pu.good) });
+      const who = (m.by | 0) === S.id ? 'You' : String(m.nm || 'Someone');
+      if (m.test) MazeFX.powerSlot({ items: [pu], final: 0, title: 'TEST MODE', subtitle: who + ' picked ' + pu.name, spin: M.PU_SPIN, hold: M.PU_HOLD, onLand: () => A.sfx('puLand', pu.good) });
+      else MazeFX.powerSlot({ items: M.POWERUPS, final: m.kind | 0, by: who, spin: M.PU_SPIN, hold: M.PU_HOLD, onLand: () => A.sfx('puLand', pu.good) });
       break;
     }
     case 'puon': powerupStarted(m.kind | 0, m.by | 0); break;
@@ -655,7 +658,33 @@ function setNet(msg) {
     : ' · public. This maze is listed for everyone; click the seed to copy a link.');
 }
 let lastLives = -1, boardAt = 0;
+/* TEST_MODE: the host can fire any power-up from the side panel. */
+function buildTestPanel() {
+  const grid = $('testGrid'); grid.textContent = '';
+  M.POWERUPS.forEach((pu, i) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'testb ' + (pu.good ? 'good' : 'bad');
+    b.title = pu.desc; b.dataset.kind = String(i);
+    const cv = document.createElement('canvas'); cv.width = cv.height = 48; cv.className = 'ti';
+    const g = cv.getContext('2d'); try { MazeFX.icon(g, pu.id, 24, 24, 34, 0); } catch (e) { /* icon is decoration */ }
+    const t = document.createElement('span'); t.textContent = pu.name;
+    b.append(cv, t);
+    b.addEventListener('click', () => { if (S.ph === 0) { send({ t: 'testpu', kind: i }); b.blur(); } });
+    grid.appendChild(b);
+  });
+}
+buildTestPanel();
+function updateTestPanel() {
+  const show = S.testMode && S.inGame && S.id === S.host, ready = show && S.ph === 0 && !MazeFX.slotActive;
+  const sig = (show ? 1 : 0) + ':' + (ready ? 1 : 0) + ':' + (S.ph === 3 ? 1 : 0);
+  if (sig === updateTestPanel.sig) return;
+  updateTestPanel.sig = sig;
+  $('testPanel').hidden = !show;
+  for (const b of $('testGrid').children) b.disabled = !ready;
+  $('testHint').textContent = ready ? 'Pick one: the game pauses, the slot lands on it, then it kicks in.'
+    : S.ph === 3 ? 'Start the game to use these.' : 'Waiting for play to resume…';
+}
 function hud(dt, now) {
+  updateTestPanel();
   const lv = S.lvl; if (!lv) return;
   setTxt('hLevel', S.L || 1); setTxt('hSize', lv.W + '×' + lv.H); setTxt('hSpeed', speedLabel(S.L || 1));
   // rolling score: counts up like a payout meter

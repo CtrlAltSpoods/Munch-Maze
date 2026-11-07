@@ -169,6 +169,10 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   if (friend.last.welcome.vis !== 'private' || !friend.last.welcome.roster.some(r => r[1] === 'host')) fail('invite link should join the host\'s maze');
   await waitFor(host, 'join', m => m.nm === 'friend');
   console.log('ok  invite link joins the private maze');
+  if (hw.testMode) fail('test mode must be off unless TEST_MODE is set');
+  host.msgs.length = 0; host.ws.send(JSON.stringify({ t: 'testpu', kind: 0 })); await new Promise(r => setTimeout(r, 300));
+  if (host.msgs.some(m => m.t === 'pu')) fail('test effects must be ignored without TEST_MODE');
+  console.log('ok  without TEST_MODE the effect menu is off and test triggers are ignored');
   const bogus = await client('bogus', { seed: 'secret-base', key: 'NOT-A-KEY', tok: 'bogus' });
   if (bogus.last.welcome.vis !== 'public') fail('a malformed key must not create or join a private maze');
   console.log('ok  malformed keys are ignored');

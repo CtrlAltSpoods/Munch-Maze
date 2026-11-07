@@ -143,8 +143,8 @@ function icon(ctx, id, x, y, s, t = 0) {
 
 /* ---------- power-up slot ---------- */
 /** items: list of { id, name, good, desc }; final: index that wins. */
-function powerSlot({ items, final, by = '', spin = 1.6, hold = 2.0, onLand }) {
-  pslot = { items, final, by, spin, hold, onLand, t: 0, landed: false, rows: 3 * items.length + final };
+function powerSlot({ items, final, by = '', title = 'LOOT CRATE', subtitle = '', spin = 1.6, hold = 2.0, onLand }) {
+  pslot = { items, final, by, title, subtitle, spin, hold, onLand, t: 0, landed: false, rows: 3 * items.length + final };
 }
 function drawPowerSlot(ctx, W, H) {
   const p = pslot, n = p.items.length, it = p.items[p.final];
@@ -160,9 +160,9 @@ function drawPowerSlot(ctx, W, H) {
   for (let i = 0; i < bulbs; i++) { const [bx, by] = perimeterPoint(x0, y0, w, h, i / bulbs), on = (i + phase) % 3 === 0;
     ctx.fillStyle = on ? '#fff3b0' : '#5a4510'; ctx.beginPath(); ctx.arc(bx, by, 3, 0, Math.PI * 2); ctx.fill(); }
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  glowText(ctx, 'LOOT CRATE', W / 2, y0 + 30, Math.min(30, w / 12), '#ffcc33', 14);
+  glowText(ctx, p.title, W / 2, y0 + 30, Math.min(30, w / 12), '#ffcc33', 14);
   ctx.font = '600 13px "IBM Plex Mono", ui-monospace, monospace'; ctx.fillStyle = '#c8cbe8';
-  ctx.fillText(p.by ? p.by + ' opened a crate' : 'A crate was opened', W / 2, y0 + 56);
+  ctx.fillText(p.subtitle || (p.by ? p.by + ' opened a crate' : 'A crate was opened'), W / 2, y0 + 56);
   // the reel window
   const rx = x0 + 22, ry = y0 + 72, rw = w - 44, rh = rowH * 1.6;
   const wg = ctx.createLinearGradient(0, ry, 0, ry + rh); wg.addColorStop(0, '#c8cbe8'); wg.addColorStop(0.5, '#ffffff'); wg.addColorStop(1, '#c8cbe8');

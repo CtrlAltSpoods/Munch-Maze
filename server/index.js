@@ -30,6 +30,7 @@ const CFG = {
   allowedOrigins: String(env('ALLOWED_ORIGINS', '')).split(',').map(s => s.trim().toLowerCase().replace(/\/+$/, '')).filter(Boolean),
   // Behind a reverse proxy, read the client address and host from X-Forwarded-* headers.
   trustProxy: bool(env('TRUST_PROXY', 'false')),
+  testMode: bool(env('TEST_MODE', 'false')),   // hosts get a menu to fire any power-up on demand
 };
 
 const ROOT = path.join(__dirname, '..');
@@ -85,7 +86,7 @@ function getGame(seed, key) {
   let g = games.get(id);
   if (!g) {
     if (games.size >= CFG.maxMazes) return null;
-    g = new Game(seed, key, { onScore: addScore, testHooks: process.env.TEST_HOOKS === '1' });
+    g = new Game(seed, key, { onScore: addScore, testHooks: process.env.TEST_HOOKS === '1', testMode: CFG.testMode });
     g.title = '';
     if (key) byKey.set(key, g);
     if (!key) { do { g.pubId = crypto.randomBytes(6).toString('base64url'); } while (byPublicId.has(g.pubId)); byPublicId.set(g.pubId, g); }
@@ -304,7 +305,7 @@ if (CFG.maxConnections) server.maxConnections = CFG.maxConnections + 256; // roo
 
 prepareDataDir();
 loadScores();
-server.listen(CFG.port, () => console.log(`[boot] ${CFG.serverName} listening on :${CFG.port} (tick ${CFG.tickRate}/s, lobby ${CFG.showLobby ? 'on' : 'off'})`));
+server.listen(CFG.port, () => console.log(`[boot] ${CFG.serverName} listening on :${CFG.port} (tick ${CFG.tickRate}/s, lobby ${CFG.showLobby ? 'on' : 'off'}${CFG.testMode ? ', TEST MODE' : ''})`));
 
 function shutdown() {
   console.log('[boot] shutting down');

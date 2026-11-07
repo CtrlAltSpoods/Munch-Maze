@@ -48,6 +48,7 @@ npm test         # end-to-end smoke test
 | `MAX_CONNECTIONS_PER_IP` | `20` | Most connections from one address; `0` = no limit |
 | `ALLOWED_ORIGINS` | *(empty)* | Other websites allowed to open game connections, comma-separated (`https://site.example`), or `*` for any |
 | `TRUST_PROXY` | `false` | Set `true` behind a reverse proxy so per-IP limits and Origin checks use `X-Forwarded-For` / `X-Forwarded-Host` |
+| `TEST_MODE` | `false` | Set `true` to give each maze's host an effects menu beside the map. Picking one pauses the game, the slot lands on that effect (no randomness) and it activates. Crates still spawn as normal. Off: no menu, everything stays random |
 | `DATA_DIR` | `/data` | Where `scores.json` lives |
 | `PUID` / `PGID` | `1000` / `1000` | Owner of the data folder. Unraid's template uses `99` / `100` |
 

@@ -42,7 +42,7 @@ async function trigger(r, id) {
 }
 
 (async () => {
-  srv = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'index.js')], { env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, TEST_HOOKS: '1' }, stdio: ['ignore', 'pipe', 'inherit'] });
+  srv = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'index.js')], { env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, TEST_HOOKS: '1', TEST_MODE: 'true' }, stdio: ['ignore', 'pipe', 'inherit'] });
   await new Promise(r => srv.stdout.on('data', d => { if (/listening/.test(d)) r(); }));
 
   // natural spawns: nothing before level 3, 1-2 crates from level 3
@@ -116,6 +116,22 @@ async function trigger(r, id) {
   if (lastS(nk.b).ph !== 5 && lastS(nk.b).ph !== 4) fail('nuke keeps the game paused');
   await until(nk.b, m => m.t === 's' && m.ph === 1, 6000);
   console.log('ok  Nuke: stays paused through the blast, then the level is passed');
+
+  // TEST_MODE: the host picks an effect; it goes through the paused slot with no randomness
+  const tm = await room('pu-testmode', 3);
+  if (!tm.a.last.welcome.testMode) fail('welcome should say test mode is on');
+  tm.a.msgs.length = 0; tm.b.msgs.length = 0;
+  send(tm.b, { t: 'testpu', kind: idx('bomb') }); await wait(300);
+  if (tm.b.msgs.some(m => m.t === 'pu')) fail('only the host can fire test effects');
+  for (const id of ['quake', 'autopilot', 'phone']) {
+    send(tm.a, { t: 'testpu', kind: idx(id) });
+    const tpu = await until(tm.b, m => m.t === 'pu' && m.test);
+    if (M.POWERUPS[tpu.kind].id !== id) fail('test effect should be exactly the one picked');
+    await wait(150); if (lastS(tm.b).ph !== 4) fail('test effect should pause for the slot');
+    await until(tm.b, m => m.t === 'puon' && M.POWERUPS[m.kind].id === id, 6000);
+    tm.b.msgs.length = 0; await wait(200);
+  }
+  console.log('ok  TEST_MODE: host-picked effects pause for the slot, land on the pick, then activate');
 
   // only the opener's crate exists once; a second grab does nothing
   const one = await room('pu-once', 3);
