@@ -54,7 +54,7 @@ function loadLevel(L, b64, ph = 0) {
   S.L = L; S.lvl = M.genLevel(S.seed, L);
   S.myBits = new Uint8Array(S.lvl.bytes);
   S.srvBits = b64 ? M.fromB64(b64, S.lvl.bytes) : new Uint8Array(S.lvl.bytes);
-  S.ge = []; S.gv = []; S.gTarget = []; S.ph = ph; S.fr = 0; S.crates = []; S.fx = []; S.grabbing = 0; S.nuked = false; S.nukeIn = 0; S.nukeSnap = null; MazeNuke.clear(); A.nukeAlarm && A.nukeAlarm(false); S.pend.clear(); S.left = -1;
+  S.ge = []; S.gv = []; S.gTarget = []; S.ph = ph; S.fr = 0; S.crates = []; S.fx = []; S.grabbing = 0; S.nuked = false; S.nukeIn = 0; S.nukeSnap = null; S.vote = null; $('voteOv').hidden = true; MazeNuke.clear(); A.nukeAlarm && A.nukeAlarm(false); S.pend.clear(); S.left = -1;
   S.alive = true; respawn(); S.mazeKey = '';
   const n = M.ghostCount(L);
   endStreak(true);
@@ -121,6 +121,25 @@ function onMsg(m) {
       if (!S.lvl) break;
       A.sfx('crate'); MazeFX.ring(m.x, m.y, '#ffcc33', 2.5, 0.6); MazeFX.sparks(m.x, m.y, '#ffcc33', 12, 5, 0.6);
       if (!S.crates.some(c => c[0] === m.id)) S.crates.push([m.id, m.x, m.y]);
+      break;
+    }
+    case 'vote': {   // someone walked into a crate: everyone votes before it spins
+      S.crates = S.crates.filter(c => c[0] !== m.crate);
+      MazeFX.ring(m.x, m.y, '#ffcc33', 2.5, 0.5); MazeFX.sparks(m.x, m.y, '#ffcc33', 14, 5, 0.6); A.sfx('crate');
+      S.vote = { end: performance.now() + (+m.s || M.VOTE_TIME) * 1000, dur: M.VOTE_TIME, mine: null };
+      $('voteWho').textContent = ((m.by | 0) === S.id ? 'You' : String(m.nm || 'Someone')) + ' found a loot crate. Everyone votes.';
+      for (const b of [$('voteYes'), $('voteNo')]) { b.classList.remove('chosen'); b.disabled = false; }
+      showTally(0, 0, m.tot | 0);
+      $('voteOv').hidden = false;
+      break;
+    }
+    case 'vt': showTally(m.y | 0, m.n | 0, m.tot | 0); if (S.vote && typeof m.s === 'number') S.vote.end = performance.now() + m.s * 1000; break;
+    case 'voted': {
+      $('voteOv').hidden = true; S.vote = null;
+      if (!m.open) {
+        MazeFX.bigText('CRATE BINNED', (m.y | 0) + ' yes · ' + (m.n | 0) + ' no', '#ff4d5e', 1.4);
+        MazeFX.flash('#ff4d5e', 0.15); A.sfx('puLand', false);
+      }
       break;
     }
     case 'pu': {   // someone opened a crate: everyone sees the slot
@@ -396,7 +415,7 @@ function leave() {
   if (S.ws) { const old = S.ws; S.ws = null; old.close(); }
   $('startOv').hidden = false; $('overOv').hidden = true; $('leaveBtn').hidden = true; $('app').classList.remove('ingame');
   $('seedIn').value = S.seed; setNet('Not in a maze yet.');
-  A.stopMusic(); A.setFright(false); MazeFX.clear(); MazeNuke.clear(); if (A.nukeAlarm) A.nukeAlarm(false); S.nukeIn = 0; endStreak(true); S.eatQ = []; S.ph = 0; S.host = 0; updateReady();
+  A.stopMusic(); A.setFright(false); MazeFX.clear(); MazeNuke.clear(); if (A.nukeAlarm) A.nukeAlarm(false); S.nukeIn = 0; S.vote = null; $('voteOv').hidden = true; endStreak(true); S.eatQ = []; S.ph = 0; S.host = 0; updateReady();
   $('visChip').hidden = true; S.key = ''; clearInvite();
   try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
   refreshLobby();
@@ -697,7 +716,28 @@ function updateTestPanel() {
   $('testHint').textContent = ready ? 'Pick one: the game pauses, the slot lands on it, then it kicks in.'
     : S.ph === 3 ? 'Start the game to use these.' : 'Waiting for play to resume…';
 }
+function showTally(y, n, tot) {
+  setTxt('voteY', y + ' yes'); setTxt('voteN', n + ' no');
+  $('voteYes').title = $('voteNo').title = (y + n) + ' of ' + tot + ' voted';
+}
+function castVote(yes) {
+  if (!S.vote) return;
+  S.vote.mine = yes; send({ t: 'vote', y: yes });
+  $('voteYes').classList.toggle('chosen', yes); $('voteNo').classList.toggle('chosen', !yes);
+  A.sfx(yes ? 'coin' : 'reel');
+}
+$('voteYes').addEventListener('click', () => castVote(true));
+$('voteNo').addEventListener('click', () => castVote(false));
+addEventListener('keydown', e => {
+  if (!S.vote || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  if (e.code === 'KeyY') { castVote(true); e.preventDefault(); } else if (e.code === 'KeyN') { castVote(false); e.preventDefault(); }
+});
 function hud(dt, now) {
+  if (S.vote) {
+    const left = Math.max(0, (S.vote.end - performance.now()) / 1000);
+    $('voteBar').style.transform = 'scaleX(' + (left / S.vote.dur).toFixed(3) + ')';
+    setTxt('voteLeft', Math.ceil(left) + 's');
+  }
   updateTestPanel();
   const lv = S.lvl; if (!lv) return;
   setTxt('hLevel', S.L || 1); setTxt('hSize', lv.W + '×' + lv.H); setTxt('hSpeed', speedLabel(S.L || 1));
@@ -976,7 +1016,7 @@ function levelClear() {
   const syms = [String(nx.W), '×', String(nx.H)];
   MazeFX.confetti(160, CW); MazeFX.flash('#ffcc33', 0.2);
   const [px, py] = M.entPos(S.me); MazeFX.coins(px, py, 14, 10);
-  MazeFX.reels(syms, { title: 'LEVEL ' + S.L + ' CLEAR', sub: 'NEXT MAZE  ·  ' + M.ghostCount(S.L + 1) + (M.ghostCount(S.L + 1) > 1 ? ' GHOSTS' : ' GHOST') + '  ·  SPEED +10%', dur: 3.7,
+  MazeFX.reels(syms, { title: 'LEVEL ' + S.L + ' CLEAR', sub: 'NEXT MAZE  ·  ' + M.ghostCount(S.L + 1) + (M.ghostCount(S.L + 1) > 1 ? ' GHOSTS' : ' GHOST') + '  ·  SPEED +' + Math.round(M.SPEED_STEP * 100) + '%', dur: 3.7,
     onStop: i => { A.sfx('reel'); if (i === syms.length - 1) { A.sfx('jackpot'); MazeFX.confetti(90, CW); } } });
 }
 
@@ -993,7 +1033,7 @@ function updateReady() {
   if (!show) return;
   const next = S.L + 1, nx = M.genLevel(S.seed, next), g = M.ghostCount(next), isHost = S.host === S.id;
   $('readyTitle').textContent = 'Level ' + S.L + ' clear';
-  $('readyNext').textContent = 'Next: ' + nx.W + ' × ' + nx.H + ' maze · ' + g + (g > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(next) + ' (+10%)';
+  $('readyNext').textContent = 'Next: ' + nx.W + ' × ' + nx.H + ' maze · ' + g + (g > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(next) + ' (+' + Math.round(M.SPEED_STEP * 100) + '%)';
   $('readyBtn').hidden = !isHost; $('readyHint').hidden = !isHost;
   $('readyBtn').textContent = 'Start level ' + next;
   $('readyWait').hidden = isHost;

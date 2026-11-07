@@ -36,6 +36,8 @@ async function trigger(r, id) {
   send(r.a, { t: 'testcrate', kind: idx(id) });
   const cr = await until(r.b, m => m.t === 'crate');
   send(r.a, { t: 'grab', id: cr.id });
+  await until(r.b, m => m.t === 'vote');
+  send(r.a, { t: 'vote', y: true }); send(r.b, { t: 'vote', y: true });
   const pu = await until(r.b, m => m.t === 'pu');
   if (M.POWERUPS[pu.kind].id !== id) fail('expected ' + id);
   return pu;
@@ -143,13 +145,45 @@ async function trigger(r, id) {
   }
   console.log('ok  TEST_MODE: host-picked effects pause for the slot, land on the pick, then activate');
 
+  // crate votes: the game pauses, everyone votes, and the slot only spins on a yes
+  const vr = await room('pu-vote', 3);
+  const crate = async () => {
+    vr.a.msgs.length = 0; vr.b.msgs.length = 0;
+    send(vr.a, { t: 'testcrate', kind: idx('quake') });
+    const c = await until(vr.b, m => m.t === 'crate');
+    send(vr.a, { t: 'grab', id: c.id });
+    const v = await until(vr.b, m => m.t === 'vote');
+    if (v.s !== M.VOTE_TIME || v.tot !== 2) fail('vote should carry the time limit and player count');
+    await wait(150);
+    if (lastS(vr.b).ph !== 6) fail('the game is paused (phase 6) while voting');
+    if (vr.b.msgs.some(m => m.t === 'pu')) fail('the slot must not start before the vote ends');
+  };
+  await crate();
+  send(vr.a, { t: 'vote', y: true }); send(vr.b, { t: 'vote', y: false });   // 1-1 tie opens it
+  if (!(await until(vr.b, m => m.t === 'voted')).open) fail('a tie opens the crate');
+  await until(vr.b, m => m.t === 'pu');
+  await until(vr.b, m => m.t === 'puon', 6000);
+  console.log('ok  crate vote: paused while voting; a tie opens it and the slot spins');
+  await crate();
+  send(vr.a, { t: 'vote', y: false }); await wait(150);
+  const tally = vr.b.msgs.find(m => m.t === 'vt');
+  if (!tally || tally.n !== 1 || tally.y !== 0) fail('votes are tallied live for everyone');
+  send(vr.a, { t: 'vote', y: true }); send(vr.a, { t: 'vote', y: false });   // changing your mind is fine; last vote counts
+  send(vr.b, { t: 'vote', y: false });
+  const res = await until(vr.b, m => m.t === 'voted');
+  if (res.open || res.n !== 2) fail('a no majority bins the crate');
+  await wait(400);
+  if (vr.b.msgs.some(m => m.t === 'pu' || m.t === 'puon')) fail('a binned crate never spins or activates');
+  if (lastS(vr.b).ph !== 0 || lastS(vr.b).c.length) fail('play resumes and the crate is gone');
+  console.log('ok  crate vote: a no majority bins the crate without spinning, play resumes');
+
   // only the opener's crate exists once; a second grab does nothing
   const one = await room('pu-once', 3);
   send(one.a, { t: 'testcrate', kind: idx('quake') });
   const cr = await until(one.b, m => m.t === 'crate');
   send(one.a, { t: 'grab', id: cr.id }); send(one.b, { t: 'grab', id: cr.id });
-  await wait(400);
-  if (one.b.msgs.filter(m => m.t === 'pu').length !== 1) fail('a crate can only be opened once');
+  await wait(300);
+  if (one.b.msgs.filter(m => m.t === 'vote').length !== 1) fail('a crate can only be opened once');
   console.log('ok  a crate can only be opened once');
 
   console.log('\nAll power-up tests passed.');

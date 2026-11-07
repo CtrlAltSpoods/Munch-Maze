@@ -302,3 +302,27 @@ input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer;margin:0}
 .testb.bad:hover:not(:disabled){border-color:#ff4d5e}
 .testb:disabled{opacity:.45;cursor:default}
 .thint{margin:0;font-size:11px;color:var(--muted)}
+
+/* crate vote */
+.overlay.voteov{background:color-mix(in srgb, var(--ink) 40%, transparent)}
+.vote-card{max-width:420px;align-items:center;text-align:center;border-color:#ffcc33;box-shadow:0 0 0 1px #ffcc3355,0 0 40px #ffcc3333,0 20px 60px color-mix(in srgb, var(--ink) 80%, transparent);animation:votePop .25s ease-out}
+@keyframes votePop{from{transform:scale(.85);opacity:0}to{transform:none;opacity:1}}
+.vote-card h1{font-size:26px;margin:0}
+.vote-card p{margin:0}
+.vote-crate{width:72px;height:72px;border-radius:12px;background:linear-gradient(#8a5cff,#3a1f8a);border:3px solid #ffcc33;display:grid;place-items:center;box-shadow:0 0 24px #ffcc3388;animation:crateBob 1.2s ease-in-out infinite}
+.vote-crate span{font-family:var(--display);font-size:36px;color:#ffcc33;text-shadow:0 0 10px #ffcc33}
+@keyframes crateBob{50%{transform:translateY(-5px) rotate(-3deg)}}
+.vote-btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%}
+.vbtn{padding:14px 10px;border-radius:12px;font-family:var(--display);font-size:16px;border:2px solid;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .1s,box-shadow .15s}
+.vbtn kbd{font-family:var(--mono, ui-monospace, monospace);font-size:11px;padding:1px 6px;border-radius:5px;border:1px solid currentColor;opacity:.7}
+.vbtn.yes{background:#123d22;border-color:#7ee081;color:#b8f5ba}
+.vbtn.no{background:#3d1218;border-color:#ff4d5e;color:#ffb3ba}
+.vbtn:hover:not(:disabled){transform:translateY(-1px)}
+.vbtn.chosen.yes{background:#7ee081;color:#0a1c10;box-shadow:0 0 18px #7ee08188}
+.vbtn.chosen.no{background:#ff4d5e;color:#2a0508;box-shadow:0 0 18px #ff4d5e88}
+.vote-bar{width:100%;height:6px;border-radius:99px;background:var(--ink-2);overflow:hidden}
+.vote-bar i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#ff4d5e,#ffcc33);transform-origin:left}
+.vote-tally{display:flex;justify-content:space-between;width:100%;font-size:13px;font-variant-numeric:tabular-nums;color:var(--muted)}
+.vote-tally .vy{color:#7ee081;font-weight:600}.vote-tally .vn{color:#ff4d5e;font-weight:600}
+.vote-note{font-size:11px;color:var(--muted)}
+@media (max-width:420px){ .vote-btns{grid-template-columns:1fr} }

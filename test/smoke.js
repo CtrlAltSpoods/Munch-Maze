@@ -130,7 +130,7 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   a.ws.send(JSON.stringify({ t: 'ready' }));
   const lvl = await waitFor(b, 'level', m => m.lv === 2, 6000);
   const ratio = M.playerSpeed(2) / M.playerSpeed(1), gr = M.ghostSpeed(3) / M.ghostSpeed(1);
-  if (Math.abs(ratio - 1.1) > 1e-9 || Math.abs(gr - 1.21) > 1e-9) fail('speed should grow 10% per level, compounding');
+  if (Math.abs(ratio - 1.05) > 1e-9 || Math.abs(gr - 1.1025) > 1e-9) fail('speed should grow 5% per level, compounding');
   console.log('ok  host started level 2; speed x' + ratio.toFixed(2) + ' (level 3: x' + gr.toFixed(2) + ')');
   const lv2 = M.genLevel(wa.seed, 2);
   console.log('ok  both moved to level', lvl.lv, `(${lv2.W}x${lv2.H}, ${M.ghostCount(2)} ghosts)`);

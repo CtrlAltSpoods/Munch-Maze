@@ -78,6 +78,7 @@
     { id: 'phone',      name: 'Phone A Ghost',    good: false, dur: 20, weight: 10, desc: 'An extra ghost joins for 20 s' }
   ];
   const POWERUP_FROM_LEVEL = 3;
+  const VOTE_TIME = 8;   // seconds everyone gets to vote on opening a crate
   const PU_SPIN = 1.6, PU_HOLD = 2.0;   // slot spins, then shows the result this long before play resumes
   const NUKE_WARN = 10;    // seconds everyone has to survive after the slot lands
   const NUKE_TIME = 7.0;   // the jet, the drop and the blast (everything paused)
@@ -91,8 +92,9 @@
   // Level rules
   const levelSize = L => [Math.min(15 + 4 * (L - 1), 63), Math.min(11 + 4 * (L - 1), 51)];
   const ghostCount = L => Math.min(1 + Math.floor(L / 2), 6);
-  // Everything that moves gets 10% faster with each completed level (compounding).
-  const speedMult = L => Math.pow(1.1, Math.max(0, L - 1));
+  // Everything that moves gets 5% faster with each completed level (compounding).
+  const SPEED_STEP = 0.05;
+  const speedMult = L => Math.pow(1 + SPEED_STEP, Math.max(0, L - 1));
   const playerSpeed = L => 5.2 * speedMult(L);
   const ghostSpeed = L => 3.6 * speedMult(L);          // chasing / scattering
   const frightGhostSpeed = L => 2.4 * speedMult(L);    // blue
@@ -206,6 +208,6 @@
     return o;
   }
 
-  return { DIRS, POWERUPS, POWERUP_FROM_LEVEL, PU_SPIN, PU_HOLD, NUKE_WARN, NUKE_TIME, rollPowerup, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
+  return { DIRS, POWERUPS, POWERUP_FROM_LEVEL, VOTE_TIME, SPEED_STEP, PU_SPIN, PU_HOLD, NUKE_WARN, NUKE_TIME, rollPowerup, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
     genLevel, wrapX, canGo, entPos, getBit, setBit, toB64, fromB64 };
 });

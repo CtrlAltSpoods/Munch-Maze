@@ -66,6 +66,11 @@ class Game {
       pu: this.pending ? { kind: this.pending.kind, by: this.pending.by, x: this.pending.x, y: this.pending.y } : null
     });
     this.broadcast({ t: 'join', id: p.id, nm: p.nm, col: p.col, mdl: p.mdl, ci: p.ci }, p.id);
+    if (this.ph === 6 && this.votes) {   // arrived mid-vote: they get a say too
+      const pd = this.pending;
+      this.send(p, { t: 'vote', by: pd.by, nm: pd.nm, x: pd.x, y: pd.y, crate: pd.crate, s: Math.round(this.ct * 10) / 10, tot: this.players.size });
+      this.sendTally();
+    }
   }
 
   remove(p) {
@@ -73,6 +78,10 @@ class Game {
     if (this.hostId === p.id) {
       const next = this.players.values().next().value;   // Map keeps join order
       this.hostId = next ? next.id : 0;
+    }
+    if (this.ph === 6 && this.votes) {   // a leaver's vote doesn't count; maybe everyone left has voted now
+      this.votes.delete(p.id);
+      if (this.players.size && this.votes.size >= this.players.size) this.endVote(); else this.sendTally();
     }
     // keep the run for a while so a reconnect resumes it; record the score once it expires
     if (p.token) this.resume.set(p.token, { sc: p.sc, li: p.li, over: p.over, nm: p.nm, lv: this.L, at: Date.now() });
@@ -93,7 +102,7 @@ class Game {
       case 'eat': {
         // Pellets eaten in the moment before a crate paused the game still count:
         // the player couldn't have known yet.
-        const grace = this.ph === 4 && (M.PU_SPIN + M.PU_HOLD) - this.ct < 0.5;
+        const grace = (this.ph === 4 || this.ph === 6) && Date.now() - (this.pausedAt || 0) < 500;
         if ((this.ph !== 0 && !grace) || !p.al || p.over) return;
         if (m.x !== undefined) this.onMessage(p, { t: 'p', x: m.x, y: m.y, f: m.f });
         const list = Array.isArray(m.i) ? m.i.slice(0, 16) : [m.i];
@@ -141,10 +150,18 @@ class Game {
         let dx = Math.abs(p.x - c.x); dx = Math.min(dx, this.lv.W - dx);
         if (dx + Math.abs(p.y - c.y) > 1.6 + M.playerSpeed(this.L) * 0.08) return;
         this.crates = this.crates.filter(k => k !== c);
-        const kind = this.opts.forcePowerup != null ? this.opts.forcePowerup : M.rollPowerup();   // forcing is for tests only
-        this.pending = { kind, by: p.id, x: c.x, y: c.y };
-        this.ph = 4; this.ct = M.PU_SPIN + M.PU_HOLD;
-        this.broadcast({ t: 'pu', kind, by: p.id, nm: p.nm, x: c.x, y: c.y, crate: c.id });
+        // pause and let everyone vote on opening it; the slot only spins on a yes
+        this.pending = { kind: -1, by: p.id, nm: p.nm, x: c.x, y: c.y, crate: c.id };
+        this.ph = 6; this.ct = M.VOTE_TIME; this.pausedAt = Date.now();
+        this.votes = new Map();
+        this.broadcast({ t: 'vote', by: p.id, nm: p.nm, x: c.x, y: c.y, crate: c.id, s: M.VOTE_TIME, tot: this.players.size });
+        return;
+      }
+      case 'vote': {   // yes / no on opening the crate
+        if (this.ph !== 6 || !this.votes) return;
+        this.votes.set(p.id, !!m.y);
+        this.sendTally();
+        if (this.votes.size >= this.players.size) this.endVote();
         return;
       }
       case 'testpu': {   // TEST_MODE: the host picks an effect; same pause and slot, no randomness
@@ -152,7 +169,7 @@ class Game {
         if (!this.opts.testMode || p.id !== this.hostId || this.ph !== 0 || !M.POWERUPS[kind]) return;
         const x = Math.round(p.x), y = Math.round(p.y);
         this.pending = { kind, by: p.id, x, y };
-        this.ph = 4; this.ct = M.PU_SPIN + M.PU_HOLD;
+        this.ph = 4; this.ct = M.PU_SPIN + M.PU_HOLD; this.pausedAt = Date.now();
         this.broadcast({ t: 'pu', kind, by: p.id, nm: p.nm, x, y, crate: 0, test: 1 });
         return;
       }
@@ -184,6 +201,20 @@ class Game {
   frighten(dur) {
     this.fr = dur || M.frightDuration(this.L); this.fid++;
     for (const g of this.ghosts) if (g.st === 1 || g.st === 2) { g.st = 2; g.rev = true; }
+  }
+
+  /* ---------- crate votes ---------- */
+  tally() { let y = 0, n = 0; for (const v of this.votes.values()) v ? y++ : n++; return { y, n }; }
+  sendTally() { const { y, n } = this.tally(); this.broadcast({ t: 'vt', y, n, tot: this.players.size, s: Math.max(0, Math.round(this.ct * 10) / 10) }); }
+  /** Majority of the votes cast decides; a tie, or nobody voting, opens it (someone did walk into it). */
+  endVote() {
+    const { y, n } = this.tally(), open = y >= n, pd = this.pending;
+    this.votes = null;
+    this.broadcast({ t: 'voted', open, y, n });
+    if (!open) { this.pending = null; this.ph = 0; return; }   // binned: no spin, no effect
+    pd.kind = this.opts.forcePowerup != null ? this.opts.forcePowerup : M.rollPowerup();   // forcing is for tests only
+    this.ph = 4; this.ct = M.PU_SPIN + M.PU_HOLD;
+    this.broadcast({ t: 'pu', kind: pd.kind, by: pd.by, nm: pd.nm, x: pd.x, y: pd.y, crate: pd.crate });
   }
 
   /* ---------- power-ups ---------- */
@@ -384,6 +415,9 @@ class Game {
     if (this.ph === 1) {             // celebrating
       this.ct -= dt;
       if (this.ct <= 0) { this.ph = 2; this.ct = 0; }
+    } else if (this.ph === 6) {      // voting on a crate; everything is paused
+      this.ct -= dt;
+      if (this.ct <= 0) this.endVote();
     } else if (this.ph === 4) {      // power-up slot on screen; everything is paused
       this.ct -= dt;
       if (this.ct <= 0) {

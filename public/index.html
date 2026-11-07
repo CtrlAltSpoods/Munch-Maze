@@ -167,6 +167,20 @@
           <p class="wait" id="readyWait" hidden>Waiting for the host…</p>
         </div>
       </div>
+      <div class="overlay voteov" id="voteOv" hidden>
+        <div class="card vote-card" role="dialog" aria-labelledby="voteTitle">
+          <div class="vote-crate" aria-hidden="true"><span>?</span></div>
+          <h1 id="voteTitle">Open the loot crate?</h1>
+          <p id="voteWho">Someone found a loot crate.</p>
+          <div class="vote-btns">
+            <button type="button" class="vbtn yes" id="voteYes">Yes, open it <kbd>Y</kbd></button>
+            <button type="button" class="vbtn no" id="voteNo">No, bin it <kbd>N</kbd></button>
+          </div>
+          <div class="vote-bar"><i id="voteBar"></i></div>
+          <div class="vote-tally"><span class="vy" id="voteY">0 yes</span><span id="voteLeft">8s</span><span class="vn" id="voteN">0 no</span></div>
+          <p class="vote-note">Most votes wins. A tie, or no votes at all, opens it.</p>
+        </div>
+      </div>
       <div class="overlay" id="overOv" hidden>
         <div class="card">
           <h1>Game over</h1>
