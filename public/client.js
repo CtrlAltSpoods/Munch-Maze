@@ -15,6 +15,11 @@ const cookie = {
 const MAX_START_LEVEL = 50;
 let bestLevel = Math.max(1, parseInt(cookie.get('mm_best_level'), 10) || 1);
 function recordLevel(L) { if (L > bestLevel) { bestLevel = L; cookie.set('mm_best_level', String(L)); } }
+// Highest level cleared, which unlocks characters and colours. Reaching level N means N-1 was cleared.
+let clearedLevel = Math.max(parseInt(cookie.get('mm_cleared'), 10) || 0, bestLevel - 1);
+function recordCleared(L) { if (L > clearedLevel) { clearedLevel = L; cookie.set('mm_cleared', String(L)); refreshPicker(); } }
+const modelOpen = i => clearedLevel >= M.modelUnlock(i);
+const colourOpen = k => clearedLevel >= M.colourUnlock(k);
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
@@ -38,8 +43,9 @@ const S = {
 };
 { // remembered character and colour
   const mdl = parseInt(store.get('mm.model'), 10), ci = parseInt(store.get('mm.ci'), 10);
-  const look = M.pickModel(Number.isFinite(mdl) ? mdl : 0, Number.isFinite(ci) ? ci : (Math.random() * 5 | 0));
-  S.model = look.mdl; S.ci = look.ci; S.color = look.col;
+  let look = M.pickModel(Number.isFinite(mdl) ? mdl : 0, Number.isFinite(ci) ? ci : 0);
+  if (!modelOpen(look.mdl) || !colourOpen(look.ci)) look = M.pickModel(modelOpen(look.mdl) ? look.mdl : 0, colourOpen(look.ci) ? look.ci : 0);   // fall back if a saved pick is still locked
+  S.model = look.mdl; S.ci = look.ci; S.color = look.col; S.paint = look.paint;
 }
 
 function respawn() { const lv = S.lvl; S.me = { tx: lv.sx, ty: lv.sy, d: -1, t: 0, want: -1, face: 2 }; S.inv = 2; S.camX = null; }
@@ -74,7 +80,7 @@ function onMsg(m) {
   switch (m.t) {
     case 'welcome': {
       S.id = m.id; S.seed = m.seed;
-      S.roster.clear(); for (const r of m.roster || []) S.roster.set(r[0], { nm: String(r[1]), col: String(r[2]), mdl: r[3] | 0 });
+      S.roster.clear(); for (const r of m.roster || []) S.roster.set(r[0], { nm: String(r[1]), col: String(r[2]), mdl: r[3] | 0, paint: M.pickModel(r[3], r[4]).paint });
       S.sc = m.sc | 0; S.li = m.li | 0; S.over = !!m.over;
       loadLevel(m.lv | 0, m.b, m.ph | 0);
       S.inGame = true;
@@ -97,7 +103,7 @@ function onMsg(m) {
       if (S.ph === 0) recordLevel(S.L);
       if (m.adv && !S.over) A.sfx('life');
       break;
-    case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col), mdl: m.mdl | 0 }); A.sfx('join'); updateLobby(); break;
+    case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col), mdl: m.mdl | 0, paint: M.pickModel(m.mdl, m.ci).paint }); A.sfx('join'); updateLobby(); break;
     case 'leave': S.roster.delete(m.id); S.ov.delete(m.id); updateLobby(); break;
     case 'pts': MazeFX.text(+m.x || 0, (+m.y || 0) - 0.3, String(m.v | 0), '#41e0f0', 0.95); break;
     case 'error':
@@ -124,7 +130,7 @@ function onMsg(m) {
       const pl = [];
       for (const a of m.p || []) {
         const id = a[0], r = S.roster.get(id) || { nm: 'Player', col: '#ffcc33' };
-        const p = { id, x: +a[1], y: +a[2], f: a[3] & 3, al: a[4] === 1, sc: a[5] | 0, li: a[6] | 0, over: a[7] === 1, nm: r.nm, col: /^#[0-9a-f]{6}$/i.test(r.col) ? r.col : '#ffcc33', mdl: r.mdl | 0 };
+        const p = { id, x: +a[1], y: +a[2], f: a[3] & 3, al: a[4] === 1, sc: a[5] | 0, li: a[6] | 0, over: a[7] === 1, nm: r.nm, col: /^#[0-9a-f]{6}$/i.test(r.col) ? r.col : '#ffcc33', mdl: r.mdl | 0, paint: r.paint || r.col };
         if (id === S.id) {
           S.sc = p.sc; S.li = p.li;
           if (p.over && !S.over) { S.over = true; A.sfx('over'); endStreak(true); $('overTxt').textContent = 'You scored ' + S.sc.toLocaleString() + ' and reached level ' + S.L + '.'; $('overOv').hidden = false; }
@@ -384,15 +390,15 @@ function drawBulbs(T) {
   ctx.restore();
 }
 
-function drawPac(x, y, T, col, face, mouth, glow = true, mdl = 0, dying = 0) {
-  const cx = (x + .5) * T, cy = (y + .5) * T, r = T * .44;
+function drawPac(x, y, T, paint, face, mouth, glow = true, mdl = 0, dying = 0) {
+  const cx = (x + .5) * T, cy = (y + .5) * T, r = T * .44, col = MazeModels.colorAt(paint, S.time);
   if (glow) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha *= 0.55; blit(glowSprite(col, T * 0.3, T * 0.55), cx, cy); ctx.globalAlpha /= 0.55; ctx.globalCompositeOperation = 'source-over'; }
   const chew = Math.max(0, Math.min(1, (mouth - 0.06) / 0.24));
   if (dying > 0) {   // shrink and spin away
     ctx.save(); ctx.translate(cx, cy); ctx.rotate(dying * 9); ctx.scale(1 - dying, 1 - dying);
-    MazeModels.draw(ctx, mdl, 0, 0, r, col, face, 1, S.time); ctx.restore(); return;
+    MazeModels.draw(ctx, mdl, 0, 0, r, paint, face, 1, S.time); ctx.restore(); return;
   }
-  MazeModels.draw(ctx, mdl, cx, cy, r, col, face, chew, S.time);
+  MazeModels.draw(ctx, mdl, cx, cy, r, paint, face, chew, S.time);
 }
 function shade(hex, k) { const n = parseInt(hex.slice(1), 16); const f = v => Math.max(0, Math.min(255, Math.round(v + (k < 0 ? v * k : (255 - v) * k)))); return `rgb(${f(n >> 16 & 255)},${f(n >> 8 & 255)},${f(n & 255)})`; }
 function drawGhost(x, y, T, col, st, d, flash) {
@@ -478,7 +484,16 @@ function render(dt) {
       if (!p.al || p.over) continue;
       let o = S.ov.get(p.id); if (!o || Math.hypot(o.x - p.x, o.y - p.y) > 3) { o = { x: p.x, y: p.y }; S.ov.set(p.id, o); }
       o.x += (p.x - o.x) * kx; o.y += (p.y - o.y) * kx;
-      ctx.globalAlpha = .92; drawPac(o.x, o.y, T, p.col, p.f, .06 + .22 * Math.abs(Math.sin(S.time * 12 + p.id)), true, p.mdl); ctx.globalAlpha = 1;
+      // trail and ring, like your own, so other players stand out against the maze
+      const pc = MazeModels.colorAt(p.paint, S.time), moved = !o.lx || Math.hypot(o.x - o.lx, o.y - o.ly) > 0.01;
+      o.lx = o.x; o.ly = o.y; o.trail = o.trail || [];
+      if (moved && S.ph === 0) o.trail.push({ x: o.x, y: o.y, t: S.time });
+      while (o.trail.length && S.time - o.trail[0].t > 0.22) o.trail.shift();
+      ctx.globalCompositeOperation = 'lighter';
+      for (const q of o.trail) { const a = 1 - (S.time - q.t) / 0.22; ctx.globalAlpha = a * 0.4; blit(glowSprite(pc, T * 0.18, T * 0.3), (q.x + .5) * T, (q.y + .5) * T, 0.6 + a * 0.5); }
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      drawPac(o.x, o.y, T, p.paint, p.f, .06 + .22 * Math.abs(Math.sin(S.time * 12 + p.id)), true, p.mdl);
+      ctx.strokeStyle = pc; ctx.globalAlpha = .3 + beat * .25; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc((o.x + .5) * T, (o.y + .5) * T, T * (.62 + beat * .08), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
       ctx.font = '600 ' + Math.max(10, Math.round(T * .42)) + 'px "IBM Plex Mono", ui-monospace, monospace';
       ctx.lineWidth = 3; ctx.strokeStyle = '#0a0c1c'; ctx.strokeText(p.nm, (o.x + .5) * T, (o.y + .5) * T - T * .5);
       ctx.fillStyle = '#eef0ff'; ctx.fillText(p.nm, (o.x + .5) * T, (o.y + .5) * T - T * .5);
@@ -489,16 +504,16 @@ function render(dt) {
     while (trail.length && S.time - trail[0].t > 0.22) trail.shift();
     if (!S.over && S.alive) {
       ctx.globalCompositeOperation = 'lighter';
-      const tcol = S.streakTier >= 3 ? '#ff7a1a' : S.color;
+      const myCol = MazeModels.colorAt(S.paint, S.time), tcol = S.streakTier >= 3 ? '#ff7a1a' : myCol;
       for (const p of trail) { const a = 1 - (S.time - p.t) / 0.22; ctx.globalAlpha = a * (S.streakTier >= 2 ? 0.7 : 0.4); blit(glowSprite(tcol, T * 0.18, T * 0.3), (p.x + .5) * T, (p.y + .5) * T, 0.6 + a * 0.5); }
       ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
     }
     if (!S.over) {
-      if (!S.alive) { const prog = 1 - Math.max(0, S.deadT) / 1.4; if (prog < .95) drawPac(px, py, T, S.color, S.me.face, .3, true, S.model, prog); }
+      if (!S.alive) { const prog = 1 - Math.max(0, S.deadT) / 1.4; if (prog < .95) drawPac(px, py, T, S.paint, S.me.face, .3, true, S.model, prog); }
       else {
         const blink = S.inv > 0 && Math.floor(S.time * 10) % 2 === 0;
-        if (!blink) drawPac(px, py, T, S.color, S.me.face, S.me.d >= 0 && S.ph === 0 ? .06 + .24 * Math.abs(Math.sin(S.time * 14)) : .18, true, S.model);
-        ctx.strokeStyle = S.color; ctx.globalAlpha = .35 + beat * .3; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc((px + .5) * T, (py + .5) * T, T * (.62 + beat * .08), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
+        if (!blink) drawPac(px, py, T, S.paint, S.me.face, S.me.d >= 0 && S.ph === 0 ? .06 + .24 * Math.abs(Math.sin(S.time * 14)) : .18, true, S.model);
+        ctx.strokeStyle = MazeModels.colorAt(S.paint, S.time); ctx.globalAlpha = .35 + beat * .3; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc((px + .5) * T, (py + .5) * T, T * (.62 + beat * .08), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
       }
     }
   }
@@ -623,6 +638,7 @@ function drawStreakHud() {
   $('streakBar').style.transform = 'scaleX(' + Math.max(0, 1 - S.streakT / STREAK_WINDOW).toFixed(3) + ')';
 }
 function levelClear() {
+  if (S.alive || !S.over) recordCleared(S.L);
   A.sfx('clear'); endStreak(false);
   const nx = M.genLevel(S.seed, S.L + 1);
   const syms = [String(nx.W), '×', String(nx.H)];
@@ -723,42 +739,76 @@ addEventListener('keydown', e => { if ((e.code === 'Enter' || e.code === 'Space'
 
 /* ---------- character picker ---------- */
 const pickerCanvases = [];
+function lockText(level) { return 'Clear level ' + level; }
 function buildPicker() {
   const grid = $('modelGrid'); grid.textContent = '';
   M.MODELS.forEach((m, i) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'model';
-    b.setAttribute('role', 'radio'); b.setAttribute('aria-label', m.name); b.dataset.i = String(i);
+    b.setAttribute('role', 'radio'); b.dataset.i = String(i);
     const cv = document.createElement('canvas'); cv.width = 112; cv.height = 112;
-    const lb = document.createElement('span'); lb.textContent = m.name;
-    b.append(cv, lb); grid.appendChild(b); pickerCanvases[i] = cv;
-    b.addEventListener('click', () => { S.model = i; refreshPicker(); A.unlock(); A.sfx('eat'); });
+    const lb = document.createElement('span'); lb.className = 'mname';
+    const lock = document.createElement('span'); lock.className = 'lock'; lock.textContent = 'Lvl ' + M.modelUnlock(i);
+    b.append(cv, lb, lock); grid.appendChild(b); pickerCanvases[i] = cv;
+    b.addEventListener('click', () => {
+      if (!modelOpen(i)) { flashLock(b); return; }
+      S.model = i; refreshPicker(); A.unlock(); A.sfx('eat');
+    });
   });
-  grid.addEventListener('keydown', e => {   // arrow keys move through the grid
+  grid.addEventListener('keydown', e => {   // arrow keys move through the unlocked characters
     const d = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 5, ArrowUp: -5 }[e.key]; if (d === undefined) return;
-    e.preventDefault(); S.model = (S.model + d + M.MODELS.length) % M.MODELS.length; refreshPicker(); grid.children[S.model].focus();
+    e.preventDefault();
+    let i = S.model; for (let n = 0; n < M.MODELS.length; n++) { i = (i + d + M.MODELS.length) % M.MODELS.length; if (modelOpen(i)) break; }
+    S.model = i; refreshPicker(); grid.children[S.model].focus();
   });
   refreshPicker();
 }
+function flashLock(el) { el.classList.remove('nope'); void el.offsetWidth; el.classList.add('nope'); A.unlock(); A.sfx('reel'); }
 function refreshPicker() {
-  const m = M.MODELS[S.model]; S.color = m.colors[S.ci];
-  $('charName').textContent = m.name;
-  [...$('modelGrid').children].forEach((b, i) => { const on = i === S.model; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; });
-  const sw = $('swatches'); sw.textContent = '';
-  m.colors.forEach((col, k) => {
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'swatch' + (k === S.ci ? ' on' : '');
-    b.style.setProperty('--c', col); b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(k === S.ci)); b.setAttribute('aria-label', 'Colour ' + (k + 1));
-    b.addEventListener('click', () => { S.ci = k; refreshPicker(); });
-    sw.appendChild(b);
+  if (!$('modelGrid').children.length) return;
+  if (!modelOpen(S.model)) S.model = 0;
+  if (!colourOpen(S.ci)) S.ci = 0;
+  const m = M.MODELS[S.model], look = M.pickModel(S.model, S.ci);
+  S.color = look.col; S.paint = look.paint;
+  const prem = S.ci >= 5 ? M.PREMIUM[S.ci - 5].name : '';
+  $('charName').textContent = m.name + (prem ? ' · ' + prem : '');
+  [...$('modelGrid').children].forEach((b, i) => {
+    const on = i === S.model, open = modelOpen(i);
+    b.classList.toggle('on', on); b.classList.toggle('locked', !open);
+    b.querySelector('.mname').textContent = open ? M.MODELS[i].name : '???';
+    b.setAttribute('aria-checked', String(on)); b.setAttribute('aria-disabled', String(!open));
+    b.setAttribute('aria-label', open ? M.MODELS[i].name : 'Locked: ' + lockText(M.modelUnlock(i)));
+    b.title = open ? M.MODELS[i].name : lockText(M.modelUnlock(i)) + ' to unlock';
+    b.tabIndex = on ? 0 : -1;
   });
+  const sw = $('swatches'); sw.textContent = '';
+  const addSwatch = (k, paint, label) => {
+    const open = colourOpen(k), b = document.createElement('button'); b.type = 'button';
+    b.className = 'swatch' + (k === S.ci ? ' on' : '') + (open ? '' : ' locked') + (k >= 5 ? ' premium p-' + M.PREMIUM[k - 5].id : '');
+    b.style.setProperty('--c', open ? MazeModels.swatchCss(paint) : 'transparent');
+    b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(k === S.ci));
+    b.setAttribute('aria-label', open ? label : label + ', locked: ' + lockText(M.colourUnlock(k)));
+    b.title = open ? label : lockText(M.colourUnlock(k)) + ' to unlock ' + label;
+    if (!open) { const l = document.createElement('span'); l.textContent = String(M.colourUnlock(k)); b.appendChild(l); }
+    b.addEventListener('click', () => { if (!colourOpen(k)) { flashLock(b); return; } S.ci = k; refreshPicker(); });
+    sw.appendChild(b);
+  };
+  m.colors.forEach((col, k) => addSwatch(k, col, 'Colour ' + (k + 1)));
+  const sep = document.createElement('span'); sep.className = 'swsep'; sep.textContent = 'Premium'; sw.appendChild(sep);
+  M.PREMIUM.forEach((p, j) => addSwatch(5 + j, 'p:' + p.id, p.name));
+  $('unlockHint').textContent = clearedLevel >= 50 ? 'Everything unlocked. Nice.'
+    : 'Levels cleared: ' + clearedLevel + '. Clear more to unlock characters, colours and premium finishes (every 10 levels).';
   store.set('mm.model', String(S.model)); store.set('mm.ci', String(S.ci));
 }
 function animatePicker(t) {
   if ($('startOv').hidden) return;
   pickerCanvases.forEach((cv, i) => {
     const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);
-    const on = i === S.model, col = M.MODELS[i].colors[on ? S.ci : 0];
+    const on = i === S.model, open = modelOpen(i);
+    const paint = on ? S.paint : M.MODELS[i].colors[0];
     const chew = on ? 0.5 + 0.5 * Math.sin(t * 10) : 0.35;
-    MazeModels.draw(g, i, 56, 60, on ? 34 : 30, col, 0, chew, on ? t : 0);
+    if (!open) { g.globalAlpha = 0.9; g.filter = 'brightness(0)'; }
+    MazeModels.draw(g, i, 56, 60, on ? 34 : 30, paint, 0, chew, on ? t : 0);
+    g.filter = 'none'; g.globalAlpha = 1;
   });
 }
 buildPicker();

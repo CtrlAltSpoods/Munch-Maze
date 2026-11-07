@@ -29,24 +29,38 @@
     return WA[Math.random() * WA.length | 0] + '-' + WB[Math.random() * WB.length | 0] + '-' + (10 + Math.random() * 90 | 0);
   }
 
-  /* Player characters. Each has five colours; players pick a character and a colour
-     index, and the server turns that into the colour everyone sees. */
+  /* Player characters, in unlock order: character N needs level N cleared (the first is free).
+     Each has five colours (colour N also needs level N cleared), plus five premium
+     animated colours shared by every character, unlocked every 10 levels cleared. */
   const MODELS = [
-    { id: 'chomper', name: 'Chomper', colors: ['#ffcc33', '#7cf0a0', '#6fd3ff', '#ff8fd1', '#f2f2f2'] },
-    { id: 'saucer',  name: 'Saucer',  colors: ['#c9d3e6', '#9dff6a', '#41e0f0', '#ff5fd2', '#ffa24c'] },
-    { id: 'robot',   name: 'Robot',   colors: ['#b8c4d6', '#ff6b6b', '#ffd23f', '#2fd4b0', '#a77bff'] },
-    { id: 'slime',   name: 'Slime',   colors: ['#7cf06a', '#5fb4ff', '#ff7ad9', '#ffae42', '#b77bff'] },
-    { id: 'shark',   name: 'Shark',   colors: ['#8fb0d8', '#e6edf5', '#e0a35a', '#41e0f0', '#ff6b8b'] },
-    { id: 'cat',     name: 'Cat',     colors: ['#ffa24c', '#b9b4c9', '#f2f2f2', '#e8c39e', '#ff9ad5'] },
-    { id: 'rocket',  name: 'Rocket',  colors: ['#ff5a5a', '#eef0ff', '#4d8bff', '#ffcc33', '#7ee081'] },
-    { id: 'bee',     name: 'Bee',     colors: ['#ffd23f', '#ff9f1c', '#c3f73a', '#ff8fd1', '#6fe3ff'] },
-    { id: 'frog',    name: 'Frog',    colors: ['#6fdc5a', '#2fd4b0', '#ff5a5a', '#4d8bff', '#ffd23f'] },
-    { id: 'gem',     name: 'Gem',     colors: ['#ff4d6d', '#3ddc84', '#4d7cff', '#b06bff', '#ffc24d'] }
+    { id: 'chomper', name: 'Chomper',    colors: ['#ffcc33', '#7cf0a0', '#6fd3ff', '#ff8fd1', '#f2f2f2'] },
+    { id: 'shark',   name: 'Shark',      colors: ['#8fb0d8', '#e6edf5', '#e0a35a', '#41e0f0', '#ff6b8b'] },
+    { id: 'bear',    name: 'Polar Bear', colors: ['#f4f8ff', '#efe3c8', '#c9d6e8', '#ffd6e8', '#d6f0ff'] },
+    { id: 'piranha', name: 'Piranha',    colors: ['#ff5a4a', '#ff9f1c', '#6fa8ff', '#a77bff', '#c0c8d8'] },
+    { id: 'croc',    name: 'Croc',       colors: ['#5fbf4a', '#9aa83a', '#3fae8f', '#d8c27a', '#7a8cff'] },
+    { id: 'wolf',    name: 'Wolf',       colors: ['#b8c0cc', '#8a7562', '#ece6dc', '#6a7488', '#c88f55'] },
+    { id: 'dino',    name: 'Dino',       colors: ['#7ee081', '#ff8a3d', '#5fb4ff', '#c77dff', '#e0c070'] },
+    { id: 'whale',   name: 'Whale',      colors: ['#4d8bff', '#6fd3ff', '#8fa8c8', '#5fd4b0', '#ff9ad5'] },
+    { id: 'dragon',  name: 'Dragon',     colors: ['#ff4d4d', '#3ddc84', '#4d7cff', '#b06bff', '#ffcc33'] },
+    { id: 'gem',     name: 'Gem',        colors: ['#ff4d6d', '#3ddc84', '#4d7cff', '#b06bff', '#ffc24d'] }
   ];
+  const PREMIUM = [
+    { id: 'rainbow', name: 'Rainbow',   at: 10, base: '#ff5fd2' },
+    { id: 'gold',    name: 'Gold Rush', at: 20, base: '#ffcc33' },
+    { id: 'plasma',  name: 'Plasma',    at: 30, base: '#41e0f0' },
+    { id: 'galaxy',  name: 'Galaxy',    at: 40, base: '#8a5cff' },
+    { id: 'prism',   name: 'Prism',     at: 50, base: '#f4f6ff' }
+  ];
+  const COLOURS_PER_MODEL = 5 + PREMIUM.length;
+  /** Levels that must be cleared to use character i / colour k (0-based). */
+  const modelUnlock = i => (i | 0) <= 0 ? 0 : (i | 0) + 1;
+  const colourUnlock = k => (k | 0) <= 0 ? 0 : (k | 0) < 5 ? (k | 0) + 1 : PREMIUM[(k | 0) - 5].at;
+  /** Validated choice. col is a plain hex for lists and glows; paint is what the character is drawn with. */
   const pickModel = (mdl, ci) => {
-    const m = MODELS[(mdl | 0) >= 0 && (mdl | 0) < MODELS.length ? mdl | 0 : 0];
-    const c = (ci | 0) >= 0 && (ci | 0) < 5 ? ci | 0 : 0;
-    return { mdl: MODELS.indexOf(m), ci: c, col: m.colors[c] };
+    const i = (mdl | 0) >= 0 && (mdl | 0) < MODELS.length ? mdl | 0 : 0;
+    const k = (ci | 0) >= 0 && (ci | 0) < COLOURS_PER_MODEL ? ci | 0 : 0;
+    const m = MODELS[i], prem = k >= 5 ? PREMIUM[k - 5] : null;
+    return { mdl: i, ci: k, col: prem ? prem.base : m.colors[k], paint: prem ? 'p:' + prem.id : m.colors[k] };
   };
 
   // Level rules
@@ -167,6 +181,6 @@
     return o;
   }
 
-  return { DIRS, MODELS, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
+  return { DIRS, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
     genLevel, wrapX, canGo, entPos, getBit, setBit, toB64, fromB64 };
 });

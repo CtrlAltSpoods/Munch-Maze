@@ -134,7 +134,7 @@ function onSocket(ws) {
       if (CFG.maxPlayersPerMaze && g.players.size >= CFG.maxPlayersPerMaze) { ws.send(JSON.stringify({ t: 'error', msg: 'That maze is full. Try another seed.' })); return; }
       if (!g.players.size && !g.title && !g.isPrivate) g.title = cleanTitle(m.lname) || cleanName(m.nm) + '’s maze';   // whoever opens a public maze names it
       const look = M.pickModel(m.mdl, m.ci);   // validated character + colour
-      p = { id: nextId++, ws, nm: cleanName(m.nm), col: look.col, mdl: look.mdl, x: 0, y: 0, f: 2, al: true, sc: 0, li: 3, over: false, spawnAt: Date.now(), fid: -1, combo: 0 };
+      p = { id: nextId++, ws, nm: cleanName(m.nm), col: look.col, mdl: look.mdl, ci: look.ci, x: 0, y: 0, f: 2, al: true, sc: 0, li: 3, over: false, spawnAt: Date.now(), fid: -1, combo: 0 };
       game = g;
       g.add(p, typeof m.tok === 'string' ? m.tok.slice(0, 64) : '');
       return;
