@@ -13,7 +13,7 @@ Everyone who enters the same **seed** shares one maze. Players eat pellets toget
 - Ten player characters (Chomper, Saucer, Robot, Slime, Shark, Cat, Rocket, Bee, Frog and Gem), each in five colours, picked on the start screen and remembered per browser.
 - Neon arcade presentation: glowing mazes that pulse with the music, softly chasing marquee lights, a warp-speed starfield (with the rare planet drifting past) that speeds up with the game and with your streak, sparks, coin showers and confetti. Eat pellets back to back to build a **streak** (NICE → SWEET → ON FIRE → JACKPOT → MEGA JACKPOT); from a 100 streak the screen rumbles gently until the streak ends, and clearing a level spins slot reels to reveal the next maze. These are visual and sound rewards only; scores come from the server. Players with *reduce motion* turned on get no screen shake, softer flashes and fewer particles. Fonts load from Google Fonts, falling back to system fonts offline.
 - An original electro soundtrack and arcade sound effects, generated live in the browser. Music and effects have their own volume sliders (10% and 40% by default, remembered per browser); press **M** to mute.
-- High scores are kept in `/data/scores.json`.
+- High scores are kept in `/data/scores.json`, with one entry per player name (their best score; names match ignoring capitals and extra spaces).
 
 ## Run it
 

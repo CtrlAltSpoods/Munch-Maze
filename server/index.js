@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const M = require('../shared/maze.js');
 const { handleUpgrade } = require('./ws.js');
 const { Game } = require('./game.js');
+const Scores = require('./scores.js');
 
 /* ---------- configuration (environment variables) ---------- */
 const env = (k, d) => (process.env[k] === undefined || process.env[k] === '' ? d : process.env[k]);
@@ -53,14 +54,15 @@ function prepareDataDir() {
 let scores = [];
 let scoresDirty = false;
 function loadScores() {
-  try { const s = JSON.parse(fs.readFileSync(SCORES_FILE, 'utf8')); if (Array.isArray(s)) scores = s.slice(0, 25); }
-  catch (e) { scores = []; }
+  let raw = [];
+  try { raw = JSON.parse(fs.readFileSync(SCORES_FILE, 'utf8')); } catch (e) { raw = []; }
+  scores = Scores.dedupe(raw);
+  // merge duplicates left by older versions and save the cleaned table
+  if (Array.isArray(raw) && raw.length !== scores.length) { scoresDirty = true; console.log(`[scores] merged ${raw.length} entries into ${scores.length} (one per name)`); }
 }
 function addScore(e) {
-  scores.push({ n: String(e.n).slice(0, 16), sc: e.sc | 0, lv: e.lv | 0, seed: String(e.seed).slice(0, 40), at: new Date().toISOString() });
-  scores.sort((a, b) => b.sc - a.sc);
-  scores = scores.slice(0, 25);
-  scoresDirty = true;
+  const next = Scores.add(scores, e);
+  if (next) { scores = next; scoresDirty = true; }
 }
 setInterval(() => {
   if (!scoresDirty) return; scoresDirty = false;
