@@ -39,10 +39,10 @@ class Game {
     this.fr = 0; this.fid = 0; this.ph = lobby ? 3 : 0; this.ct = 0; this.clock = 0; this.lastMode = -1;
     this.eatenSince = [];
     // loot crates: from level 3, 1 or 2 appear at random moments in the level
-    this.crates = []; this.effects = []; this.pending = null; this.nukeIn = 0; this.crateSeq = this.crateSeq || 0;
+    this.crates = []; this.effects = []; this.pending = null; this.nukeIn = 0; this.lvStats = null; this.crateSeq = this.crateSeq || 0;
     this.spawns = L >= M.POWERUP_FROM_LEVEL ? Array.from({ length: Math.random() < 0.5 ? 1 : 2 }, () => 6 + Math.random() * 30).sort((a, b) => a - b) : [];
     for (const p of this.players.values()) {
-      p.x = this.lv.sx; p.y = this.lv.sy; p.combo = 0;
+      p.x = this.lv.sx; p.y = this.lv.sy; p.combo = 0; p.lvEat = 0; p.lvBest = 0;
       if (!p.over) { p.al = true; p.spawnAt = Date.now(); if (advance) p.li = Math.min(5, p.li + 1); }
     }
     this.broadcast({ t: 'level', lv: L, ph: this.ph, adv: advance ? 1 : 0 });
@@ -63,6 +63,7 @@ class Game {
       lv: this.L, b: M.toB64(this.bits),
       roster: [...this.players.values()].map(q => [q.id, q.nm, q.col, q.mdl, q.ci]),
       sc: p.sc, li: p.li, over: p.over, host: this.hostId, ph: this.ph,
+      stats: (this.ph === 1 || this.ph === 2) ? this.lvStats : null,
       pu: this.pending ? { kind: this.pending.kind, by: this.pending.by, x: this.pending.x, y: this.pending.y } : null
     });
     this.broadcast({ t: 'join', id: p.id, nm: p.nm, col: p.col, mdl: p.mdl, ci: p.ci }, p.id);
@@ -106,7 +107,10 @@ class Game {
         if ((this.ph !== 0 && !grace) || !p.al || p.over) return;
         if (m.x !== undefined) this.onMessage(p, { t: 'p', x: m.x, y: m.y, f: m.f });
         const list = Array.isArray(m.i) ? m.i.slice(0, 16) : [m.i];
+        // the client counts its streak; it can't be longer than the pellets this player actually got
+        const sk = (m.sk | 0) > 0 ? m.sk | 0 : 0;
         for (const raw of list) this.eat(p, raw | 0);
+        if (sk) p.lvBest = Math.max(p.lvBest || 0, Math.min(sk, p.lvEat || 0));
         return;
       }
       case 'ghost': {
@@ -193,14 +197,26 @@ class Game {
     let dx = Math.abs(Math.round(p.x) - tx); dx = Math.min(dx, lv.W - dx);
     if (dx + Math.abs(Math.round(p.y) - ty) > 2 + M.playerSpeed(this.L) * 0.06 && !this.laserCanReach(p, tx, ty)) return;   // pellets eaten since the last update
     M.setBit(this.bits, i); this.left--; this.eatenSince.push(i);
+    p.lvEat = (p.lvEat || 0) + 1;
     p.sc += lv.p[i] === 2 ? 50 : 10;
     if (lv.p[i] === 2) { this.frighten(); this.broadcast({ t: 'pw', id: p.id, i }); }   // everyone hears who powered up
-    if (this.left <= 0) { this.ph = 1; this.ct = 3.9; this.nukeIn = 0; }   // long enough for the slot reels to finish
+    if (this.left <= 0) this.finishLevel(false);
   }
 
   frighten(dur) {
     this.fr = dur || M.frightDuration(this.L); this.fid++;
     for (const g of this.ghosts) if (g.st === 1 || g.st === 2) { g.st = 2; g.rev = true; }
+  }
+
+  /** Level over: celebrate, and tell everyone who got what. */
+  finishLevel(nuked) {
+    this.ph = 1; this.ct = 3.9; this.nukeIn = 0;   // long enough for the slot reels to finish
+    const total = this.lv.pList.length || 1, rows = [];
+    for (const p of this.players.values()) rows.push([p.id, p.nm, p.lvEat || 0, Math.round((p.lvEat || 0) * 1000 / total) / 10, p.lvBest || 0]);
+    rows.sort((a, b) => b[2] - a[2] || b[4] - a[4]);
+    const got = rows.reduce((s, r) => s + r[2], 0);
+    this.lvStats = { lv: this.L, total, rows, nuked: nuked ? Math.max(0, total - got) : 0 };
+    this.broadcast(Object.assign({ t: 'lvstats' }, this.lvStats));
   }
 
   /* ---------- crate votes ---------- */
@@ -438,7 +454,7 @@ class Game {
       this.ct -= dt;
       if (this.ct <= 0) {
         this.pending = null; this.effects = [];
-        this.ph = 1; this.ct = 3.9;   // level passed: on to the usual celebration
+        this.finishLevel(true);   // level passed: on to the usual celebration
       }
     } else if (this.ph === 2 || this.ph === 3) {   // waiting for the host
       if (!this.players.has(this.hostId)) { const next = this.players.values().next().value; this.hostId = next ? next.id : 0; }

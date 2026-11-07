@@ -106,7 +106,7 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   for (const i of lv.pList) {
     const x = i % lv.W, y = (i / lv.W) | 0;
     a.ws.send(JSON.stringify({ t: 'p', x, y, f: 0 }));
-    a.ws.send(JSON.stringify({ t: 'eat', i }));
+    a.ws.send(JSON.stringify({ t: 'eat', i, sk: i === lv.pList[5] ? 9999 : 0 }));   // a silly streak claim gets capped
     await new Promise(r => setTimeout(r, 40)); // stay under the rate limit
   }
   const far = lv.pList[0]; // a cheat: claiming a pellet from far away does nothing
@@ -118,6 +118,13 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   const pws = b.msgs.filter(m => m.t === 'pw' && m.id === wa.id).length;
   if (pws !== lv.pList.filter(i => lv.p[i] === 2).length) fail('other players should hear every big pellet (got ' + pws + ')');
   console.log('ok  every big pellet is announced to the other players');
+  const st = await waitFor(b, 'lvstats', () => true, 3000);
+  const ra = st.rows.find(r => r[0] === wa.id), rb = st.rows.find(r => r[1] === 'bob');
+  if (!ra || ra[2] !== lv.pList.length || ra[3] !== 100) fail('level stats: alice ate 100% of the pellets, got ' + JSON.stringify(ra));
+  if (ra[4] !== 6) fail('level stats: streak claims are capped at pellets actually eaten (expected 6, got ' + ra[4] + ')');
+  if (!rb || rb[2] !== 0 || rb[3] !== 0) fail('level stats list every player, including ones who ate nothing');
+  if (st.rows[0][0] !== wa.id || st.total !== lv.pList.length) fail('level stats sorted by pellets, with the total');
+  console.log('ok  level stats: pellet share and longest streak per player (alice 100%, bob 0%)');
 
   // after the celebration the maze waits for the host (alice joined first)
   const waiting = await waitFor(b, 's', m => m.ph === 2, 6000);

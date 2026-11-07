@@ -92,6 +92,7 @@ function onMsg(m) {
       S.link = typeof m.link === 'string' ? m.link : ''; S.linkJoin = '';   // reconnects go by seed and key
       S.setpw = '';   // only sent when opening the lobby
       $('joinPwField').hidden = true; S.pwRoom = '';
+      S.lvStats = m.stats || null;
       S.host = m.host | 0; S.ph = m.ph | 0; updateReady();
       S.testMode = !!m.testMode;
       $('seedBtn').textContent = S.seed;
@@ -158,6 +159,7 @@ function onMsg(m) {
       MazeFX.flash('#ff2a3a', 0.35);
       break;
     case 'nuke': nukeStarted(); break;
+    case 'lvstats': S.lvStats = m; renderStats(); break;
     case 'zap': { const x = +m.x || 0, y = +m.y || 0; A.sfx('ghost'); MazeFX.sparks(x, y, '#ff3d5e', 18, 6, 0.5); MazeFX.ring(x, y, '#ff6b8b', 1.6, 0.4); break; }
     case 'pts': MazeFX.text(+m.x || 0, (+m.y || 0) - 0.3, String(m.v | 0), '#41e0f0', 0.95); break;
     case 'error':
@@ -216,7 +218,7 @@ setInterval(() => {
   if (!S.inGame || !S.lvl) return;
   const [x, y] = M.entPos(S.me), pos = { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100, f: S.me.face };
   // pellets eaten since the last update travel with the current position
-  if (S.eatQ.length) send(Object.assign({ t: 'eat', i: S.eatQ.splice(0, 16) }, pos));
+  if (S.eatQ.length) send(Object.assign({ t: 'eat', i: S.eatQ.splice(0, 16), sk: S.streak }, pos));
   else send(Object.assign({ t: 'p' }, pos));
 }, 50);
 
@@ -662,6 +664,7 @@ function render(dt) {
       }
     }
   }
+  if (S.inGame && !gone && effectOn('quake')) drawQuake(T, mw, mh);
   drawEffectMarks(T);
   MazeFX.drawWorld(ctx, T);
   ctx.restore();
@@ -939,6 +942,34 @@ function drawCrates(T) {
     if (Math.floor(S.time * 5 + x) % 6 === 0) MazeFX.sparks(x + (Math.random() - 0.5) * 0.6, y - 0.3, '#fff3b0', 1, 1.5, 0.5);
   }
 }
+/* EARTHQUAKE: cracks open across the maze and dust falls; this shows even where the
+   browser asks for reduced motion and the shake is toned down. */
+function quakeCracks(lv) {
+  const key = S.seed + '|' + lv.L; if (S.crackKey === key) return S.cracks;
+  let seed = 0; for (const ch of key) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const r = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const cracks = [];
+  for (let c = 0; c < 5 + Math.round(lv.W * lv.H / 160); c++) {
+    let x = r() * lv.W, y = r() * lv.H, a = r() * Math.PI * 2; const pts = [[x, y]];
+    for (let k = 0; k < 6 + r() * 8; k++) { a += (r() - 0.5) * 1.3; const l = 0.6 + r() * 1.4; x += Math.cos(a) * l; y += Math.sin(a) * l; pts.push([x, y]); }
+    cracks.push(pts);
+  }
+  S.crackKey = key; S.cracks = cracks; return cracks;
+}
+function drawQuake(T, mw, mh) {
+  const left = effectLeft('quake'), dur = (M.POWERUPS.find(p => p.id === 'quake') || { dur: 7 }).dur, grow = Math.min(1, (dur - left) / 0.8), fade = Math.min(1, left / 0.6);
+  ctx.save(); ctx.beginPath(); ctx.rect(T * 0.2, T * 0.2, mw - T * 0.4, mh - T * 0.4); ctx.clip(); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.fillStyle = `rgba(120,80,40,${(0.1 + 0.05 * Math.sin(S.time * 23)) * fade})`; ctx.fillRect(0, 0, mw, mh);   // dusty tint
+  for (const pts of quakeCracks(S.lvl)) {
+    const n = Math.max(2, Math.round(pts.length * grow));
+    for (const [w, col] of [[0.22, 'rgba(10,6,4,0.85)'], [0.07, 'rgba(255,170,90,0.55)']]) {
+      ctx.globalAlpha = fade; ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, T * w);
+      ctx.beginPath(); ctx.moveTo(pts[0][0] * T, pts[0][1] * T); for (let i = 1; i < n; i++) ctx.lineTo(pts[i][0] * T, pts[i][1] * T); ctx.stroke();
+    }
+  }
+  ctx.restore();
+  if (Math.random() < 0.5) MazeFX.sparks(Math.random() * S.lvl.W, Math.random() * S.lvl.H, '#b08a5a', 2, 1.2, 0.8);   // dust
+}
 /* Markers on players for active effects. */
 function drawEffectMarks(T) {
   // header badges with time left
@@ -1026,6 +1057,30 @@ function hostName() {
   if (S.host === S.id) return S.name;
   const r = S.roster.get(S.host); return r ? r.nm : 'the host';
 }
+/* End-of-level table: each player's share of the pellets and their longest streak. */
+function renderStats() {
+  const st = S.lvStats, box = $('readyStats');
+  if (!st || st.lv !== S.L || !st.rows) { box.hidden = true; return; }
+  const sig = JSON.stringify(st) + S.id; if (box.dataset.sig === sig) { box.hidden = false; return; }
+  box.dataset.sig = sig; box.hidden = false;
+  const body = $('statsBody'); body.textContent = '';
+  const topEat = Math.max(...st.rows.map(r => r[2])), topSk = Math.max(...st.rows.map(r => r[4]));
+  for (const [id, nm, n, pct, best] of st.rows) {
+    const tr = document.createElement('tr'); if (id === S.id) tr.className = 'me';
+    const who = document.createElement('td'); who.className = 'who'; who.textContent = String(nm);
+    if (id === S.id) { const y = document.createElement('span'); y.className = 'you'; y.textContent = 'You'; who.append(' ', y); }
+    const pc = document.createElement('td'); pc.className = 'pct';
+    const bar = document.createElement('span'); bar.className = 'bar'; const fill = document.createElement('i'); fill.style.width = Math.min(100, pct) + '%'; bar.appendChild(fill);
+    const num = document.createElement('b'); num.textContent = (+pct).toFixed(pct % 1 ? 1 : 0) + '%';
+    const cnt = document.createElement('small'); cnt.textContent = n + ' of ' + st.total;
+    pc.append(bar, num, cnt); if (n > 0 && n === topEat) pc.classList.add('top');
+    const sk = document.createElement('td'); sk.className = 'sk'; sk.textContent = best > 0 ? '×' + best : '–'; if (best > 0 && best === topSk) sk.classList.add('top');
+    tr.append(who, pc, sk); body.appendChild(tr);
+  }
+  const foot = $('statsFoot');
+  foot.hidden = !st.nuked;
+  if (st.nuked) foot.textContent = 'The nuke took the other ' + Math.round(st.nuked * 100 / st.total) + '% (' + st.nuked + ' pellets).';
+}
 function updateReady() {
   updateLobby();
   const show = S.inGame && S.ph === 2;
@@ -1034,6 +1089,7 @@ function updateReady() {
   const next = S.L + 1, nx = M.genLevel(S.seed, next), g = M.ghostCount(next), isHost = S.host === S.id;
   $('readyTitle').textContent = 'Level ' + S.L + ' clear';
   $('readyNext').textContent = 'Next: ' + nx.W + ' × ' + nx.H + ' maze · ' + g + (g > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(next) + ' (+' + Math.round(M.SPEED_STEP * 100) + '%)';
+  renderStats();
   $('readyBtn').hidden = !isHost; $('readyHint').hidden = !isHost;
   $('readyBtn').textContent = 'Start level ' + next;
   $('readyWait').hidden = isHost;
@@ -1251,7 +1307,8 @@ addEventListener('keydown', () => A.unlock(), { once: true });
 function frame() {
   const now = performance.now(), dt = Math.min(.05, (now - S.lastT) / 1000); S.lastT = now; S.time += dt;
   if (S.inGame && S.lvl) { playerStep(dt); updateGhostView(dt); }
-  MazeFX.setRumble(S.inGame && effectOn('quake') ? 11 : S.inGame && S.streak >= 100 ? 1.6 : 0);   // earthquake, or a small steady shake from a 100 streak
+  const quake = S.inGame && S.ph === 0 && effectOn('quake');
+  MazeFX.setRumble(quake ? 11 : S.inGame && S.streak >= 100 ? 1.6 : 0, quake);   // earthquake (felt even with reduced motion), or a small steady shake from a 100 streak
   MazeFX.update(dt); MazeNuke.update(dt);
   if (S.nukeIn > 0 && S.ph === 0) S.nukeIn = Math.max(0, S.nukeIn - dt);
   animatePicker(S.time);

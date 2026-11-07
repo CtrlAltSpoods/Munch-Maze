@@ -162,6 +162,13 @@
         <div class="card ready" role="dialog" aria-labelledby="readyTitle">
           <h1 id="readyTitle">Level 1 clear</h1>
           <p id="readyNext">Next: 19 × 15 maze</p>
+          <div class="lvstats" id="readyStats" hidden>
+            <table>
+              <thead><tr><th scope="col">Player</th><th scope="col">Pellets collected</th><th scope="col">Longest streak</th></tr></thead>
+              <tbody id="statsBody"></tbody>
+            </table>
+            <p class="statsfoot" id="statsFoot" hidden></p>
+          </div>
           <button class="cta" id="readyBtn" type="button">Start level 2</button>
           <p class="hint" id="readyHint">You started this maze, so you choose when the next level begins. Press Enter or Space.</p>
           <p class="wait" id="readyWait" hidden>Waiting for the host…</p>

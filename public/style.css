@@ -326,3 +326,24 @@ input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer;margin:0}
 .vote-tally .vy{color:#7ee081;font-weight:600}.vote-tally .vn{color:#ff4d5e;font-weight:600}
 .vote-note{font-size:11px;color:var(--muted)}
 @media (max-width:420px){ .vote-btns{grid-template-columns:1fr} }
+
+/* end-of-level stats */
+.card.ready{max-width:520px}
+.lvstats{width:100%;max-height:min(40vh,320px);overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--ink-2)}
+.lvstats table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+.lvstats th{position:sticky;top:0;background:var(--ink-2);text-align:left;font-weight:500;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding:9px 10px;border-bottom:1px solid var(--line)}
+.lvstats th:last-child,.lvstats td.sk{text-align:right}
+.lvstats td{text-align:left;padding:8px 10px;border-bottom:1px solid color-mix(in srgb, var(--line) 60%, transparent);vertical-align:middle}
+.lvstats tr:last-child td{border-bottom:0}
+.lvstats tr.me td{background:color-mix(in srgb, var(--accent) 8%, transparent)}
+.lvstats td.who{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)}
+.lvstats .you{font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:1px 6px;border-radius:999px;border:1px solid var(--accent);color:var(--accent)}
+.lvstats td.pct{display:grid;grid-template-columns:minmax(50px,1fr) auto;grid-template-areas:"bar num" "cnt cnt";gap:2px 8px;align-items:center;min-width:150px}
+.lvstats .bar{grid-area:bar;height:6px;border-radius:99px;background:color-mix(in srgb, var(--line) 70%, transparent);overflow:hidden}
+.lvstats .bar i{display:block;height:100%;background:#ffdcae;border-radius:99px}
+.lvstats td.pct b{grid-area:num;color:var(--fg);font-weight:600}
+.lvstats td.pct small{grid-area:cnt;font-size:10px;color:var(--muted)}
+.lvstats td.top .bar i{background:var(--accent)}
+.lvstats td.top b,.lvstats td.sk.top{color:var(--accent)}
+.lvstats td.sk{font-weight:600;color:var(--fg);white-space:nowrap}
+.statsfoot{margin:0;padding:8px 10px;font-size:11px;color:#ff9a6e;border-top:1px solid var(--line)}
