@@ -19,6 +19,7 @@
     <div class="stats">
       <div class="stat"><span class="k">Level</span><span class="v" id="hLevel">1</span></div>
       <div class="stat"><span class="k">Maze</span><span class="v" id="hSize">15×11</span></div>
+      <div class="stat"><span class="k">Speed</span><span class="v" id="hSpeed">×1.00</span></div>
       <div class="stat"><span class="k">Score</span><span class="v" id="hScore">0</span></div>
       <div class="stat"><span class="k">Lives</span><span class="lives" id="hLives"></span></div>
     </div>
@@ -83,6 +84,15 @@
             <p>Level 1 is a 15×11 maze with one ghost. Each level adds 4 tiles in each direction, up to 63×51, and brings faster, more numerous ghosts (up to 6).</p>
           </div>
         </form>
+      </div>
+      <div class="overlay ready-ov" id="readyOv" hidden>
+        <div class="card ready" role="dialog" aria-labelledby="readyTitle">
+          <h1 id="readyTitle">Level 1 clear</h1>
+          <p id="readyNext">Next: 19 × 15 maze</p>
+          <button class="cta" id="readyBtn" type="button">Start level 2</button>
+          <p class="hint" id="readyHint">You started this maze, so you choose when the next level begins. Press Enter or Space.</p>
+          <p class="wait" id="readyWait" hidden>Waiting for the host…</p>
+        </div>
       </div>
       <div class="overlay" id="overOv" hidden>
         <div class="card">

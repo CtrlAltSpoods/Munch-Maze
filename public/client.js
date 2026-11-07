@@ -26,6 +26,7 @@ const S = {
   sc: 0, li: 3, over: false, alive: true, deadT: 0, inv: 0, ge: [],
   ph: 0, fr: 0, fid: 0, roster: new Map(), players: [], gTarget: [], gv: [], ov: new Map(),
   streak: 0, streakT: 0, streakTier: 0, shownScore: 0, mazeGlow: null, bulbs: [],
+  host: 0, eatQ: [],
   time: 0, lastT: performance.now(), bannerT: 0, camX: null, camY: null, mazeKey: '', mazeCv: null, mazeFlash: null
 };
 if (!PCOL.includes(S.color)) S.color = PCOL[0];
@@ -39,7 +40,7 @@ function loadLevel(L, b64) {
   S.alive = true; respawn(); S.mazeKey = '';
   const n = M.ghostCount(L);
   endStreak(true);
-  MazeFX.bigText('LEVEL ' + L, S.lvl.W + ' × ' + S.lvl.H + ' maze · ' + n + (n > 1 ? ' ghosts' : ' ghost'), '#41e0f0', 1.7);
+  MazeFX.bigText('LEVEL ' + L, S.lvl.W + ' × ' + S.lvl.H + ' maze · ' + n + (n > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(L), '#41e0f0', 1.9);
 }
 
 /* ---------- networking ---------- */
@@ -69,6 +70,7 @@ function onMsg(m) {
       $('startOv').hidden = true; $('overOv').hidden = !S.over; $('leaveBtn').hidden = false; $('app').classList.add('ingame');
       $('playBtn').disabled = false; $('playBtn').textContent = 'Enter the maze';
       S.key = typeof m.key === 'string' ? m.key : ''; S.vis = m.vis === 'private' ? 'private' : 'public';
+      S.host = m.host | 0; S.ph = m.ph | 0; updateReady();
       $('seedBtn').textContent = S.seed;
       $('seedBtn').title = S.vis === 'private' ? 'Copy invite link (only people with it can join)' : 'Copy link to this maze';
       const chip = $('visChip'); chip.hidden = false; chip.textContent = S.vis === 'private' ? 'Invite only' : 'Public'; chip.classList.toggle('private', S.vis === 'private');
@@ -77,7 +79,7 @@ function onMsg(m) {
       A.startMusic(S.L); A.sfx('start');
       break;
     }
-    case 'level': loadLevel(m.lv | 0, ''); A.startMusic(S.L); A.setFright(false); if (S.L > 1 && !S.over) A.sfx('life'); break;
+    case 'level': S.ph = 0; updateReady(); loadLevel(m.lv | 0, ''); A.startMusic(S.L); A.setFright(false); if (S.L > 1 && !S.over) A.sfx('life'); break;
     case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col) }); A.sfx('join'); break;
     case 'leave': S.roster.delete(m.id); S.ov.delete(m.id); break;
     case 'pts': MazeFX.text(+m.x || 0, (+m.y || 0) - 0.3, String(m.v | 0), '#41e0f0', 0.95); break;
@@ -96,6 +98,8 @@ function onMsg(m) {
       const wasPh = S.ph;
       S.ph = m.ph | 0; S.fr = +m.fr || 0; S.ct = +m.ct || 0;
       if (S.ph === 1 && wasPh !== 1) levelClear();
+      const hostWas = S.host; S.host = m.h | 0;
+      if (S.ph !== wasPh || S.host !== hostWas) updateReady();
       A.setFright(S.fr > 0 && S.ph === 0);
       if (m.fid !== S.fid) { S.fid = m.fid; }
       S.gTarget = (m.g || []).map((a, i) => ({ i, x: +a[0], y: +a[1], d: a[2] | 0, st: a[3] | 0, ep: a[4] | 0 }));
@@ -116,8 +120,10 @@ function onMsg(m) {
 }
 setInterval(() => {
   if (!S.inGame || !S.lvl) return;
-  const [x, y] = M.entPos(S.me);
-  send({ t: 'p', x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100, f: S.me.face });
+  const [x, y] = M.entPos(S.me), pos = { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100, f: S.me.face };
+  // pellets eaten since the last update travel with the current position
+  if (S.eatQ.length) send(Object.assign({ t: 'eat', i: S.eatQ.splice(0, 16) }, pos));
+  else send(Object.assign({ t: 'p' }, pos));
 }, 50);
 
 /* ---------- local player ---------- */
@@ -125,7 +131,7 @@ const eaten = i => M.getBit(S.srvBits, i) || M.getBit(S.myBits, i);
 function eatAt(x, y) {
   const lv = S.lvl, i = y * lv.W + x;
   if (!lv.p[i] || eaten(i)) return;
-  M.setBit(S.myBits, i); send({ t: 'eat', i });
+  M.setBit(S.myBits, i); S.eatQ.push(i);
   if (lv.p[i] === 2) {
     A.sfx('power');
     MazeFX.ring(x, y, '#ffcc33', 3.2, 0.5); MazeFX.ring(x, y, '#41e0f0', 5, 0.7);
@@ -157,10 +163,14 @@ function playerStep(dt) {
     if (S.deadT <= 0 && S.li > 0) { S.alive = true; respawn(); send({ t: 'respawn' }); A.sfx('respawn'); MazeFX.ring(S.me.tx, S.me.ty, S.color, 2, 0.5); }
     return;
   }
-  if (S.ph === 1) return;
+  if (S.ph !== 0) return;
   if (S.streak) { S.streakT += dt; if (S.streakT > STREAK_WINDOW) endStreak(false); }
-  movePlayer(S.me, M.playerSpeed(S.L) * dt);
   if (S.inv > 0) S.inv -= dt;
+  // move in small steps and check for ghosts after each, so fast levels can't skip past one
+  const dist = M.playerSpeed(S.L) * dt, steps = Math.max(1, Math.ceil(dist / 0.3));
+  for (let k = 0; k < steps && S.alive; k++) { movePlayer(S.me, dist / steps); checkGhosts(); }
+}
+function checkGhosts() {
   const [px, py] = M.entPos(S.me);
   for (const g of S.gv) {
     if (g.st !== 1 && g.st !== 2) continue;
@@ -244,7 +254,7 @@ function leave() {
   if (S.ws) { const old = S.ws; S.ws = null; old.close(); }
   $('startOv').hidden = false; $('overOv').hidden = true; $('leaveBtn').hidden = true; $('app').classList.remove('ingame');
   $('seedIn').value = S.seed; setNet('Not in a maze yet.');
-  A.stopMusic(); A.setFright(false); MazeFX.clear(); endStreak(true);
+  A.stopMusic(); A.setFright(false); MazeFX.clear(); endStreak(true); S.eatQ = []; S.ph = 0; S.host = 0; updateReady();
   $('visChip').hidden = true; S.key = ''; clearInvite();
   try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
   refreshLobby();
@@ -334,7 +344,7 @@ function ensureMaze(T) {
   S.bulbs = S.bulbs.filter(([x, y]) => lv.t[y * lv.W + x] === 1);
 }
 function drawBulbs(T, beat) {
-  const n = S.bulbs.length, clear = S.ph === 1, hot = S.streakTier >= 3;
+  const n = S.bulbs.length, clear = S.ph !== 0, hot = S.streakTier >= 3;
   const speed = clear ? 0 : hot ? 22 : 9, phase = Math.floor(S.time * speed), alt = Math.floor(S.time * 2.5) % 2;
   const reduced = MazeFX.reduced();
   for (let i = 0; i < n; i++) {
@@ -446,7 +456,7 @@ function render(dt) {
     }
     const [px, py] = M.entPos(S.me);
     // motion trail
-    if (S.alive && S.me.d >= 0 && S.ph !== 1) trail.push({ x: px, y: py, t: S.time }); 
+    if (S.alive && S.me.d >= 0 && S.ph === 0) trail.push({ x: px, y: py, t: S.time }); 
     while (trail.length && S.time - trail[0].t > 0.22) trail.shift();
     if (!S.over && S.alive) {
       ctx.globalCompositeOperation = 'lighter';
@@ -458,7 +468,7 @@ function render(dt) {
       if (!S.alive) { const prog = 1 - Math.max(0, S.deadT) / 1.4; if (prog < .95) drawPac(px, py, T, S.color, 3, .15 + .85 * prog); }
       else {
         const blink = S.inv > 0 && Math.floor(S.time * 10) % 2 === 0;
-        if (!blink) drawPac(px, py, T, S.color, S.me.face, S.me.d >= 0 && S.ph !== 1 ? .06 + .24 * Math.abs(Math.sin(S.time * 14)) : .18);
+        if (!blink) drawPac(px, py, T, S.color, S.me.face, S.me.d >= 0 && S.ph === 0 ? .06 + .24 * Math.abs(Math.sin(S.time * 14)) : .18);
         ctx.strokeStyle = S.color; ctx.globalAlpha = .35 + beat * .3; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc((px + .5) * T, (py + .5) * T, T * (.62 + beat * .08), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
       }
     }
@@ -491,7 +501,7 @@ function setNet(msg) {
 let lastLives = -1, boardAt = 0;
 function hud(dt, now) {
   const lv = S.lvl; if (!lv) return;
-  setTxt('hLevel', S.L || 1); setTxt('hSize', lv.W + '×' + lv.H);
+  setTxt('hLevel', S.L || 1); setTxt('hSize', lv.W + '×' + lv.H); setTxt('hSpeed', speedLabel(S.L || 1));
   // rolling score: counts up like a payout meter
   if (S.shownScore > S.sc) S.shownScore = S.sc;
   if (S.shownScore < S.sc) {
@@ -507,8 +517,8 @@ function hud(dt, now) {
   if (!S.inGame) { setTxt('pCount', '0'); return; }
   let left = 0; for (const i of lv.pList) if (!eaten(i)) left++;
   setTxt('pLeft', left); setTxt('gCount', M.ghostCount(S.L));
-  const rows = [{ nm: S.name, col: S.color, sc: S.sc, al: S.alive && !S.over, me: true }];
-  for (const p of S.players) rows.push({ nm: p.nm, col: p.col, sc: p.sc, al: p.al && !p.over, me: false });
+  const rows = [{ nm: S.name, col: S.color, sc: S.sc, al: S.alive && !S.over, me: true, host: S.host === S.id }];
+  for (const p of S.players) rows.push({ nm: p.nm, col: p.col, sc: p.sc, al: p.al && !p.over, me: false, host: p.id === S.host });
   rows.sort((a, b) => b.sc - a.sc);
   setTxt('pCount', rows.length);
   const ol = $('board'); ol.textContent = '';
@@ -516,7 +526,7 @@ function hud(dt, now) {
     const li = document.createElement('li'); if (!r.al) li.className = 'dead';
     const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = r.col;
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.nm;
-    if (r.me) { const sm = document.createElement('small'); sm.textContent = 'you'; nm.appendChild(sm); }
+    if (r.me || r.host) { const sm = document.createElement('small'); sm.textContent = [r.host ? 'host' : '', r.me ? 'you' : ''].filter(Boolean).join(' · '); nm.appendChild(sm); }
     const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = r.sc.toLocaleString();
     li.append(sw, nm, sc); ol.appendChild(li);
   }
@@ -589,9 +599,32 @@ function levelClear() {
   const syms = [String(nx.W), '×', String(nx.H)];
   MazeFX.confetti(160, CW); MazeFX.flash('#ffcc33', 0.2);
   const [px, py] = M.entPos(S.me); MazeFX.coins(px, py, 14, 10);
-  MazeFX.reels(syms, { title: 'LEVEL ' + S.L + ' CLEAR', sub: 'NEXT MAZE  ·  ' + M.ghostCount(S.L + 1) + (M.ghostCount(S.L + 1) > 1 ? ' GHOSTS' : ' GHOST'), dur: 2.5,
+  MazeFX.reels(syms, { title: 'LEVEL ' + S.L + ' CLEAR', sub: 'NEXT MAZE  ·  ' + M.ghostCount(S.L + 1) + (M.ghostCount(S.L + 1) > 1 ? ' GHOSTS' : ' GHOST') + '  ·  SPEED +10%', dur: 2.5,
     onStop: i => { A.sfx('reel'); if (i === syms.length - 1) { A.sfx('jackpot'); MazeFX.confetti(90, CW); } } });
 }
+
+/* ---------- between levels: the host starts the next one ---------- */
+function speedLabel(L) { return '×' + M.speedMult(L).toFixed(2); }
+function hostName() {
+  if (S.host === S.id) return S.name;
+  const r = S.roster.get(S.host); return r ? r.nm : 'the host';
+}
+function updateReady() {
+  const show = S.inGame && S.ph === 2;
+  const ov = $('readyOv'); ov.hidden = !show;
+  if (!show) return;
+  const next = S.L + 1, nx = M.genLevel(S.seed, next), g = M.ghostCount(next), isHost = S.host === S.id;
+  $('readyTitle').textContent = 'Level ' + S.L + ' clear';
+  $('readyNext').textContent = 'Next: ' + nx.W + ' × ' + nx.H + ' maze · ' + g + (g > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(next) + ' (+10%)';
+  $('readyBtn').hidden = !isHost; $('readyHint').hidden = !isHost;
+  $('readyBtn').textContent = 'Start level ' + next;
+  $('readyWait').hidden = isHost;
+  $('readyWait').textContent = 'Waiting for ' + hostName() + ' to start level ' + next + '…';
+  if (isHost) setTimeout(() => { if (!$('readyOv').hidden) $('readyBtn').focus({ preventScroll: true }); }, 50);
+}
+function sendReady() { if (S.ph === 2 && S.host === S.id) { send({ t: 'ready' }); $('readyBtn').disabled = true; setTimeout(() => { $('readyBtn').disabled = false; }, 1500); A.sfx('start'); } }
+$('readyBtn').addEventListener('click', sendReady);
+addEventListener('keydown', e => { if ((e.code === 'Enter' || e.code === 'Space') && S.ph === 2 && S.host === S.id && e.target.tagName !== 'BUTTON' && !/INPUT|SELECT/.test(e.target.tagName)) { e.preventDefault(); sendReady(); } });
 
 /* ---------- visibility ---------- */
 function inviteHash() { return S.vis === 'private' && S.key ? S.seed + '~' + S.key : S.seed; }

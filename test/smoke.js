@@ -81,7 +81,19 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   if (alice[5] !== expected) fail(`score ${alice[5]} != ${expected}`);
   console.log('ok  all', lv.pList.length, 'pellets eaten, score', alice[5], '- level clear');
 
+  // after the celebration the maze waits for the host (alice joined first)
+  const waiting = await waitFor(b, 's', m => m.ph === 2, 6000);
+  if (waiting.h !== wa.id) fail('alice should be host');
+  b.ws.send(JSON.stringify({ t: 'ready' }));
+  await new Promise(r => setTimeout(r, 400));
+  if (b.msgs.some(m => m.t === 'level' && m.lv === 2)) fail('a non-host must not be able to start the next level');
+  if (b.last.s.ph !== 2) fail('maze should still be waiting for the host');
+  console.log('ok  level waits for the host; other players cannot start it');
+  a.ws.send(JSON.stringify({ t: 'ready' }));
   const lvl = await waitFor(b, 'level', m => m.lv === 2, 6000);
+  const ratio = M.playerSpeed(2) / M.playerSpeed(1), gr = M.ghostSpeed(3) / M.ghostSpeed(1);
+  if (Math.abs(ratio - 1.1) > 1e-9 || Math.abs(gr - 1.21) > 1e-9) fail('speed should grow 10% per level, compounding');
+  console.log('ok  host started level 2; speed x' + ratio.toFixed(2) + ' (level 3: x' + gr.toFixed(2) + ')');
   const lv2 = M.genLevel(wa.seed, 2);
   console.log('ok  both moved to level', lvl.lv, `(${lv2.W}x${lv2.H}, ${M.ghostCount(2)} ghosts)`);
 
@@ -97,9 +109,13 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   // reconnect with the same token resumes the score
   a.ws.close();
   await waitFor(b, 'leave');
+  const sAfter2 = await waitFor(b, 's', m => m.h === b.last.welcome.id, 3000);
+  console.log('ok  host passed to bob when alice left');
   const a2 = await client('alice');
   if (a2.last.welcome.sc !== expected) fail('resume did not keep score');
   console.log('ok  reconnect resumed score', a2.last.welcome.sc);
+  if (a2.last.welcome.host !== a2.last.welcome.id) fail('the player who started the maze should get host back on return');
+  console.log('ok  alice is host again after reconnecting');
 
   // invite-only mazes
   const host = await client('host', { seed: 'Secret Base', vis: 'private', tok: 'host' });

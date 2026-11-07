@@ -152,3 +152,12 @@ input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer;margin:0}
 .cta{box-shadow:0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent);animation:ctaPulse 2s ease-in-out infinite}
 @keyframes ctaPulse{50%{box-shadow:0 0 22px 2px color-mix(in srgb, var(--accent) 55%, transparent)}}
 @media (prefers-reduced-motion:reduce){ #hScore.bump,.streak.tick .sx,.cta{animation:none!important} }
+
+/* between-levels prompt */
+.ready-ov{background:color-mix(in srgb, var(--ink) 55%, transparent)}
+.card.ready{max-width:400px;text-align:center;align-items:stretch;border-color:var(--accent);box-shadow:0 0 40px color-mix(in srgb, var(--accent) 30%, transparent)}
+.card.ready h1{font-size:30px}
+.card.ready #readyNext{color:var(--fg);font-size:14px}
+.card.ready .wait{margin:0;font-size:14px;color:var(--fg);animation:waitPulse 1.6s ease-in-out infinite}
+@keyframes waitPulse{50%{opacity:.55}}
+@media (prefers-reduced-motion:reduce){ .card.ready .wait{animation:none} }

@@ -32,8 +32,12 @@
   // Level rules
   const levelSize = L => [Math.min(15 + 4 * (L - 1), 63), Math.min(11 + 4 * (L - 1), 51)];
   const ghostCount = L => Math.min(1 + Math.floor(L / 2), 6);
-  const playerSpeed = L => 5.2 + Math.min(1.2, 0.08 * (L - 1));
-  const ghostSpeed = L => 3.6 + Math.min(2.0, 0.22 * (L - 1));
+  // Everything that moves gets 10% faster with each completed level (compounding).
+  const speedMult = L => Math.pow(1.1, Math.max(0, L - 1));
+  const playerSpeed = L => 5.2 * speedMult(L);
+  const ghostSpeed = L => 3.6 * speedMult(L);          // chasing / scattering
+  const frightGhostSpeed = L => 2.4 * speedMult(L);    // blue
+  const eyesSpeed = L => 9 * speedMult(L);             // eaten, heading home
   const frightDuration = L => Math.max(2.5, 7 - 0.45 * (L - 1));
 
   /* Tiles: 0 path, 1 wall, 2 ghost door, 3 ghost-house floor.
@@ -143,6 +147,6 @@
     return o;
   }
 
-  return { DIRS, slug, randomSeed, levelSize, ghostCount, playerSpeed, ghostSpeed, frightDuration,
+  return { DIRS, slug, randomSeed, levelSize, ghostCount, speedMult, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
     genLevel, wrapX, canGo, entPos, getBit, setBit, toB64, fromB64 };
 });

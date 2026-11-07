@@ -18,6 +18,10 @@ class Game {
     this.resume = new Map();   // token -> { sc, li, over, at }
     this.emptySince = Date.now();
     this.tickNo = 0;
+    // The host started this maze and decides when the next level begins.
+    // If they leave, the longest-present player takes over; they get it back if they return.
+    this.hostId = 0;
+    this.creatorToken = '';
     this.startLevel(1);
   }
 
@@ -41,6 +45,8 @@ class Game {
 
   /* ---------- membership ---------- */
   add(p, token) {
+    if (!this.hostId && !this.creatorToken) this.creatorToken = token || ('id:' + p.id);
+    if (!this.hostId || (token && token === this.creatorToken)) this.hostId = p.id;
     const r = token && this.resume.get(token);
     if (r) { p.sc = r.sc; p.li = r.li; p.over = r.over; this.resume.delete(token); }
     p.token = token;
@@ -51,13 +57,17 @@ class Game {
       t: 'welcome', id: p.id, seed: this.seed, key: this.key, vis: this.isPrivate ? 'private' : 'public',
       lv: this.L, b: M.toB64(this.bits),
       roster: [...this.players.values()].map(q => [q.id, q.nm, q.col]),
-      sc: p.sc, li: p.li, over: p.over
+      sc: p.sc, li: p.li, over: p.over, host: this.hostId, ph: this.ph
     });
     this.broadcast({ t: 'join', id: p.id, nm: p.nm, col: p.col }, p.id);
   }
 
   remove(p) {
     if (!this.players.delete(p.id)) return;
+    if (this.hostId === p.id) {
+      const next = this.players.values().next().value;   // Map keeps join order
+      this.hostId = next ? next.id : 0;
+    }
     // keep the run for a while so a reconnect resumes it; record the score once it expires
     if (p.token) this.resume.set(p.token, { sc: p.sc, li: p.li, over: p.over, nm: p.nm, lv: this.L, at: Date.now() });
     else if (p.sc > 0 && !p.over) this.opts.onScore({ n: p.nm, sc: p.sc, lv: this.L, seed: this.seed });
@@ -76,7 +86,8 @@ class Game {
       }
       case 'eat': {
         if (this.ph !== 0 || !p.al || p.over) return;
-        const list = Array.isArray(m.i) ? m.i.slice(0, 8) : [m.i];
+        if (m.x !== undefined) this.onMessage(p, { t: 'p', x: m.x, y: m.y, f: m.f });
+        const list = Array.isArray(m.i) ? m.i.slice(0, 16) : [m.i];
         for (const raw of list) this.eat(p, raw | 0);
         return;
       }
@@ -84,7 +95,8 @@ class Game {
         const g = this.ghosts[m.i | 0];
         if (!g || g.ep !== (m.ep | 0) || g.st !== 2 || !p.al) return;
         const [gx, gy] = M.entPos(g);
-        if (Math.hypot(gx - p.x, gy - p.y) > 1.8) return;
+        // allow for latency: faster levels put client and server further apart
+        if (Math.hypot(gx - p.x, gy - p.y) > 1.8 + M.ghostSpeed(this.L) * 0.15) return;
         g.st = 3; g.ep++;
         if (p.fid !== this.fid) { p.fid = this.fid; p.combo = 0; }
         const pts = 200 * Math.pow(2, Math.min(p.combo, 3)); p.combo++;
@@ -101,6 +113,9 @@ class Game {
         if (p.al || p.over || p.li <= 0) return;
         p.al = true; p.spawnAt = Date.now(); p.x = this.lv.sx; p.y = this.lv.sy;
         return;
+      case 'ready':   // host starts the next level
+        if (this.ph === 2 && p.id === this.hostId) this.startLevel(this.L + 1);
+        return;
       case 'again':
         if (!p.over) return;
         p.sc = 0; p.li = 3; p.over = false; p.al = true; p.spawnAt = Date.now();
@@ -114,7 +129,7 @@ class Game {
     // the player has to be close to the pellet they claim
     const tx = i % lv.W, ty = (i / lv.W) | 0;
     let dx = Math.abs(Math.round(p.x) - tx); dx = Math.min(dx, lv.W - dx);
-    if (dx + Math.abs(Math.round(p.y) - ty) > 2) return;
+    if (dx + Math.abs(Math.round(p.y) - ty) > 2 + M.playerSpeed(this.L) * 0.06) return;   // pellets eaten since the last update
     M.setBit(this.bits, i); this.left--; this.eatenSince.push(i);
     p.sc += lv.p[i] === 2 ? 50 : 10;
     if (lv.p[i] === 2) this.frighten();
@@ -182,9 +197,11 @@ class Game {
     }
     if (!this.players.size) return;
     this.clock += dt;
-    if (this.ph === 1) {
+    if (this.ph === 1) {             // celebrating
       this.ct -= dt;
-      if (this.ct <= 0) this.startLevel(this.L + 1);
+      if (this.ct <= 0) { this.ph = 2; this.ct = 0; }
+    } else if (this.ph === 2) {      // waiting for the host
+      if (!this.players.has(this.hostId)) { const next = this.players.values().next().value; this.hostId = next ? next.id : 0; }
     } else {
       if (this.fr > 0) { this.fr -= dt; if (this.fr <= 0) { this.fr = 0; for (const g of this.ghosts) if (g.st === 2) g.st = 1; } }
       const mode = (this.clock % 27) < 7 ? 0 : 1;
@@ -195,7 +212,7 @@ class Game {
       const base = M.ghostSpeed(this.L), lv = this.lv;
       for (const g of this.ghosts) {
         if (g.st === 0) { g.home -= dt; if (g.home <= 0) { g.st = 1; g.tx = lv.mid; g.ty = lv.cy - 2; g.t = 0; g.d = -1; } continue; }
-        this.moveGhost(g, (g.st === 3 ? 9 : g.st === 2 ? 2.4 : base) * dt, players);
+        this.moveGhost(g, (g.st === 3 ? M.eyesSpeed(this.L) : g.st === 2 ? M.frightGhostSpeed(this.L) : base) * dt, players);
       }
     }
     if (sendState) this.sendState();
@@ -204,7 +221,7 @@ class Game {
   sendState() {
     const r2 = v => Math.round(v * 100) / 100;
     const msg = JSON.stringify({
-      t: 's', lv: this.L, ph: this.ph, ct: r2(this.ct), fr: r2(this.fr), fid: this.fid,
+      t: 's', lv: this.L, ph: this.ph, ct: r2(this.ct), fr: r2(this.fr), fid: this.fid, h: this.hostId,
       g: this.ghosts.map(g => { const [x, y] = M.entPos(g); return [r2(x), r2(y), g.d, g.st, g.ep]; }),
       p: [...this.players.values()].map(p => [p.id, r2(p.x), r2(p.y), p.f, p.al ? 1 : 0, p.sc, p.li, p.over ? 1 : 0]),
       e: this.eatenSince
