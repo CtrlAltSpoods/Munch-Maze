@@ -20,6 +20,7 @@
       <div class="stat"><span class="k">Lives</span><span class="lives" id="hLives"></span></div>
     </div>
     <div class="seedbox">
+      <span class="chip" id="visChip" hidden></span>
       <span class="k">Seed</span>
       <button class="btn seed" id="seedBtn" type="button" title="Copy invite link">—</button>
       <button class="btn" id="leaveBtn" type="button" hidden>Leave maze</button>
@@ -46,6 +47,18 @@
           <div class="field">
             <label class="k" for="seedIn">Seed (optional)</label>
             <input id="seedIn" maxlength="40" placeholder="Leave blank for a random maze">
+          </div>
+          <div class="field" id="visField">
+            <label class="k" for="visIn">Who can join</label>
+            <select id="visIn">
+              <option value="public">Public: listed under “Mazes running now”</option>
+              <option value="private">Invite only: people with your link</option>
+            </select>
+            <p class="hint" id="visHint">Anyone on this server can see your maze and join it.</p>
+          </div>
+          <div class="invite" id="inviteNote" hidden>
+            <p>You’re joining a private maze from an invite link.</p>
+            <button class="linkbtn" id="ownBtn" type="button">Start my own maze instead</button>
           </div>
           <div class="err" id="joinErr" hidden></div>
           <button class="cta" id="playBtn" type="submit">Enter the maze</button>
@@ -81,11 +94,24 @@
         <div class="row"><span class="k">Ghosts</span><span class="sc" id="gCount">—</span></div>
         <div class="net" id="netState">Not in a maze yet.</div>
       </div>
-      <p class="help">Steer with the arrow keys or WASD; swipe or use the pad on touch screens. Big pellets turn ghosts blue for a few seconds, so you can eat them. A cleared level gives everyone an extra life (max 5).</p>
+      <div class="sound" role="group" aria-label="Sound">
+        <div class="slider">
+          <label class="k" for="musicVol">Music</label>
+          <input type="range" id="musicVol" min="0" max="100" step="1" value="20">
+          <output class="sc" id="musicOut" for="musicVol">20%</output>
+        </div>
+        <div class="slider">
+          <label class="k" for="sfxVol">Effects</label>
+          <input type="range" id="sfxVol" min="0" max="100" step="1" value="40">
+          <output class="sc" id="sfxOut" for="sfxVol">40%</output>
+        </div>
+      </div>
+      <p class="help">Steer with the arrow keys or WASD; swipe or use the pad on touch screens. Big pellets turn ghosts blue for a few seconds, so you can eat them. A cleared level gives everyone an extra life (max 5). Press M to mute.</p>
     </aside>
   </main>
 </div>
 <script src="maze.js"></script>
+<script src="audio.js"></script>
 <script src="client.js"></script>
 </body>
 </html>

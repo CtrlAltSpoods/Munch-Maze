@@ -6,7 +6,8 @@ Everyone who enters the same **seed** shares one maze. Players eat pellets toget
 
 - Level 1 is a 15×11 maze with 1 slow ghost. Each level adds 4 tiles in each direction, up to 63×51, with faster and more numerous ghosts (up to 6).
 - No player limit, no accounts, no external services, no npm dependencies.
-- Players share an invite link (`http://your-server:8080/#seed-name`) to land in the same maze.
+- Each maze is **Public** (listed under “Mazes running now” for anyone on the server) or **Invite only** (never listed; joined through a private link like `http://your-server:8080/#seed-name~k3j9x2m4p8qa`). Typing the same seed without the link starts a separate maze, so private games stay private.
+- An original electro soundtrack and arcade sound effects, generated live in the browser. Music and effects have their own volume sliders (20% and 40% by default, remembered per browser); press **M** to mute.
 - High scores are kept in `/data/scores.json`.
 
 ## Run it

@@ -15,11 +15,11 @@ let srv;
 function cleanup(code) { try { srv.kill(); } catch (e) { /* ignore */ } process.exit(code); }
 setTimeout(() => fail("timed out"), 30000);
 
-function client(name) {
+function client(name, extra = {}) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
     const c = { ws, name, msgs: [], last: {}, on: {} };
-    ws.onopen = () => ws.send(JSON.stringify({ t: 'join', nm: name, seed: 'Smoke Test!', tok: name }));
+    ws.onopen = () => ws.send(JSON.stringify(Object.assign({ t: 'join', nm: name, seed: 'Smoke Test!', tok: name }, extra)));
     ws.onerror = e => reject(new Error('socket error ' + name));
     ws.onmessage = ev => {
       const m = JSON.parse(ev.data); c.msgs.push(m); c.last[m.t] = m;
@@ -100,6 +100,24 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   const a2 = await client('alice');
   if (a2.last.welcome.sc !== expected) fail('resume did not keep score');
   console.log('ok  reconnect resumed score', a2.last.welcome.sc);
+
+  // invite-only mazes
+  const host = await client('host', { seed: 'Secret Base', vis: 'private', tok: 'host' });
+  const hw = host.last.welcome;
+  if (hw.vis !== 'private' || !/^[a-z0-9]{12}$/.test(hw.key)) fail('private maze should come back with a 12-char key');
+  const listed = await (await fetch(base + '/api/games')).json();
+  if (listed.some(g => g.seed === 'secret-base')) fail('private maze must not appear in the lobby');
+  console.log('ok  invite-only maze is hidden from the lobby');
+  const stranger = await client('stranger', { seed: 'secret-base', tok: 'stranger' });
+  if (stranger.last.welcome.vis !== 'public' || stranger.last.welcome.roster.length !== 1) fail('same seed without the key must land in a different, public maze');
+  console.log('ok  same seed without the link gets a separate public maze');
+  const friend = await client('friend', { seed: 'secret-base', key: hw.key, tok: 'friend' });
+  if (friend.last.welcome.vis !== 'private' || !friend.last.welcome.roster.some(r => r[1] === 'host')) fail('invite link should join the host\'s maze');
+  await waitFor(host, 'join', m => m.nm === 'friend');
+  console.log('ok  invite link joins the private maze');
+  const bogus = await client('bogus', { seed: 'secret-base', key: 'NOT-A-KEY', tok: 'bogus' });
+  if (bogus.last.welcome.vis !== 'public') fail('a malformed key must not create or join a private maze');
+  console.log('ok  malformed keys are ignored');
 
   console.log('\nAll smoke tests passed.');
   cleanup(0);

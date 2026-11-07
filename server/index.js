@@ -71,13 +71,20 @@ setInterval(() => {
 }, 5000).unref();
 
 /* ---------- games ---------- */
-const games = new Map(); // seed -> Game
-function getGame(seed) {
-  let g = games.get(seed);
+const games = new Map(); // room id ("seed" or "seed~key") -> Game
+const KEY_RE = /^[a-z0-9]{12}$/;
+function newKey() { // 12 chars of a-z0-9 from a CSPRNG (~62 bits)
+  const abc = 'abcdefghijklmnopqrstuvwxyz0123456789'; let k = '';
+  for (const b of crypto.randomBytes(24)) { if (b < 252) k += abc[b % 36]; if (k.length === 12) break; }
+  return k.length === 12 ? k : newKey();
+}
+function getGame(seed, key) {
+  const id = key ? seed + '~' + key : seed;
+  let g = games.get(id);
   if (!g) {
     if (games.size >= CFG.maxMazes) return null;
-    g = new Game(seed, { onScore: addScore });
-    games.set(seed, g);
+    g = new Game(seed, key, { onScore: addScore });
+    games.set(id, g);
   }
   return g;
 }
@@ -109,7 +116,9 @@ function onSocket(ws) {
     if (m.t === 'join') {
       if (game) return;
       const seed = M.slug(m.seed) || CFG.defaultSeed || M.randomSeed();
-      const g = getGame(seed);
+      // An invite link carries its key; choosing "Invite only" mints a fresh one.
+      const key = typeof m.key === 'string' && KEY_RE.test(m.key) ? m.key : (m.vis === 'private' ? newKey() : '');
+      const g = getGame(seed, key);
       if (!g) { ws.send(JSON.stringify({ t: 'error', msg: 'This server is at its maze limit. Try a seed that is already running.' })); return; }
       if (CFG.maxPlayersPerMaze && g.players.size >= CFG.maxPlayersPerMaze) { ws.send(JSON.stringify({ t: 'error', msg: 'That maze is full. Try another seed.' })); return; }
       const col = COLORS.includes(m.col) ? m.col : COLORS[Math.random() * COLORS.length | 0];
@@ -161,7 +170,7 @@ const server = http.createServer((req, res) => {
   if (p === '/api/info') return json(res, { name: CFG.serverName, lobby: CFG.showLobby, defaultSeed: CFG.defaultSeed, maxPlayersPerMaze: CFG.maxPlayersPerMaze });
   if (p === '/api/games') {
     if (!CFG.showLobby) return json(res, []);
-    const list = [...games.values()].filter(g => g.players.size).map(g => ({ seed: g.seed, players: g.players.size, level: g.L }))
+    const list = [...games.values()].filter(g => g.players.size && !g.isPrivate).map(g => ({ seed: g.seed, players: g.players.size, level: g.L }))
       .sort((a, b) => b.players - a.players).slice(0, 20);
     return json(res, list);
   }

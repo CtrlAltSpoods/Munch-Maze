@@ -109,3 +109,15 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-acti
 .scores li.empty{display:block;color:var(--muted);font-size:12px}
 .scores li.empty::before{content:none}
 .scores .nm small{color:var(--muted)}
+select{font:inherit;font-size:14px;background:var(--ink-2);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%;cursor:pointer}
+.hint{margin:0;font-size:12px;color:var(--muted);line-height:1.5}
+.invite{display:flex;flex-direction:column;gap:6px;background:var(--ink-2);border:1px solid var(--accent);border-radius:8px;padding:10px 12px}
+.invite p{margin:0;font-size:13px;color:var(--fg)}
+.linkbtn{align-self:flex-start;background:none;border:0;padding:0;color:var(--accent);text-decoration:underline;font-size:13px}
+.chip{font-size:10px;text-transform:uppercase;letter-spacing:.12em;border:1px solid var(--line);border-radius:999px;padding:3px 8px;color:var(--muted);white-space:nowrap}
+.chip.private{border-color:var(--accent);color:var(--accent)}
+.sound{display:grid;gap:8px;border-top:1px solid var(--line);padding-top:12px}
+.slider{display:grid;grid-template-columns:62px minmax(0,1fr) 40px;align-items:center;gap:8px}
+.slider output{text-align:right;font-size:12px}
+input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer;margin:0}
+@media (max-width:760px){ .sound{padding-top:8px} }

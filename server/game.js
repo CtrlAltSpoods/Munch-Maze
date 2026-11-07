@@ -1,14 +1,18 @@
 'use strict';
-/* One shared maze per seed. The server owns pellets, ghosts, scores and lives;
-   clients own their own movement and report what they ate or hit. */
+/* One shared maze per room. A public room is just its seed; an invite-only room is
+   seed + secret key, so it is never listed and can only be reached by its link.
+   The server owns pellets, ghosts, scores and lives; clients own their own
+   movement and report what they ate or hit. */
 const M = require('../shared/maze.js');
 const { DIRS } = M;
 
 const RESUME_MS = 2 * 60 * 1000; // keep a disconnected player's score/lives this long
 
 class Game {
-  constructor(seed, opts) {
-    this.seed = seed;
+  constructor(seed, key, opts) {
+    this.seed = seed;          // drives maze generation
+    this.key = key || '';      // secret for invite-only rooms; '' = public
+    this.isPrivate = !!this.key;
     this.opts = opts;          // { onScore(entry) }
     this.players = new Map();  // id -> player
     this.resume = new Map();   // token -> { sc, li, over, at }
@@ -44,7 +48,8 @@ class Game {
     this.players.set(p.id, p);
     this.emptySince = 0;
     this.send(p, {
-      t: 'welcome', id: p.id, seed: this.seed, lv: this.L, b: M.toB64(this.bits),
+      t: 'welcome', id: p.id, seed: this.seed, key: this.key, vis: this.isPrivate ? 'private' : 'public',
+      lv: this.L, b: M.toB64(this.bits),
       roster: [...this.players.values()].map(q => [q.id, q.nm, q.col]),
       sc: p.sc, li: p.li, over: p.over
     });
