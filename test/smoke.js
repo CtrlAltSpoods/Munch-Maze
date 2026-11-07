@@ -45,6 +45,8 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   if (!html.includes('client.js')) fail('index.html not served');
   const core = await (await fetch(base + '/maze.js')).text();
   if (!core.includes('genLevel')) fail('maze.js not served');
+  const css = await (await fetch(base + '/style.css')).text();
+  if (!/\[hidden\]\s*\{\s*display:\s*none\s*!important/.test(css)) fail('style.css must hide [hidden] elements (game-over overlay showed on load)');
   if ((await fetch(base + '/../server/index.js')).status === 200) fail('path traversal');
 
   const a = await client('alice');

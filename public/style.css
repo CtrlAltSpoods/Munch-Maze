@@ -13,6 +13,8 @@
   --mono:'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color-scheme:dark;
 }
+/* The hidden attribute must always win over component display rules (overlays, banner). */
+[hidden]{display:none!important}
 html{height:100%;box-sizing:border-box}
 *,*::before,*::after{box-sizing:inherit}
 body{
