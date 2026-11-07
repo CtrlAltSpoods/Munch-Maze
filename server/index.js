@@ -101,7 +101,6 @@ setInterval(() => {
 }, 1000 / CFG.tickRate);
 
 /* ---------- players / sockets ---------- */
-const COLORS = ['#ffcc33', '#7cf0a0', '#6fd3ff', '#ff8fd1', '#ffa24c', '#c79bff', '#f2f2f2', '#ff7a7a'];
 let nextId = 1;
 const cleanName = s => String(s || '').replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁠-⁯]/g, '').trim().slice(0, 16) || 'Player';
 
@@ -121,8 +120,8 @@ function onSocket(ws) {
       const g = getGame(seed, key);
       if (!g) { ws.send(JSON.stringify({ t: 'error', msg: 'This server is at its maze limit. Try a seed that is already running.' })); return; }
       if (CFG.maxPlayersPerMaze && g.players.size >= CFG.maxPlayersPerMaze) { ws.send(JSON.stringify({ t: 'error', msg: 'That maze is full. Try another seed.' })); return; }
-      const col = COLORS.includes(m.col) ? m.col : COLORS[Math.random() * COLORS.length | 0];
-      p = { id: nextId++, ws, nm: cleanName(m.nm), col, x: 0, y: 0, f: 2, al: true, sc: 0, li: 3, over: false, spawnAt: Date.now(), fid: -1, combo: 0 };
+      const look = M.pickModel(m.mdl, m.ci);   // validated character + colour
+      p = { id: nextId++, ws, nm: cleanName(m.nm), col: look.col, mdl: look.mdl, x: 0, y: 0, f: 2, al: true, sc: 0, li: 3, over: false, spawnAt: Date.now(), fid: -1, combo: 0 };
       game = g;
       g.add(p, typeof m.tok === 'string' ? m.tok.slice(0, 64) : '');
       return;

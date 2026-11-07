@@ -57,10 +57,10 @@ class Game {
     this.send(p, {
       t: 'welcome', id: p.id, seed: this.seed, key: this.key, vis: this.isPrivate ? 'private' : 'public',
       lv: this.L, b: M.toB64(this.bits),
-      roster: [...this.players.values()].map(q => [q.id, q.nm, q.col]),
+      roster: [...this.players.values()].map(q => [q.id, q.nm, q.col, q.mdl]),
       sc: p.sc, li: p.li, over: p.over, host: this.hostId, ph: this.ph
     });
-    this.broadcast({ t: 'join', id: p.id, nm: p.nm, col: p.col }, p.id);
+    this.broadcast({ t: 'join', id: p.id, nm: p.nm, col: p.col, mdl: p.mdl }, p.id);
   }
 
   remove(p) {

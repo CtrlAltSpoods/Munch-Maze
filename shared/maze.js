@@ -29,6 +29,26 @@
     return WA[Math.random() * WA.length | 0] + '-' + WB[Math.random() * WB.length | 0] + '-' + (10 + Math.random() * 90 | 0);
   }
 
+  /* Player characters. Each has five colours; players pick a character and a colour
+     index, and the server turns that into the colour everyone sees. */
+  const MODELS = [
+    { id: 'chomper', name: 'Chomper', colors: ['#ffcc33', '#7cf0a0', '#6fd3ff', '#ff8fd1', '#f2f2f2'] },
+    { id: 'saucer',  name: 'Saucer',  colors: ['#c9d3e6', '#9dff6a', '#41e0f0', '#ff5fd2', '#ffa24c'] },
+    { id: 'robot',   name: 'Robot',   colors: ['#b8c4d6', '#ff6b6b', '#ffd23f', '#2fd4b0', '#a77bff'] },
+    { id: 'slime',   name: 'Slime',   colors: ['#7cf06a', '#5fb4ff', '#ff7ad9', '#ffae42', '#b77bff'] },
+    { id: 'shark',   name: 'Shark',   colors: ['#8fb0d8', '#e6edf5', '#e0a35a', '#41e0f0', '#ff6b8b'] },
+    { id: 'cat',     name: 'Cat',     colors: ['#ffa24c', '#b9b4c9', '#f2f2f2', '#e8c39e', '#ff9ad5'] },
+    { id: 'rocket',  name: 'Rocket',  colors: ['#ff5a5a', '#eef0ff', '#4d8bff', '#ffcc33', '#7ee081'] },
+    { id: 'bee',     name: 'Bee',     colors: ['#ffd23f', '#ff9f1c', '#c3f73a', '#ff8fd1', '#6fe3ff'] },
+    { id: 'frog',    name: 'Frog',    colors: ['#6fdc5a', '#2fd4b0', '#ff5a5a', '#4d8bff', '#ffd23f'] },
+    { id: 'gem',     name: 'Gem',     colors: ['#ff4d6d', '#3ddc84', '#4d7cff', '#b06bff', '#ffc24d'] }
+  ];
+  const pickModel = (mdl, ci) => {
+    const m = MODELS[(mdl | 0) >= 0 && (mdl | 0) < MODELS.length ? mdl | 0 : 0];
+    const c = (ci | 0) >= 0 && (ci | 0) < 5 ? ci | 0 : 0;
+    return { mdl: MODELS.indexOf(m), ci: c, col: m.colors[c] };
+  };
+
   // Level rules
   const levelSize = L => [Math.min(15 + 4 * (L - 1), 63), Math.min(11 + 4 * (L - 1), 51)];
   const ghostCount = L => Math.min(1 + Math.floor(L / 2), 6);
@@ -147,6 +167,6 @@
     return o;
   }
 
-  return { DIRS, slug, randomSeed, levelSize, ghostCount, speedMult, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
+  return { DIRS, MODELS, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
     genLevel, wrapX, canGo, entPos, getBit, setBit, toB64, fromB64 };
 });

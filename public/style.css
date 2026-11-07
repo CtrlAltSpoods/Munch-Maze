@@ -43,7 +43,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 
 .main{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:12px;min-height:0}
 .stage{position:relative;min-height:0;min-width:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--ink)}
-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
 .side{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:12px;min-height:0;overflow:auto}
 .side h2{margin:0;font-family:var(--display);font-size:14px;font-weight:400;letter-spacing:.04em;display:flex;justify-content:space-between;align-items:baseline}
 .side h2 span{font-family:var(--mono);font-size:12px;color:var(--muted)}
@@ -176,3 +176,16 @@ input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer;margin:0}
 .linkrow input{font:inherit;font-size:12px;background:var(--ink-2);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
 .card.lobby .k b{color:var(--fg);margin-left:6px}
 @media (prefers-reduced-motion:reduce){ .lobby-players li{animation:none} }
+
+/* character picker */
+.models{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.model{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px 5px;border-radius:10px;
+  background:var(--ink-2);border:1px solid var(--line);font-size:10px;letter-spacing:.06em;color:var(--muted);transition:border-color .15s,transform .15s}
+.model canvas{width:100%;max-width:56px;aspect-ratio:1;display:block}
+.model:hover{border-color:var(--muted);transform:translateY(-1px)}
+.model.on{border-color:var(--accent);color:var(--fg);box-shadow:0 0 14px color-mix(in srgb, var(--accent) 35%, transparent)}
+.swatches{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}
+.swatch{width:28px;height:28px;border-radius:50%;background:var(--c);border:2px solid var(--ink-2);box-shadow:0 0 0 1px var(--line)}
+.swatch.on{box-shadow:0 0 0 2px var(--accent),0 0 12px var(--c)}
+#charLabel b{color:var(--fg);font-weight:600}
+@media (max-width:420px){ .models{grid-template-columns:repeat(5,minmax(0,1fr));gap:4px} .model span{font-size:9px} }

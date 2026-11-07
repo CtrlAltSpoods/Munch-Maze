@@ -5,7 +5,6 @@ const M = window.MazeCore;
 const { DIRS } = M;
 const $ = id => document.getElementById(id);
 const A = window.MazeAudio || { unlock() {}, startMusic() {}, stopMusic() {}, setFright() {}, setMusicVolume() {}, setSfxVolume() {}, sfx() {} };
-const PCOL = ['#ffcc33', '#7cf0a0', '#6fd3ff', '#ff8fd1', '#ffa24c', '#c79bff', '#f2f2f2', '#ff7a7a'];
 const GCOL = ['#ff4d5e', '#ff9ad5', '#41e0f0', '#ffb347', '#7ee081', '#b48cff'];
 const INK = '#0a0c1c', INK2 = '#10133a';
 const store = {
@@ -18,7 +17,7 @@ if (!token) { token = Math.random().toString(36).slice(2) + Date.now().toString(
 
 /* ---------- state ---------- */
 const S = {
-  name: '', seed: '', color: store.get('mm.col') || PCOL[Math.random() * PCOL.length | 0],
+  name: '', seed: '', color: '#ffcc33', model: 0, ci: 0,
   ws: null, id: 0, inGame: false, wantGame: false, reconnectT: 0,
   key: '', vis: 'public', inviteKey: '',   // inviteKey: from an invite link we arrived with
   L: 0, lvl: null, me: { tx: 0, ty: 0, d: -1, t: 0, want: -1, face: 2 },
@@ -29,7 +28,11 @@ const S = {
   host: 0, eatQ: [],
   time: 0, lastT: performance.now(), bannerT: 0, camX: null, camY: null, mazeKey: '', mazeCv: null, mazeFlash: null
 };
-if (!PCOL.includes(S.color)) S.color = PCOL[0];
+{ // remembered character and colour
+  const mdl = parseInt(store.get('mm.model'), 10), ci = parseInt(store.get('mm.ci'), 10);
+  const look = M.pickModel(Number.isFinite(mdl) ? mdl : 0, Number.isFinite(ci) ? ci : (Math.random() * 5 | 0));
+  S.model = look.mdl; S.ci = look.ci; S.color = look.col;
+}
 
 function respawn() { const lv = S.lvl; S.me = { tx: lv.sx, ty: lv.sy, d: -1, t: 0, want: -1, face: 2 }; S.inv = 2; S.camX = null; }
 function loadLevel(L, b64) {
@@ -51,7 +54,7 @@ function connect() {
   url.hash = ''; url.search = '';
   const ws = new WebSocket(url.href);
   S.ws = ws;
-  ws.onopen = () => send({ t: 'join', nm: S.name, seed: S.seed, col: S.color, tok: token, vis: S.vis, key: S.key || S.inviteKey });
+  ws.onopen = () => send({ t: 'join', nm: S.name, seed: S.seed, mdl: S.model, ci: S.ci, tok: token, vis: S.vis, key: S.key || S.inviteKey });
   ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } onMsg(m); };
   ws.onclose = () => {
     if (S.ws !== ws) return;
@@ -63,7 +66,7 @@ function onMsg(m) {
   switch (m.t) {
     case 'welcome': {
       S.id = m.id; S.seed = m.seed;
-      S.roster.clear(); for (const r of m.roster || []) S.roster.set(r[0], { nm: String(r[1]), col: String(r[2]) });
+      S.roster.clear(); for (const r of m.roster || []) S.roster.set(r[0], { nm: String(r[1]), col: String(r[2]), mdl: r[3] | 0 });
       S.sc = m.sc | 0; S.li = m.li | 0; S.over = !!m.over;
       loadLevel(m.lv | 0, m.b);
       S.inGame = true;
@@ -80,7 +83,7 @@ function onMsg(m) {
       break;
     }
     case 'level': S.ph = 0; updateReady(); loadLevel(m.lv | 0, ''); A.startMusic(S.L); A.setFright(false); if (S.L > 1 && !S.over) A.sfx('life'); break;
-    case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col) }); A.sfx('join'); updateLobby(); break;
+    case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col), mdl: m.mdl | 0 }); A.sfx('join'); updateLobby(); break;
     case 'leave': S.roster.delete(m.id); S.ov.delete(m.id); updateLobby(); break;
     case 'pts': MazeFX.text(+m.x || 0, (+m.y || 0) - 0.3, String(m.v | 0), '#41e0f0', 0.95); break;
     case 'error':
@@ -106,7 +109,7 @@ function onMsg(m) {
       const pl = [];
       for (const a of m.p || []) {
         const id = a[0], r = S.roster.get(id) || { nm: 'Player', col: '#ffcc33' };
-        const p = { id, x: +a[1], y: +a[2], f: a[3] & 3, al: a[4] === 1, sc: a[5] | 0, li: a[6] | 0, over: a[7] === 1, nm: r.nm, col: /^#[0-9a-f]{6}$/i.test(r.col) ? r.col : '#ffcc33' };
+        const p = { id, x: +a[1], y: +a[2], f: a[3] & 3, al: a[4] === 1, sc: a[5] | 0, li: a[6] | 0, over: a[7] === 1, nm: r.nm, col: /^#[0-9a-f]{6}$/i.test(r.col) ? r.col : '#ffcc33', mdl: r.mdl | 0 };
         if (id === S.id) {
           S.sc = p.sc; S.li = p.li;
           if (p.over && !S.over) { S.over = true; A.sfx('over'); endStreak(true); $('overTxt').textContent = 'You scored ' + S.sc.toLocaleString() + ' and reached level ' + S.L + '.'; $('overOv').hidden = false; }
@@ -237,7 +240,7 @@ refreshLobby(); setInterval(refreshLobby, 3000);
 
 function join() {
   S.name = ($('nameIn').value.trim() || 'Player').slice(0, 16);
-  store.set('mm.name', S.name); store.set('mm.col', S.color);
+  store.set('mm.name', S.name); store.set('mm.model', String(S.model)); store.set('mm.ci', String(S.ci));
   S.seed = M.slug($('seedIn').value);
   S.vis = S.inviteKey ? 'private' : ($('visIn').value === 'private' ? 'private' : 'public');
   S.key = '';
@@ -292,7 +295,8 @@ function warpTarget() {
   if (S.ph === 3) return 0.06;                 // lobby: cruising
   if (S.ph === 1) return 0.55;                 // level clear: jump to hyperspace
   if (S.ph === 2) return 0.1;
-  return 0.12 * Math.min(2.5, Math.pow(M.speedMult(S.L), 0.8));
+  const streakBoost = 1 + 2.5 * Math.min(S.streak, 100) / 100;   // up to 3.5x at a 100 streak
+  return 0.12 * Math.min(2.5, Math.pow(M.speedMult(S.L), 0.8)) * streakBoost;
 }
 function drawBackground(dt, hue, beat) {
   const g = ctx.createRadialGradient(CW / 2, CH / 2, 0, CW / 2, CH / 2, Math.max(CW, CH) * 0.75);
@@ -360,14 +364,15 @@ function drawBulbs(T) {
   ctx.restore();
 }
 
-function drawPac(x, y, T, col, face, mouth, glow = true) {
-  const cx = (x + .5) * T, cy = (y + .5) * T, r = T * .44, a = [0, Math.PI / 2, Math.PI, -Math.PI / 2][face & 3], m = Math.min(.999, mouth) * Math.PI;
+function drawPac(x, y, T, col, face, mouth, glow = true, mdl = 0, dying = 0) {
+  const cx = (x + .5) * T, cy = (y + .5) * T, r = T * .44;
   if (glow) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha *= 0.55; blit(glowSprite(col, T * 0.3, T * 0.55), cx, cy); ctx.globalAlpha /= 0.55; ctx.globalCompositeOperation = 'source-over'; }
-  const g = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);
-  g.addColorStop(0, '#ffffff'); g.addColorStop(0.25, col); g.addColorStop(1, shade(col, -0.25));
-  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, a + m, a + 2 * Math.PI - m); ctx.closePath(); ctx.fill();
-  const ea = face === 2 ? a + 1.1 : a - 1.1;   // eye sits on the upper side of the mouth
-  ctx.fillStyle = '#0a0c1c'; ctx.beginPath(); ctx.arc(cx + Math.cos(ea) * r * 0.5, cy + Math.sin(ea) * r * 0.5, r * 0.11, 0, Math.PI * 2); ctx.fill();
+  const chew = Math.max(0, Math.min(1, (mouth - 0.06) / 0.24));
+  if (dying > 0) {   // shrink and spin away
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(dying * 9); ctx.scale(1 - dying, 1 - dying);
+    MazeModels.draw(ctx, mdl, 0, 0, r, col, face, 1, S.time); ctx.restore(); return;
+  }
+  MazeModels.draw(ctx, mdl, cx, cy, r, col, face, chew, S.time);
 }
 function shade(hex, k) { const n = parseInt(hex.slice(1), 16); const f = v => Math.max(0, Math.min(255, Math.round(v + (k < 0 ? v * k : (255 - v) * k)))); return `rgb(${f(n >> 16 & 255)},${f(n >> 8 & 255)},${f(n & 255)})`; }
 function drawGhost(x, y, T, col, st, d, flash) {
@@ -453,7 +458,7 @@ function render(dt) {
       if (!p.al || p.over) continue;
       let o = S.ov.get(p.id); if (!o || Math.hypot(o.x - p.x, o.y - p.y) > 3) { o = { x: p.x, y: p.y }; S.ov.set(p.id, o); }
       o.x += (p.x - o.x) * kx; o.y += (p.y - o.y) * kx;
-      ctx.globalAlpha = .92; drawPac(o.x, o.y, T, p.col, p.f, .06 + .22 * Math.abs(Math.sin(S.time * 12 + p.id))); ctx.globalAlpha = 1;
+      ctx.globalAlpha = .92; drawPac(o.x, o.y, T, p.col, p.f, .06 + .22 * Math.abs(Math.sin(S.time * 12 + p.id)), true, p.mdl); ctx.globalAlpha = 1;
       ctx.font = '600 ' + Math.max(10, Math.round(T * .42)) + 'px "IBM Plex Mono", ui-monospace, monospace';
       ctx.lineWidth = 3; ctx.strokeStyle = '#0a0c1c'; ctx.strokeText(p.nm, (o.x + .5) * T, (o.y + .5) * T - T * .5);
       ctx.fillStyle = '#eef0ff'; ctx.fillText(p.nm, (o.x + .5) * T, (o.y + .5) * T - T * .5);
@@ -469,10 +474,10 @@ function render(dt) {
       ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
     }
     if (!S.over) {
-      if (!S.alive) { const prog = 1 - Math.max(0, S.deadT) / 1.4; if (prog < .95) drawPac(px, py, T, S.color, 3, .15 + .85 * prog); }
+      if (!S.alive) { const prog = 1 - Math.max(0, S.deadT) / 1.4; if (prog < .95) drawPac(px, py, T, S.color, S.me.face, .3, true, S.model, prog); }
       else {
         const blink = S.inv > 0 && Math.floor(S.time * 10) % 2 === 0;
-        if (!blink) drawPac(px, py, T, S.color, S.me.face, S.me.d >= 0 && S.ph === 0 ? .06 + .24 * Math.abs(Math.sin(S.time * 14)) : .18);
+        if (!blink) drawPac(px, py, T, S.color, S.me.face, S.me.d >= 0 && S.ph === 0 ? .06 + .24 * Math.abs(Math.sin(S.time * 14)) : .18, true, S.model);
         ctx.strokeStyle = S.color; ctx.globalAlpha = .35 + beat * .3; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc((px + .5) * T, (py + .5) * T, T * (.62 + beat * .08), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
       }
     }
@@ -671,6 +676,48 @@ function sendReady() { if ((S.ph === 2 || S.ph === 3) && S.host === S.id) { send
 $('readyBtn').addEventListener('click', sendReady);
 addEventListener('keydown', e => { if ((e.code === 'Enter' || e.code === 'Space') && (S.ph === 2 || S.ph === 3) && S.host === S.id && e.target.tagName !== 'BUTTON' && !/INPUT|SELECT/.test(e.target.tagName)) { e.preventDefault(); sendReady(); } });
 
+/* ---------- character picker ---------- */
+const pickerCanvases = [];
+function buildPicker() {
+  const grid = $('modelGrid'); grid.textContent = '';
+  M.MODELS.forEach((m, i) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'model';
+    b.setAttribute('role', 'radio'); b.setAttribute('aria-label', m.name); b.dataset.i = String(i);
+    const cv = document.createElement('canvas'); cv.width = 112; cv.height = 112;
+    const lb = document.createElement('span'); lb.textContent = m.name;
+    b.append(cv, lb); grid.appendChild(b); pickerCanvases[i] = cv;
+    b.addEventListener('click', () => { S.model = i; refreshPicker(); A.unlock(); A.sfx('eat'); });
+  });
+  grid.addEventListener('keydown', e => {   // arrow keys move through the grid
+    const d = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 5, ArrowUp: -5 }[e.key]; if (d === undefined) return;
+    e.preventDefault(); S.model = (S.model + d + M.MODELS.length) % M.MODELS.length; refreshPicker(); grid.children[S.model].focus();
+  });
+  refreshPicker();
+}
+function refreshPicker() {
+  const m = M.MODELS[S.model]; S.color = m.colors[S.ci];
+  $('charName').textContent = m.name;
+  [...$('modelGrid').children].forEach((b, i) => { const on = i === S.model; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; });
+  const sw = $('swatches'); sw.textContent = '';
+  m.colors.forEach((col, k) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'swatch' + (k === S.ci ? ' on' : '');
+    b.style.setProperty('--c', col); b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(k === S.ci)); b.setAttribute('aria-label', 'Colour ' + (k + 1));
+    b.addEventListener('click', () => { S.ci = k; refreshPicker(); });
+    sw.appendChild(b);
+  });
+  store.set('mm.model', String(S.model)); store.set('mm.ci', String(S.ci));
+}
+function animatePicker(t) {
+  if ($('startOv').hidden) return;
+  pickerCanvases.forEach((cv, i) => {
+    const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);
+    const on = i === S.model, col = M.MODELS[i].colors[on ? S.ci : 0];
+    const chew = on ? 0.5 + 0.5 * Math.sin(t * 10) : 0.35;
+    MazeModels.draw(g, i, 56, 60, on ? 34 : 30, col, 0, chew, on ? t : 0);
+  });
+}
+buildPicker();
+
 /* ---------- visibility ---------- */
 function inviteHash() { return S.vis === 'private' && S.key ? S.seed + '~' + S.key : S.seed; }
 function clearInvite() {
@@ -718,7 +765,9 @@ addEventListener('keydown', () => A.unlock(), { once: true });
 function frame() {
   const now = performance.now(), dt = Math.min(.05, (now - S.lastT) / 1000); S.lastT = now; S.time += dt;
   if (S.inGame && S.lvl) { playerStep(dt); updateGhostView(dt); }
+  MazeFX.setRumble(S.inGame && S.streak >= 100 ? 1.6 : 0);   // a small steady shake from a 100 streak until it ends
   MazeFX.update(dt);
+  animatePicker(S.time);
   render(dt); hud(dt, now);
   requestAnimationFrame(frame);
 }

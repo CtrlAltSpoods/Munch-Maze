@@ -14,7 +14,7 @@ const GOLD = '#ffcc33', GOLD_HI = '#fff3b0', GOLD_LO = '#c98a00';
 const world = [];     // particles in tile space
 const texts = [];     // floating score text in tile space
 const screen = [];    // confetti in screen space
-let shakeAmt = 0, shakeX = 0, shakeY = 0;
+let shakeAmt = 0, shakeX = 0, shakeY = 0, rumble = 0;
 let flashA = 0, flashCol = '#ffffff';
 let banner = null;    // { text, sub, color, t, dur }
 let reel = null;      // slot-reel reveal state
@@ -77,7 +77,8 @@ function update(dt) {
     p.vy += p.g * dt * 0.25; p.x += (p.vx + Math.sin(p.life * 3 + p.rot) * 30) * dt; p.y += p.vy * dt; p.rot += p.rv * dt; p.spin += p.spinV * dt;
   }
   shakeAmt = Math.max(0, shakeAmt - dt * 40);
-  shakeX = (Math.random() * 2 - 1) * shakeAmt; shakeY = (Math.random() * 2 - 1) * shakeAmt;
+  const amp = shakeAmt + (reduced() ? 0 : rumble);
+  shakeX = (Math.random() * 2 - 1) * amp; shakeY = (Math.random() * 2 - 1) * amp;
   flashA = Math.max(0, flashA - dt * 2.2);
   if (banner) { banner.t += dt; if (banner.t > banner.dur) banner = null; }
   if (reel) {
@@ -214,10 +215,11 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
-function clear() { world.length = 0; texts.length = 0; screen.length = 0; banner = null; reel = null; shakeAmt = 0; flashA = 0; }
+function setRumble(a) { rumble = Math.max(0, a); }
+function clear() { rumble = 0; world.length = 0; texts.length = 0; screen.length = 0; banner = null; reel = null; shakeAmt = 0; flashA = 0; }
 
 window.MazeFX = {
-  sparks, coins, ring, text, shake, flash, bigText, confetti, reels, update, drawWorld, drawScreen, clear,
+  sparks, coins, ring, text, shake, setRumble, flash, bigText, confetti, reels, update, drawWorld, drawScreen, clear,
   get shakeX() { return shakeX; }, get shakeY() { return shakeY; }, get reelActive() { return !!reel; }, reduced
 };
 })();

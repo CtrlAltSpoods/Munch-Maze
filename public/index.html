@@ -53,6 +53,11 @@
             <input id="nameIn" maxlength="16" placeholder="Player">
           </div>
           <div class="field">
+            <span class="k" id="charLabel">Your character · <b id="charName">Chomper</b></span>
+            <div class="models" id="modelGrid" role="radiogroup" aria-labelledby="charLabel"></div>
+            <div class="swatches" id="swatches" role="radiogroup" aria-label="Colour"></div>
+          </div>
+          <div class="field">
             <label class="k" for="seedIn">Seed (optional)</label>
             <input id="seedIn" maxlength="40" placeholder="Leave blank for a random maze">
           </div>
@@ -154,6 +159,7 @@
 <script src="audio.js"></script>
 <script src="fx.js"></script>
 <script src="space.js"></script>
+<script src="models.js"></script>
 <script src="client.js"></script>
 </body>
 </html>
