@@ -6,7 +6,8 @@
 const M = require('../shared/maze.js');
 const { DIRS } = M;
 
-const RESUME_MS = 2 * 60 * 1000; // keep a disconnected player's score/lives this long
+const RESUME_MS = 2 * 60 * 1000;
+const MAX_START_LEVEL = 50;       // highest level a host can start a new maze on // keep a disconnected player's score/lives this long
 
 class Game {
   constructor(seed, key, opts) {
@@ -22,12 +23,12 @@ class Game {
     // If they leave, the longest-present player takes over; they get it back if they return.
     this.hostId = 0;
     this.creatorToken = '';
-    this.startLevel(1);
-    this.ph = 3;   // pre-game lobby: players gather until the host starts
+    this.startLevel(1, false, true);   // pre-game lobby: players gather until the host starts
   }
 
   /* ---------- levels ---------- */
-  startLevel(L) {
+  /** advance: true when moving on from a cleared level (that's when everyone earns a life). */
+  startLevel(L, advance = false, lobby = false) {
     this.L = L;
     this.lv = M.genLevel(this.seed, L);
     this.bits = new Uint8Array(this.lv.bytes);
@@ -35,13 +36,13 @@ class Game {
     this.ghosts = [];
     for (let i = 0; i < M.ghostCount(L); i++)
       this.ghosts.push({ i, tx: 0, ty: 0, d: -1, t: 0, st: 0, ep: 0, home: 1.5 + i * 2.5, rev: false });
-    this.fr = 0; this.fid = 0; this.ph = 0; this.ct = 0; this.clock = 0; this.lastMode = -1;
+    this.fr = 0; this.fid = 0; this.ph = lobby ? 3 : 0; this.ct = 0; this.clock = 0; this.lastMode = -1;
     this.eatenSince = [];
     for (const p of this.players.values()) {
       p.x = this.lv.sx; p.y = this.lv.sy; p.combo = 0;
-      if (!p.over) { p.al = true; p.spawnAt = Date.now(); if (L > 1) p.li = Math.min(5, p.li + 1); }
+      if (!p.over) { p.al = true; p.spawnAt = Date.now(); if (advance) p.li = Math.min(5, p.li + 1); }
     }
-    this.broadcast({ t: 'level', lv: L });
+    this.broadcast({ t: 'level', lv: L, ph: this.ph, adv: advance ? 1 : 0 });
   }
 
   /* ---------- membership ---------- */
@@ -116,8 +117,15 @@ class Game {
         return;
       case 'ready':   // host starts the next level
         if (p.id !== this.hostId) return;
-        if (this.ph === 2) this.startLevel(this.L + 1);
-        else if (this.ph === 3) this.startLevel(1);
+        if (this.ph === 2) this.startLevel(this.L + 1, true);
+        else if (this.ph === 3) this.startLevel(this.L);   // whichever level the host picked in the lobby
+        return;
+      case 'startlv': {   // host picks the starting level in the lobby
+        const lv = m.lv | 0;
+        if (this.ph !== 3 || p.id !== this.hostId || lv < 1 || lv > MAX_START_LEVEL || lv === this.L) return;
+        this.startLevel(lv, false, true);   // regenerate that maze for everyone, still in the lobby
+        return;
+      }
         return;
       case 'again':
         if (!p.over) return;

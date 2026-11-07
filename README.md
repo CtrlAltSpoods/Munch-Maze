@@ -6,7 +6,7 @@ Everyone who enters the same **seed** shares one maze. Players eat pellets toget
 
 - Level 1 is a 15×11 maze with 1 ghost. Each level adds 4 tiles in each direction, up to 63×51, and more ghosts (up to 6).
 - Every completed level makes the game **10% faster** (compounding: ×1.10, ×1.21, ×1.33 … about ×2.14 by level 9), for players and ghosts alike.
-- Every new maze opens in a **lobby**: players gather, see who's in and copy the invite link, and the host presses *Start game* when everyone's ready. The running-mazes list marks mazes that are still in their lobby.
+- Every new maze opens in a **lobby**: players gather, see who's in and copy the invite link, and the host presses *Start game* when everyone's ready. The host can also choose a **starting level**: each browser remembers the highest level it has reached (a `mm_best_level` cookie), and the lobby offers every level up to that, so players can continue where they left off (up to level 50). The running-mazes list marks mazes that are still in their lobby.
 - Between levels the maze pauses for the **host**, the player who started it, who presses *Start level N* (or Enter/Space) when everyone is ready. Other players see who they're waiting for. If the host leaves, the longest-present player takes over, and the original host gets it back if they return.
 - No player limit, no accounts, no external services, no npm dependencies.
 - Each maze is **Public** (listed under “Mazes running now” for anyone on the server) or **Invite only** (never listed; joined through a private link like `http://your-server:8080/#seed-name~k3j9x2m4p8qa`). Typing the same seed without the link starts a separate maze, so private games stay private.

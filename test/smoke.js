@@ -70,8 +70,21 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   b.ws.send(JSON.stringify({ t: 'ready' }));
   await new Promise(r => setTimeout(r, 300));
   if (b.last.s.ph !== 3) fail('a non-host must not start the game');
+  // host picks a starting level in the lobby; others can't, and silly values are ignored
+  b.ws.send(JSON.stringify({ t: 'startlv', lv: 4 }));
+  a.ws.send(JSON.stringify({ t: 'startlv', lv: 99 }));
+  await new Promise(r => setTimeout(r, 300));
+  if (b.msgs.some(m => m.t === 'level' && m.lv !== 1)) fail('only the host may pick a starting level, within range');
+  a.ws.send(JSON.stringify({ t: 'startlv', lv: 3 }));
+  const pick = await waitFor(b, 'level', m => m.lv === 3, 3000);
+  if (pick.ph !== 3) fail('picking a level must keep the maze in its lobby');
+  console.log('ok  host can pick a starting level in the lobby (others cannot)');
+  a.ws.send(JSON.stringify({ t: 'startlv', lv: 1 }));
+  await waitFor(b, 'level', m => m.lv === 1 && m.ph === 3, 3000);
+  b.msgs.length = 0;
   a.ws.send(JSON.stringify({ t: 'ready' }));
-  await waitFor(b, 'level', m => m.lv === 1, 3000);
+  const go = await waitFor(b, 'level', m => m.lv === 1, 3000);
+  if (go.ph !== 0 || go.adv) fail('starting from the lobby should begin play without an extra life');
   console.log('ok  maze opens in a lobby; host starts the game');
   const s1 = await waitFor(b, 's', m => m.ph === 0);
   if (s1.g.length !== M.ghostCount(1)) fail('ghost count');

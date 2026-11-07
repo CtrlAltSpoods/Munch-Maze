@@ -7,6 +7,14 @@ const $ = id => document.getElementById(id);
 const A = window.MazeAudio || { unlock() {}, startMusic() {}, stopMusic() {}, setFright() {}, setMusicVolume() {}, setSfxVolume() {}, sfx() {} };
 const GCOL = ['#ff4d5e', '#ff9ad5', '#41e0f0', '#ffb347', '#7ee081', '#b48cff'];
 const INK = '#0a0c1c', INK2 = '#10133a';
+/* Highest level reached, kept in a cookie for a little over a year (the most browsers allow). */
+const cookie = {
+  get(k) { try { const m = document.cookie.match(new RegExp('(?:^|; )' + k + '=([^;]*)')); return m ? decodeURIComponent(m[1]) : null; } catch (e) { return null; } },
+  set(k, v) { try { document.cookie = k + '=' + encodeURIComponent(v) + '; Max-Age=34560000; Path=/; SameSite=Lax'; } catch (e) { /* ignore */ } }
+};
+const MAX_START_LEVEL = 50;
+let bestLevel = Math.max(1, parseInt(cookie.get('mm_best_level'), 10) || 1);
+function recordLevel(L) { if (L > bestLevel) { bestLevel = L; cookie.set('mm_best_level', String(L)); } }
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
@@ -35,15 +43,15 @@ const S = {
 }
 
 function respawn() { const lv = S.lvl; S.me = { tx: lv.sx, ty: lv.sy, d: -1, t: 0, want: -1, face: 2 }; S.inv = 2; S.camX = null; }
-function loadLevel(L, b64) {
+function loadLevel(L, b64, ph = 0) {
   S.L = L; S.lvl = M.genLevel(S.seed, L);
   S.myBits = new Uint8Array(S.lvl.bytes);
   S.srvBits = b64 ? M.fromB64(b64, S.lvl.bytes) : new Uint8Array(S.lvl.bytes);
-  S.ge = []; S.gv = []; S.gTarget = []; S.ph = 0; S.fr = 0;
+  S.ge = []; S.gv = []; S.gTarget = []; S.ph = ph; S.fr = 0;
   S.alive = true; respawn(); S.mazeKey = '';
   const n = M.ghostCount(L);
   endStreak(true);
-  MazeFX.bigText('LEVEL ' + L, S.lvl.W + ' × ' + S.lvl.H + ' maze · ' + n + (n > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(L), '#41e0f0', 1.9);
+  if (ph === 0) MazeFX.bigText('LEVEL ' + L, S.lvl.W + ' × ' + S.lvl.H + ' maze · ' + n + (n > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(L), '#41e0f0', 1.9);
 }
 
 /* ---------- networking ---------- */
@@ -68,7 +76,7 @@ function onMsg(m) {
       S.id = m.id; S.seed = m.seed;
       S.roster.clear(); for (const r of m.roster || []) S.roster.set(r[0], { nm: String(r[1]), col: String(r[2]), mdl: r[3] | 0 });
       S.sc = m.sc | 0; S.li = m.li | 0; S.over = !!m.over;
-      loadLevel(m.lv | 0, m.b);
+      loadLevel(m.lv | 0, m.b, m.ph | 0);
       S.inGame = true;
       $('startOv').hidden = true; $('overOv').hidden = !S.over; $('leaveBtn').hidden = false; $('app').classList.add('ingame');
       $('playBtn').disabled = false; $('playBtn').textContent = 'Enter the maze';
@@ -82,7 +90,12 @@ function onMsg(m) {
       A.startMusic(S.L); A.sfx('start');
       break;
     }
-    case 'level': S.ph = 0; updateReady(); loadLevel(m.lv | 0, ''); A.startMusic(S.L); A.setFright(false); if (S.L > 1 && !S.over) A.sfx('life'); break;
+    case 'level':
+      loadLevel(m.lv | 0, '', m.ph | 0); updateReady();
+      A.startMusic(S.L); A.setFright(false);
+      if (S.ph === 0) recordLevel(S.L);
+      if (m.adv && !S.over) A.sfx('life');
+      break;
     case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col), mdl: m.mdl | 0 }); A.sfx('join'); updateLobby(); break;
     case 'leave': S.roster.delete(m.id); S.ov.delete(m.id); updateLobby(); break;
     case 'pts': MazeFX.text(+m.x || 0, (+m.y || 0) - 0.3, String(m.v | 0), '#41e0f0', 0.95); break;
@@ -101,6 +114,7 @@ function onMsg(m) {
       const wasPh = S.ph;
       S.ph = m.ph | 0; S.fr = +m.fr || 0; S.ct = +m.ct || 0;
       if (S.ph === 1 && wasPh !== 1) levelClear();
+      if (S.ph === 0) recordLevel(S.L);
       const hostWas = S.host; S.host = m.h | 0;
       if (S.ph !== wasPh || S.host !== hostWas) updateReady();
       A.setFright(S.fr > 0 && S.ph === 0);
@@ -638,17 +652,42 @@ function updateLobby() {
   const show = S.inGame && S.ph === 3;
   const ov = $('lobbyOv'), wasHidden = ov.hidden; ov.hidden = !show;
   if (!show) return;
-  const isHost = S.host === S.id, lv = M.genLevel(S.seed, 1), g = M.ghostCount(1);
+  const isHost = S.host === S.id, lv = S.lvl, g = M.ghostCount(S.L);
   $('lobbyTitle').textContent = 'Lobby · ' + S.seed;
   $('lobbyVis').textContent = S.vis === 'private' ? 'Invite only' : 'Public';
   $('lobbyVis').classList.toggle('private', S.vis === 'private');
-  $('lobbyMaze').textContent = 'Level 1 · ' + lv.W + ' × ' + lv.H + ' maze · ' + g + (g > 1 ? ' ghosts' : ' ghost') + (S.vis === 'private' ? ' · only people with the link can join' : ' · listed for everyone on this server');
+  $('lobbyMaze').textContent = 'Level ' + S.L + ' · ' + lv.W + ' × ' + lv.H + ' maze · ' + g + (g > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(S.L) + (S.vis === 'private' ? ' · only people with the link can join' : ' · listed for everyone on this server');
   if ($('lobbyLink').value !== inviteLink()) $('lobbyLink').value = inviteLink();
   $('lobbyStart').hidden = !isHost; $('lobbyHint').hidden = !isHost; $('lobbyWait').hidden = isHost;
   $('lobbyWait').textContent = 'Waiting for ' + hostName() + ' to start the game…';
   renderLobbyPlayers();
+  renderLevelSelect(isHost);
+  $('lobbyStart').textContent = S.L > 1 ? 'Start at level ' + S.L : 'Start game';
   if (isHost && wasHidden) setTimeout(() => { if (!$('lobbyOv').hidden) $('lobbyStart').focus({ preventScroll: true }); }, 50);
 }
+/* Starting level: the host can continue from any level their browser has reached. */
+let levelSig = '';
+function renderLevelSelect(isHost) {
+  $('lobbyLevelField').hidden = !isHost;
+  if (!isHost) return;
+  const top = Math.min(MAX_START_LEVEL, Math.max(bestLevel, S.L)), sig = top + '|' + S.seed;
+  const sel = $('lobbyLevel');
+  if (sig !== levelSig) {
+    levelSig = sig; sel.textContent = '';
+    for (let L = top; L >= 1; L--) {   // highest unlocked level first
+      const lv = M.genLevel(S.seed, L), o = document.createElement('option');
+      o.value = String(L); o.textContent = 'Level ' + L + ' · ' + lv.W + '×' + lv.H + ' · ' + speedLabel(L) + (L === bestLevel && L > 1 ? ' · your best' : '');
+      sel.appendChild(o);
+    }
+  }
+  sel.value = String(S.L);
+  $('lobbyLevelHint').textContent = bestLevel > 1
+    ? 'You’ve reached level ' + bestLevel + ' on this browser, so you can start anywhere from 1 to ' + Math.min(bestLevel, MAX_START_LEVEL) + '.'
+    : 'Reach higher levels to unlock them here.';
+  sel.disabled = top <= 1;
+}
+$('lobbyLevel').addEventListener('change', e => { const L = parseInt(e.target.value, 10); if (L >= 1 && S.host === S.id && S.ph === 3) send({ t: 'startlv', lv: L }); });
+
 let lobbySig = '';
 function renderLobbyPlayers() {
   const ids = [...S.roster.keys()];
