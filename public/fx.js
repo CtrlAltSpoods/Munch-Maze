@@ -56,7 +56,7 @@ function confetti(n = 120, W = 800) {
 function reels(symbols, { title = '', sub = '', dur = 2.4, onStop } = {}) {
   const POOL = '0123456789×★7$'.split('');
   reel = { symbols, title, sub, t: 0, dur, onStop, stopped: symbols.map(() => false),
-    stopAt: symbols.map((_, i) => 0.75 + i * 0.32), strips: symbols.map(() => Array.from({ length: 14 }, () => pick(POOL))) };
+    stopAt: symbols.map((_, i) => 2.0 + i * 0.35), /* spin ~2 s, then land one by one */ strips: symbols.map(() => Array.from({ length: 14 }, () => pick(POOL))) };
 }
 
 /* ---------- update ---------- */
@@ -148,9 +148,9 @@ function drawBanner(ctx, W, H) {
   const b = banner, k = b.t / b.dur;
   const pop = b.t < 0.18 ? 0.3 + (b.t / 0.18) * 0.9 : b.t < 0.3 ? 1.2 - ((b.t - 0.18) / 0.12) * 0.2 : 1;
   const a = k > 0.8 ? (1 - k) / 0.2 : 1;
-  const size = Math.min(W / 9, 64) * pop;
+  const size = Math.min(W / 12, 46) * pop;
   ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.save(); ctx.translate(W / 2, H * 0.3); ctx.rotate(Math.sin(b.t * 9) * 0.025 * (1 - k));
+  ctx.save(); ctx.translate(W / 2, Math.max(size * 0.9, H * 0.12)); ctx.rotate(Math.sin(b.t * 9) * 0.025 * (1 - k));
   // starburst behind the text
   ctx.save(); ctx.rotate(b.t * 0.8); ctx.globalAlpha = a * 0.22; ctx.fillStyle = b.color;
   for (let i = 0; i < 12; i++) { ctx.rotate(Math.PI / 6); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(size * 3.2, -size * 0.35); ctx.lineTo(size * 3.2, size * 0.35); ctx.fill(); }

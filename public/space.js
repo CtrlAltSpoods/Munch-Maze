@@ -119,7 +119,7 @@ function draw(ctx, dt, w, h, opts = {}) {
   }
 
   // warp starfield
-  const tail = Math.min(0.5, speed * 0.09);
+  const tail = Math.min(0.5, speed * 0.1 + speed * speed * 0.14);   // streaks stretch as warp builds
   ctx.save(); ctx.lineCap = 'round';
   for (const s of stars) {
     s.z -= speed * dt;
@@ -134,5 +134,5 @@ function draw(ctx, dt, w, h, opts = {}) {
   ctx.restore();
 }
 
-window.MazeSpace = { draw, resize, /* for testing */ forcePlanet() { planet = newPlanet(); } };
+window.MazeSpace = { draw, resize, get speed() { return speed; }, /* for testing */ forcePlanet() { planet = newPlanet(); } };
 })();

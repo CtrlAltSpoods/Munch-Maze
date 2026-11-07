@@ -22,6 +22,10 @@
       <div class="stat"><span class="k">Speed</span><span class="v" id="hSpeed">×1.00</span></div>
       <div class="stat"><span class="k">Score</span><span class="v" id="hScore">0</span></div>
       <div class="stat"><span class="k">Lives</span><span class="lives" id="hLives"></span></div>
+      <div class="stat streak idle" id="streak" aria-live="off">
+        <span class="k">Streak</span><span class="v sx" id="streakN">—</span>
+        <span class="meter"><i id="streakBar"></i></span>
+      </div>
     </div>
     <div class="seedbox">
       <span class="chip" id="visChip" hidden></span>
@@ -33,10 +37,6 @@
   <main class="main">
     <div class="stage" id="stage">
       <canvas id="cv" aria-label="Maze game board"></canvas>
-      <div class="streak" id="streak" hidden aria-live="off">
-        <span class="sl">Streak</span><span class="sx" id="streakN">×0</span>
-        <span class="meter"><i id="streakBar"></i></span>
-      </div>
       <div class="banner" id="banner" hidden><div class="t" id="bannerT"></div><div class="s" id="bannerS"></div></div>
       <div class="dpad" id="dpad">
         <button type="button" data-d="3" aria-label="Up">▲</button>
@@ -68,6 +68,10 @@
               <option value="private">Invite only: people with your link</option>
             </select>
             <p class="hint" id="visHint">Anyone on this server can see your maze and join it.</p>
+          </div>
+          <div class="field" id="lnameField">
+            <label class="k" for="lnameIn">Lobby name (optional)</label>
+            <input id="lnameIn" maxlength="32" placeholder="Shown in “Mazes running now”">
           </div>
           <div class="invite" id="inviteNote" hidden>
             <p>You’re joining a private maze from an invite link.</p>

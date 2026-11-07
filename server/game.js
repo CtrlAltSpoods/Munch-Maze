@@ -56,7 +56,7 @@ class Game {
     this.players.set(p.id, p);
     this.emptySince = 0;
     this.send(p, {
-      t: 'welcome', id: p.id, seed: this.seed, key: this.key, vis: this.isPrivate ? 'private' : 'public',
+      t: 'welcome', id: p.id, seed: this.seed, key: this.key, vis: this.isPrivate ? 'private' : 'public', title: this.title || '',
       lv: this.L, b: M.toB64(this.bits),
       roster: [...this.players.values()].map(q => [q.id, q.nm, q.col, q.mdl]),
       sc: p.sc, li: p.li, over: p.over, host: this.hostId, ph: this.ph
@@ -144,7 +144,7 @@ class Game {
     M.setBit(this.bits, i); this.left--; this.eatenSince.push(i);
     p.sc += lv.p[i] === 2 ? 50 : 10;
     if (lv.p[i] === 2) this.frighten();
-    if (this.left <= 0) { this.ph = 1; this.ct = 2.6; }
+    if (this.left <= 0) { this.ph = 1; this.ct = 3.9; }   // long enough for the slot reels to finish
   }
 
   frighten() {

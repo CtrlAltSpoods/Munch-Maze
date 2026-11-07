@@ -86,6 +86,8 @@ function getGame(seed, key) {
   if (!g) {
     if (games.size >= CFG.maxMazes) return null;
     g = new Game(seed, key, { onScore: addScore });
+    g.title = '';
+    if (!key) { do { g.pubId = crypto.randomBytes(6).toString('base64url'); } while (byPublicId.has(g.pubId)); byPublicId.set(g.pubId, g); }
     games.set(id, g);
   }
   return g;
@@ -97,14 +99,18 @@ setInterval(() => {
   tickCount++;
   const sendState = tickCount % 2 === 0; // state goes out at half the tick rate
   for (const [seed, g] of games) {
-    if (!g.players.size && g.emptySince && now - g.emptySince > EMPTY_TTL) { games.delete(seed); continue; }
+    if (!g.players.size && g.emptySince && now - g.emptySince > EMPTY_TTL) { games.delete(seed); if (g.pubId) byPublicId.delete(g.pubId); continue; }
     g.tick(dt, sendState);
   }
 }, 1000 / CFG.tickRate);
 
 /* ---------- players / sockets ---------- */
 let nextId = 1;
-const cleanName = s => String(s || '').replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁠-⁯]/g, '').trim().slice(0, 16) || 'Player';
+const stripCtl = s => String(s || '').replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁠-⁯]/g, '').replace(/\s+/g, ' ').trim();
+const cleanName = s => stripCtl(s).slice(0, 16) || 'Player';
+const cleanTitle = s => stripCtl(s).slice(0, 32);
+// Public mazes are listed by name with an opaque id, so the list never shows seeds.
+const byPublicId = new Map();   // pubId -> Game
 
 function onSocket(ws) {
   let p = null, game = null, budget = 60, lastRefill = Date.now();
@@ -116,12 +122,17 @@ function onSocket(ws) {
     if (!m || typeof m !== 'object') return;
     if (m.t === 'join') {
       if (game) return;
+      // joining from the lobby list: look the maze up by its public id
+      const listed = typeof m.room === 'string' && byPublicId.get(m.room);
+      if (m.room && !listed) { ws.send(JSON.stringify({ t: 'error', msg: 'That maze has closed. Pick another one or start your own.' })); return; }
+      if (listed) { m.seed = listed.seed; m.key = ''; m.vis = 'public'; }
       const seed = M.slug(m.seed) || CFG.defaultSeed || M.randomSeed();
       // An invite link carries its key; choosing "Invite only" mints a fresh one.
       const key = typeof m.key === 'string' && KEY_RE.test(m.key) ? m.key : (m.vis === 'private' ? newKey() : '');
       const g = getGame(seed, key);
       if (!g) { ws.send(JSON.stringify({ t: 'error', msg: 'This server is at its maze limit. Try a seed that is already running.' })); return; }
       if (CFG.maxPlayersPerMaze && g.players.size >= CFG.maxPlayersPerMaze) { ws.send(JSON.stringify({ t: 'error', msg: 'That maze is full. Try another seed.' })); return; }
+      if (!g.players.size && !g.title && !g.isPrivate) g.title = cleanTitle(m.lname) || cleanName(m.nm) + '’s maze';   // whoever opens a public maze names it
       const look = M.pickModel(m.mdl, m.ci);   // validated character + colour
       p = { id: nextId++, ws, nm: cleanName(m.nm), col: look.col, mdl: look.mdl, x: 0, y: 0, f: 2, al: true, sc: 0, li: 3, over: false, spawnAt: Date.now(), fid: -1, combo: 0 };
       game = g;
@@ -171,7 +182,7 @@ const server = http.createServer((req, res) => {
   if (p === '/api/info') return json(res, { name: CFG.serverName, lobby: CFG.showLobby, defaultSeed: CFG.defaultSeed, maxPlayersPerMaze: CFG.maxPlayersPerMaze });
   if (p === '/api/games') {
     if (!CFG.showLobby) return json(res, []);
-    const list = [...games.values()].filter(g => g.players.size && !g.isPrivate).map(g => ({ seed: g.seed, players: g.players.size, level: g.L, lobby: g.ph === 3 }))
+    const list = [...games.values()].filter(g => g.players.size && !g.isPrivate).map(g => ({ id: g.pubId, name: g.title || 'Unnamed maze', players: g.players.size, level: g.L, lobby: g.ph === 3 }))
       .sort((a, b) => b.players - a.players).slice(0, 20);
     return json(res, list);
   }

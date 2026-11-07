@@ -27,7 +27,7 @@ if (!token) { token = Math.random().toString(36).slice(2) + Date.now().toString(
 const S = {
   name: '', seed: '', color: '#ffcc33', model: 0, ci: 0,
   ws: null, id: 0, inGame: false, wantGame: false, reconnectT: 0,
-  key: '', vis: 'public', inviteKey: '',   // inviteKey: from an invite link we arrived with
+  key: '', vis: 'public', inviteKey: '', room: '', lname: '', title: '',   // inviteKey: from an invite link we arrived with
   L: 0, lvl: null, me: { tx: 0, ty: 0, d: -1, t: 0, want: -1, face: 2 },
   myBits: new Uint8Array(1), srvBits: new Uint8Array(1),
   sc: 0, li: 3, over: false, alive: true, deadT: 0, inv: 0, ge: [],
@@ -62,7 +62,7 @@ function connect() {
   url.hash = ''; url.search = '';
   const ws = new WebSocket(url.href);
   S.ws = ws;
-  ws.onopen = () => send({ t: 'join', nm: S.name, seed: S.seed, mdl: S.model, ci: S.ci, tok: token, vis: S.vis, key: S.key || S.inviteKey });
+  ws.onopen = () => send({ t: 'join', nm: S.name, seed: S.seed, mdl: S.model, ci: S.ci, tok: token, vis: S.vis, key: S.key || S.inviteKey, room: S.room || undefined, lname: S.lname });
   ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } onMsg(m); };
   ws.onclose = () => {
     if (S.ws !== ws) return;
@@ -81,6 +81,7 @@ function onMsg(m) {
       $('startOv').hidden = true; $('overOv').hidden = !S.over; $('leaveBtn').hidden = false; $('app').classList.add('ingame');
       $('playBtn').disabled = false; $('playBtn').textContent = 'Enter the maze';
       S.key = typeof m.key === 'string' ? m.key : ''; S.vis = m.vis === 'private' ? 'private' : 'public';
+      S.title = typeof m.title === 'string' ? m.title : ''; S.room = '';
       S.host = m.host | 0; S.ph = m.ph | 0; updateReady();
       $('seedBtn').textContent = S.seed;
       $('seedBtn').title = S.vis === 'private' ? 'Copy invite link (only people with it can join)' : 'Copy link to this maze';
@@ -227,9 +228,9 @@ async function refreshLobby() {
     if (!list.length) { const d = document.createElement('div'); d.className = 'empty'; d.textContent = 'No one is in a maze right now. Start one and share the seed.'; box.appendChild(d); }
     for (const g of list) {
       const b = document.createElement('button'); b.type = 'button';
-      const a = document.createElement('span'); a.className = 's'; a.textContent = g.seed;
+      const a = document.createElement('span'); a.className = 's'; a.textContent = g.name;
       const c = document.createElement('span'); c.className = 'c'; c.textContent = g.players + (g.players === 1 ? ' player' : ' players') + ' · ' + (g.lobby ? 'in lobby' : 'L' + g.level);
-      b.append(a, c); b.addEventListener('click', () => { clearInvite(); $('seedIn').value = g.seed; $('visIn').value = 'public'; updateVisHint(); join(); }); box.appendChild(b);
+      b.append(a, c); b.addEventListener('click', () => { clearInvite(); $('visIn').value = 'public'; updateVisHint(); join(g.id); }); box.appendChild(b);
     }
   } catch (e) { /* server busy; try again later */ }
   try {
@@ -252,7 +253,9 @@ getJSON('api/info').then(info => {
 }).catch(() => {});
 refreshLobby(); setInterval(refreshLobby, 3000);
 
-function join() {
+function join(roomId) {
+  S.room = typeof roomId === 'string' ? roomId : '';   // set when joining from the list
+  S.lname = $('lnameIn').value.trim().slice(0, 32); store.set('mm.lname', S.lname);
   S.name = ($('nameIn').value.trim() || 'Player').slice(0, 16);
   store.set('mm.name', S.name); store.set('mm.model', String(S.model)); store.set('mm.ci', String(S.ci));
   S.seed = M.slug($('seedIn').value);
@@ -304,13 +307,16 @@ function blit(sp, x, y, scale = 1) { const w = sp.width * scale; ctx.drawImage(s
    a slow cruise in the lobby, faster as levels speed up, and a hyperspace burst between levels. */
 function makeStars() { /* space.js sizes itself */ }
 new ResizeObserver(resize).observe(stage); resize();
+const STREAK_WARP = 1.1;   // star speed at a 100+ streak (level clear hyperspace is 0.55)
 function warpTarget() {
   if (!S.inGame) return 0.07;
   if (S.ph === 3) return 0.06;                 // lobby: cruising
   if (S.ph === 1) return 0.55;                 // level clear: jump to hyperspace
   if (S.ph === 2) return 0.1;
-  const streakBoost = 1 + 2.5 * Math.min(S.streak, 100) / 100;   // up to 3.5x at a 100 streak
-  return 0.12 * Math.min(2.5, Math.pow(M.speedMult(S.L), 0.8)) * streakBoost;
+  const base = 0.12 * Math.min(2.5, Math.pow(M.speedMult(S.L), 0.8));
+  // the streak pushes towards full warp, reached at a 100 streak; the curve makes even short streaks visible
+  const k = Math.sqrt(Math.min(S.streak, 100) / 100);
+  return base + (STREAK_WARP - base) * k;
 }
 function drawBackground(dt, hue, beat) {
   const g = ctx.createRadialGradient(CW / 2, CH / 2, 0, CW / 2, CH / 2, Math.max(CW, CH) * 0.75);
@@ -606,8 +612,8 @@ const streakEl = $('streak');
 let lastStreakShown = -1;
 function drawStreakHud() {
   const on = S.inGame && S.streak >= 3;
-  streakEl.hidden = !on;
-  if (!on) { lastStreakShown = -1; return; }
+  streakEl.classList.toggle('idle', !on);
+  if (!on) { if (lastStreakShown !== -1) { lastStreakShown = -1; $('streakN').textContent = '—'; streakEl.dataset.tier = '0'; $('streakBar').style.transform = 'scaleX(0)'; } return; }
   if (S.streak !== lastStreakShown) {
     lastStreakShown = S.streak;
     $('streakN').textContent = '×' + S.streak;
@@ -622,7 +628,7 @@ function levelClear() {
   const syms = [String(nx.W), '×', String(nx.H)];
   MazeFX.confetti(160, CW); MazeFX.flash('#ffcc33', 0.2);
   const [px, py] = M.entPos(S.me); MazeFX.coins(px, py, 14, 10);
-  MazeFX.reels(syms, { title: 'LEVEL ' + S.L + ' CLEAR', sub: 'NEXT MAZE  ·  ' + M.ghostCount(S.L + 1) + (M.ghostCount(S.L + 1) > 1 ? ' GHOSTS' : ' GHOST') + '  ·  SPEED +10%', dur: 2.5,
+  MazeFX.reels(syms, { title: 'LEVEL ' + S.L + ' CLEAR', sub: 'NEXT MAZE  ·  ' + M.ghostCount(S.L + 1) + (M.ghostCount(S.L + 1) > 1 ? ' GHOSTS' : ' GHOST') + '  ·  SPEED +10%', dur: 3.7,
     onStop: i => { A.sfx('reel'); if (i === syms.length - 1) { A.sfx('jackpot'); MazeFX.confetti(90, CW); } } });
 }
 
@@ -653,7 +659,7 @@ function updateLobby() {
   const ov = $('lobbyOv'), wasHidden = ov.hidden; ov.hidden = !show;
   if (!show) return;
   const isHost = S.host === S.id, lv = S.lvl, g = M.ghostCount(S.L);
-  $('lobbyTitle').textContent = 'Lobby · ' + S.seed;
+  $('lobbyTitle').textContent = 'Lobby · ' + (S.vis === 'private' ? 'Private maze' : (S.title || S.seed));
   $('lobbyVis').textContent = S.vis === 'private' ? 'Invite only' : 'Public';
   $('lobbyVis').classList.toggle('private', S.vis === 'private');
   $('lobbyMaze').textContent = 'Level ' + S.L + ' · ' + lv.W + ' × ' + lv.H + ' maze · ' + g + (g > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(S.L) + (S.vis === 'private' ? ' · only people with the link can join' : ' · listed for everyone on this server');
@@ -761,9 +767,10 @@ buildPicker();
 function inviteHash() { return S.vis === 'private' && S.key ? S.seed + '~' + S.key : S.seed; }
 function clearInvite() {
   S.inviteKey = '';
-  $('inviteNote').hidden = true; $('visField').hidden = false; $('seedIn').readOnly = false;
+  $('inviteNote').hidden = true; $('visField').hidden = false; $('seedIn').readOnly = false; updateVisHint();
 }
 function updateVisHint() {
+  $('lnameField').hidden = $('visIn').value === 'private' || !!S.inviteKey;
   $('visHint').textContent = $('visIn').value === 'private'
     ? 'Your maze stays off the list. You’ll get a link to share; only people with it can join.'
     : 'Anyone on this server can see your maze and join it.';
@@ -813,6 +820,7 @@ function frame() {
 
 /* ---------- boot ---------- */
 $('nameIn').value = (store.get('mm.name') || '').slice(0, 16);
+$('lnameIn').value = (store.get('mm.lname') || '').slice(0, 32);
 let rawHash = ''; try { rawHash = decodeURIComponent(location.hash.slice(1)); } catch (e) { /* ignore */ }
 const [hashSeedPart, hashKey = ''] = rawHash.split('~');
 const hashSeed = M.slug(hashSeedPart);
@@ -822,7 +830,7 @@ S.seed = hashSeed || M.randomSeed();
 if (hashSeed && /^[a-z0-9]{12}$/.test(hashKey)) {
   // Arrived from an invite link: join that private maze.
   S.inviteKey = hashKey;
-  $('inviteNote').hidden = false; $('visField').hidden = true; $('seedIn').readOnly = true;
+  $('inviteNote').hidden = false; $('visField').hidden = true; $('lnameField').hidden = true; $('seedIn').readOnly = true;
 }
 updateVisHint();
 S.lvl = M.genLevel(S.seed, 1); S.L = 1;

@@ -19,7 +19,7 @@ function client(name, extra = {}) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
     const c = { ws, name, msgs: [], last: {}, on: {} };
-    ws.onopen = () => ws.send(JSON.stringify(Object.assign({ t: 'join', nm: name, seed: 'Smoke Test!', tok: name }, extra)));
+    ws.onopen = () => ws.send(JSON.stringify(Object.assign({ t: 'join', nm: name, seed: 'Smoke Test!', tok: name, lname: 'Smoke   Party' }, extra)));
     ws.onerror = e => reject(new Error('socket error ' + name));
     ws.onmessage = ev => {
       const m = JSON.parse(ev.data); c.msgs.push(m); c.last[m.t] = m;
@@ -59,14 +59,22 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
 
   const games = await (await fetch(base + '/api/games')).json();
   if (games[0].players !== 2) fail('lobby count');
-  console.log('ok  lobby lists the maze');
+  if (games[0].name !== 'Smoke Party') fail('lobby list should show the lobby name, got ' + games[0].name);
+  if (JSON.stringify(games).includes('smoke-test')) fail('lobby list must not reveal the seed');
+  if (!/^[A-Za-z0-9_-]{8}$/.test(games[0].id)) fail('lobby list entries need an opaque id');
+  console.log('ok  lobby lists the maze by name, without its seed');
+  const viaList = await client('carol', { seed: '', room: games[0].id, tok: 'carol' });
+  if (viaList.last.welcome.seed !== 'smoke-test') fail('joining by list id should land in that maze');
+  viaList.ws.close();
+  await waitFor(a, 'leave');
+  console.log('ok  joining from the list by id works');
 
   // both clients must build the same maze as the server
   const lv = M.genLevel(wa.seed, 1);
   // new mazes open in a lobby; only the host (alice) can start
   const lob = await waitFor(b, 's');
   if (lob.ph !== 3) fail('a new maze should start in the lobby (phase 3), got ' + lob.ph);
-  if (!games.find(g => g.seed === 'smoke-test').lobby) fail('lobby list should mark the maze as in its lobby');
+  if (!games.find(g => g.name === 'Smoke Party').lobby) fail('lobby list should mark the maze as in its lobby');
   b.ws.send(JSON.stringify({ t: 'ready' }));
   await new Promise(r => setTimeout(r, 300));
   if (b.last.s.ph !== 3) fail('a non-host must not start the game');
@@ -145,7 +153,7 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   const hw = host.last.welcome;
   if (hw.vis !== 'private' || !/^[a-z0-9]{12}$/.test(hw.key)) fail('private maze should come back with a 12-char key');
   const listed = await (await fetch(base + '/api/games')).json();
-  if (listed.some(g => g.seed === 'secret-base')) fail('private maze must not appear in the lobby');
+  if (listed.length !== 1 || JSON.stringify(listed).includes('secret')) fail('private maze must not appear in the lobby');
   console.log('ok  invite-only maze is hidden from the lobby');
   const stranger = await client('stranger', { seed: 'secret-base', tok: 'stranger' });
   if (stranger.last.welcome.vis !== 'public' || stranger.last.welcome.roster.length !== 1) fail('same seed without the key must land in a different, public maze');
