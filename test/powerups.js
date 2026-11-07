@@ -86,8 +86,8 @@ async function trigger(r, id) {
   // timed effects are shared with everyone, with who opened the crate
   await trigger(r, 'reverse'); await until(r.b, m => m.t === 'puon', 5000); await wait(120);
   const rev = lastS(r.b).fx.find(f => M.POWERUPS[f[0]].id === 'reverse');
-  if (!rev || rev[2] !== r.a.last.welcome.id || rev[1] < 14) fail('Reverse should run 15 s and name the opener');
-  console.log('ok  Reverse Controls: 15 s for the opener (others stop at 10 s client-side)');
+  if (!rev || rev[2] !== r.a.last.welcome.id || rev[1] < 5 || rev[1] > 6.01) fail('Reverse should run 6 s and name the opener');
+  console.log('ok  Reverse Controls: 6 s for everyone');
 
   // laser: eat a pellet far down a straight corridor
   const lz = await room('pu-laser', 3);
@@ -102,6 +102,12 @@ async function trigger(r, id) {
     if (sc1 !== sc0 + 10) fail('a laser should eat a pellet down a clear corridor');
     console.log('ok  Laser Beamz: eats a pellet ' + Math.abs((far % lv.W) - lv.sx) + ' tiles down the corridor');
   } else console.log('ok  Laser Beamz: (no long corridor from spawn on this seed; skipped distance check)');
+  // the beam also zaps ghosts: sweep it round until one crosses it
+  let zap = null;
+  for (let k = 0; k < 60 && !zap; k++) { send(lz.a, { t: 'p', x: lv.sx, y: lv.sy, f: k % 4 }); await wait(140); zap = lz.b.msgs.find(m => m.t === 'zap'); }
+  if (!zap) fail('a laser should zap a ghost on the beam');
+  if (!lastS(lz.b).g.some(g => g[3] === 3)) fail('a zapped ghost goes home as eyes');
+  console.log('ok  Laser Beamz: zaps ghosts on the beam (sent home as eyes)');
 
   // nuke: stays paused, then the level is passed
   const nk = await room('pu-nuke', 4);

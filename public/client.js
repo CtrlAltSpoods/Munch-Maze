@@ -32,7 +32,7 @@ if (!token) { token = Math.random().toString(36).slice(2) + Date.now().toString(
 const S = {
   name: '', seed: '', color: '#ffcc33', model: 0, ci: 0,
   ws: null, id: 0, inGame: false, wantGame: false, reconnectT: 0,
-  key: '', vis: 'public', inviteKey: '', room: '', lname: '', title: '',   // inviteKey: from an invite link we arrived with
+  key: '', vis: 'public', inviteKey: '', link: '', linkJoin: '', room: '', lname: '', title: '',   // inviteKey: from an invite link we arrived with
   L: 0, lvl: null, me: { tx: 0, ty: 0, d: -1, t: 0, want: -1, face: 2 },
   myBits: new Uint8Array(1), srvBits: new Uint8Array(1),
   sc: 0, li: 3, over: false, alive: true, deadT: 0, inv: 0, ge: [],
@@ -69,7 +69,7 @@ function connect() {
   url.hash = ''; url.search = '';
   const ws = new WebSocket(url.href);
   S.ws = ws;
-  ws.onopen = () => send({ t: 'join', nm: S.name, seed: S.seed, mdl: S.model, ci: S.ci, tok: token, vis: S.vis, key: S.key || S.inviteKey, room: S.room || undefined, lname: S.lname, setpw: S.setpw || undefined, pw: S.pw || undefined });
+  ws.onopen = () => send({ t: 'join', nm: S.name, seed: S.seed, mdl: S.model, ci: S.ci, tok: token, vis: S.vis, key: S.key || S.inviteKey, room: S.room || undefined, link: S.linkJoin || undefined, lname: S.lname, setpw: S.setpw || undefined, pw: S.pw || undefined });
   ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } onMsg(m); };
   ws.onclose = () => {
     if (S.ws !== ws) return;
@@ -89,6 +89,7 @@ function onMsg(m) {
       $('playBtn').disabled = false; $('playBtn').textContent = S.inviteKey ? 'Join maze' : 'Start maze';
       S.key = typeof m.key === 'string' ? m.key : ''; S.vis = m.vis === 'private' ? 'private' : 'public';
       S.title = typeof m.title === 'string' ? m.title : ''; S.locked = !!m.locked; S.room = '';
+      S.link = typeof m.link === 'string' ? m.link : ''; S.linkJoin = '';   // reconnects go by seed and key
       S.setpw = '';   // only sent when opening the lobby
       $('joinPwField').hidden = true; S.pwRoom = '';
       S.host = m.host | 0; S.ph = m.ph | 0; updateReady();
@@ -131,11 +132,13 @@ function onMsg(m) {
     }
     case 'puon': powerupStarted(m.kind | 0, m.by | 0); break;
     case 'nuke': nukeStarted(m.x, m.y); break;
+    case 'zap': { const x = +m.x || 0, y = +m.y || 0; A.sfx('ghost'); MazeFX.sparks(x, y, '#ff3d5e', 18, 6, 0.5); MazeFX.ring(x, y, '#ff6b8b', 1.6, 0.4); break; }
     case 'pts': MazeFX.text(+m.x || 0, (+m.y || 0) - 0.3, String(m.v | 0), '#41e0f0', 0.95); break;
     case 'error':
       S.wantGame = false;
       $('joinErr').textContent = String(m.msg || 'Could not join.'); $('joinErr').hidden = false;
-      if (m.code === 'pw_needed' || m.code === 'pw_wrong') askPassword(S.room, '');
+      if (m.code === 'pw_needed' || m.code === 'pw_wrong') askPassword(S.room, m.name || '');
+      if (m.code === 'closed') { S.linkJoin = ''; clearInvite(); try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ } }
       $('playBtn').disabled = false; $('playBtn').textContent = S.inviteKey ? 'Join maze' : 'Start maze';
       if (S.ws) S.ws.close();
       break;
@@ -700,7 +703,7 @@ cv.addEventListener('touchmove', e => {
 document.querySelectorAll('#dpad button').forEach(b => b.addEventListener('pointerdown', e => { e.preventDefault(); if (S.inGame) setWant(+b.dataset.d); }));
 $('startForm').addEventListener('submit', e => { e.preventDefault(); join(); });
 $('pwJoinBtn').addEventListener('click', () => join());
-$('pwCancelBtn').addEventListener('click', () => { $('joinPwField').hidden = true; S.pwRoom = ''; $('joinErr').hidden = true; updateVisHint(); });
+$('pwCancelBtn').addEventListener('click', () => { $('joinPwField').hidden = true; S.pwRoom = ''; if (S.linkJoin) clearInvite(); $('joinErr').hidden = true; updateVisHint(); });
 $('seedIn').addEventListener('input', () => { if (!$('joinPwField').hidden && S.pwRoom) { $('joinPwField').hidden = true; S.pwRoom = ''; $('joinErr').hidden = true; updateVisHint(); } });
 $('leaveBtn').addEventListener('click', leave);
 $('againBtn').addEventListener('click', () => { send({ t: 'again' }); S.over = false; S.alive = true; respawn(); $('overOv').hidden = true; });
@@ -716,7 +719,7 @@ $('seedBtn').addEventListener('click', () => {
 /** Seconds left on an effect for *you*. Reverse lasts 15 s for whoever opened it and 10 s for everyone else. */
 function effectLeft(id) {
   let best = 0;
-  for (const f of S.fx) if (f.id === id) best = Math.max(best, id === 'reverse' && f.by !== S.id ? f.rem - 5 : f.rem);
+  for (const f of S.fx) if (f.id === id) best = Math.max(best, f.rem);
   return best;
 }
 const effectOn = id => S.ph === 0 && effectLeft(id) > 0;
@@ -1107,14 +1110,15 @@ function animatePicker(t) {
 buildPicker();
 
 /* ---------- visibility ---------- */
-function inviteHash() { return S.vis === 'private' && S.key ? S.seed + '~' + S.key : S.seed; }
+function inviteHash() { const name = S.link || S.seed; return S.vis === 'private' && S.key ? name + '~' + S.key : name; }
 function clearInvite() {
-  S.inviteKey = '';
+  S.inviteKey = ''; S.linkJoin = '';
   $('inviteNote').hidden = true; $('visField').hidden = false; $('seedIn').readOnly = false; updateVisHint();
   $('createTitle').textContent = 'Start a new maze'; $('playBtn').textContent = 'Start maze';
 }
 function updateVisHint() {
-  $('lnameField').hidden = $('visIn').value === 'private' || !!S.inviteKey || !!S.pwRoom;   // no create options while joining someone's locked lobby
+  $('lnameField').hidden = !!S.inviteKey || !!S.linkJoin || !!S.pwRoom;   // no create options while joining someone else's maze
+  $('setpwField').hidden = $('visIn').value === 'private';   // invite-only mazes are already private
   $('visHint').textContent = $('visIn').value === 'private'
     ? 'Your maze stays off the list. You’ll get a link to share; only people with it can join.'
     : 'Anyone on this server can see your maze and join it.';
@@ -1174,7 +1178,7 @@ $('lnameIn').value = (store.get('mm.lname') || '').slice(0, 32);
 let rawHash = ''; try { rawHash = decodeURIComponent(location.hash.slice(1)); } catch (e) { /* ignore */ }
 const [hashSeedPart, hashKey = ''] = rawHash.split('~');
 const hashSeed = M.slug(hashSeedPart);
-if (hashSeed) $('seedIn').value = hashSeed;
+if (hashSeed) { $('seedIn').value = hashSeed; S.linkJoin = rawHash.slice(0, 80); }
 S.seed = hashSeed || M.randomSeed();
 { const v = store.get('mm.vis'); if (v === 'private' || v === 'public') setVis(v); }
 if (hashSeed && /^[a-z0-9]{12}$/.test(hashKey)) {
@@ -1186,4 +1190,5 @@ if (hashSeed && /^[a-z0-9]{12}$/.test(hashKey)) {
 updateVisHint();
 S.lvl = M.genLevel(S.seed, 1); S.L = 1;
 requestAnimationFrame(frame);
+if (S.linkJoin) join();   // a shared link drops you straight into that maze's lobby
 })();

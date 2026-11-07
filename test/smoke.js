@@ -173,6 +173,27 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   if (bogus.last.welcome.vis !== 'public') fail('a malformed key must not create or join a private maze');
   console.log('ok  malformed keys are ignored');
 
+  // shared links use the lobby name, and open the maze straight away
+  const pubLink = a2.last.welcome.link;
+  if (pubLink !== 'smoke-party') fail('public link should be the lobby name, got ' + pubLink);
+  const viaName = await client('linker', { seed: 'something-else', link: pubLink, tok: 'linker' });
+  if (!viaName.last.welcome.roster.some(r => r[1] === 'alice')) fail('a lobby-name link should join that lobby');
+  console.log('ok  link uses the lobby name (#' + pubLink + ') and joins it');
+  const viaSeed = await client('oldlink', { seed: 'x', link: 'smoke-test', tok: 'oldlink' });
+  if (!viaSeed.last.welcome.roster.some(r => r[1] === 'alice')) fail('an old seed link should still join the running maze');
+  console.log('ok  old seed links still join the running maze');
+  const privLink = hw.link + '~' + hw.key;
+  const viaPriv = await client('friend2', { seed: 'x', link: privLink, tok: 'friend2' });
+  if (viaPriv.last.welcome.vis !== 'private' || !viaPriv.last.welcome.roster.some(r => r[1] === 'host')) fail('a private name~key link should join the private maze');
+  console.log('ok  invite link #' + privLink.replace(/~.*/, '~…') + ' joins the private maze');
+  const closed = await new Promise(res => {
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'join', nm: 'late', seed: 'x', link: 'no-such-lobby', tok: 'late' }));
+    ws.onmessage = ev => { res(JSON.parse(ev.data)); ws.close(); };
+  });
+  if (closed.t !== 'error' || closed.code !== 'closed') fail('a link to a closed lobby should say so, not open a new maze');
+  console.log('ok  a link to a closed lobby says it has closed');
+
   // password-protected public lobby
   const tryJoin = extra => new Promise(res => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);

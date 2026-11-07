@@ -68,8 +68,8 @@
   const POWERUPS = [
     { id: 'megaghost',  name: 'Mega Ghost',       good: false, dur: 15, weight: 10, desc: 'The ghosts grow to twice their size' },
     { id: 'nuke',       name: 'Nuke',             good: true,  dur: 0,  weight: 3,  desc: 'Everything is blown away. Level passed!' },
-    { id: 'reverse',    name: 'Reverse Controls', good: false, dur: 15, weight: 10, desc: 'Controls reversed: 10 s for everyone, 15 s for the opener' },
-    { id: 'laser',      name: 'Laser Beamz',      good: true,  dur: 10, weight: 10, desc: 'Everyone fires a pellet-eating laser for 10 s' },
+    { id: 'reverse',    name: 'Reverse Controls', good: false, dur: 6, weight: 10, desc: 'Controls reversed for everyone for 6 s' },
+    { id: 'laser',      name: 'Laser Beamz',      good: true,  dur: 10, weight: 10, desc: 'Everyone fires a laser for 10 s: it eats pellets and zaps ghosts' },
     { id: 'megapellet', name: 'Mega Pellet',      good: true,  dur: 10, weight: 10, desc: 'Every ghost turns blue for 10 s' },
     { id: 'bomb',       name: 'Just A Lil Bomb',  good: true,  dur: 0,  weight: 10, desc: 'Every ghost is blown back to the box' },
     { id: 'quake',      name: 'EARTHQUAKE',       good: false, dur: 7,  weight: 10, desc: 'The whole maze shakes for 7 s' },

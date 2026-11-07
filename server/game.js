@@ -59,7 +59,7 @@ class Game {
     this.players.set(p.id, p);
     this.emptySince = 0;
     this.send(p, {
-      t: 'welcome', id: p.id, seed: this.seed, key: this.key, vis: this.isPrivate ? 'private' : 'public', title: this.title || '', locked: !!this.pass,
+      t: 'welcome', id: p.id, seed: this.seed, key: this.key, vis: this.isPrivate ? 'private' : 'public', title: this.title || '', link: this.link || '', locked: !!this.pass,
       lv: this.L, b: M.toB64(this.bits),
       roster: [...this.players.values()].map(q => [q.id, q.nm, q.col, q.mdl, q.ci]),
       sc: p.sc, li: p.li, over: p.over, host: this.hostId, ph: this.ph,
@@ -213,6 +213,32 @@ class Game {
     for (const e of this.effects) e.rem -= dt;
     for (const e of this.effects.filter(e => e.rem <= 0)) this.expire(e);
     this.effects = this.effects.filter(e => e.rem > 0);
+    if (this.effect('laser')) this.laserGhosts(players);
+  }
+  /** Laser Beamz also kills: any ghost on a beam is sent home as eyes. */
+  laserGhosts(players) {
+    const lv = this.lv;
+    for (const p of players) {
+      const f = p.f & 3, [dx, dy] = DIRS[f], px = Math.round(p.x), py = Math.round(p.y);
+      let ex = px, ey = py;
+      for (let n = 0; n < lv.W + lv.H; n++) {
+        const nx = ex + dx, ny = ey + dy;
+        if (nx < 0 || ny < 0 || nx >= lv.W || ny >= lv.H || lv.t[ny * lv.W + nx] !== 0) break;
+        ex = nx; ey = ny;
+      }
+      for (const g of this.ghosts) {
+        if (g.st !== 1 && g.st !== 2) continue;
+        const [gx, gy] = M.entPos(g);
+        // along the beam: from just behind the player to the far wall; across it: within 0.6 of a tile
+        const along = dx ? (gx - p.x) * dx : (gy - p.y) * dy, reach = dx ? Math.abs(ex - p.x) : Math.abs(ey - p.y);
+        const off = dx ? Math.abs(gy - py) : Math.abs(gx - px);
+        if (off > 0.6 || along < -0.6 || along > reach + 0.5) continue;
+        g.st = 3; g.ep++;
+        p.sc += 200;
+        this.send(p, { t: 'pts', v: 200, x: gx, y: gy });
+        this.broadcast({ t: 'zap', x: gx, y: gy });
+      }
+    }
   }
   activate({ kind, by }) {
     const pu = M.POWERUPS[kind];
@@ -257,13 +283,62 @@ class Game {
       default: return bd > 8 ? [px, py] : corners[3];            // shy
     }
   }
+  /** Nearest open tile to (x, y): ghost targets are often off the map or inside a wall. */
+  openTileNear(x, y) {
+    const lv = this.lv;
+    x = Math.max(0, Math.min(lv.W - 1, Math.round(x))); y = Math.max(0, Math.min(lv.H - 1, Math.round(y)));
+    if (lv.t[y * lv.W + x] === 0) return y * lv.W + x;
+    for (let r = 1; r < lv.W + lv.H; r++) {
+      let best = -1, bd = 1e9;
+      for (let dy = -r; dy <= r; dy++) {
+        const dx = r - Math.abs(dy);
+        for (const sx of dx ? [-dx, dx] : [0]) {
+          const nx = x + sx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= lv.W || ny >= lv.H || lv.t[ny * lv.W + nx] !== 0) continue;
+          const d = sx * sx + dy * dy; if (d < bd) { bd = d; best = ny * lv.W + nx; }
+        }
+      }
+      if (best >= 0) return best;
+    }
+    return -1;
+  }
+  /** Walking distance from every tile to tile `to` (breadth-first, through the side tunnels). */
+  distFrom(to) {
+    const lv = this.lv, n = lv.W * lv.H;
+    if (!this.dist || this.dist.length !== n) { this.dist = new Int32Array(n); this.bfsQ = new Int32Array(n); }
+    const dist = this.dist, q = this.bfsQ; dist.fill(-1);
+    dist[to] = 0; q[0] = to; let head = 0, tail = 1;
+    while (head < tail) {
+      const i = q[head++], x = i % lv.W, y = (i / lv.W) | 0;
+      for (let d = 0; d < 4; d++) {
+        if (!M.canGo(lv, x, y, d)) continue;
+        const j = (y + DIRS[d][1]) * lv.W + M.wrapX(lv, x + DIRS[d][0]);
+        if (dist[j] < 0) { dist[j] = dist[i] + 1; q[tail++] = j; }
+      }
+    }
+    return dist;
+  }
   chooseDir(g, players) {
     const lv = this.lv, back = g.d >= 0 ? (g.d + 2) % 4 : -1, o = [];
     for (let d = 0; d < 4; d++) { if (d === back) continue; if (M.canGo(lv, g.tx, g.ty, d)) o.push(d); }
     if (!o.length) return M.canGo(lv, g.tx, g.ty, back) ? back : -1;
-    if (g.st === 2) return o[Math.random() * o.length | 0];
-    const [tx, ty] = this.target(g, players);
-    let best = o[0], bd = 1e9;
+    if (o.length === 1) return o[0];
+    // Loop guard: a ghost that keeps coming back to the same junction wanders off for a few turns.
+    const here = g.ty * lv.W + g.tx;
+    g.hist = g.hist || []; g.hist.push(here); if (g.hist.length > 16) g.hist.shift();
+    if (g.wander > 0 && g.st !== 3) { g.wander--; return o[Math.random() * o.length | 0]; }
+    if (g.st !== 3 && g.hist.filter(h => h === here).length >= 4) { g.hist.length = 0; g.wander = 3; return o[Math.random() * o.length | 0]; }
+    if (g.st === 2 || (g.st === 1 && !players.length)) return o[Math.random() * o.length | 0];
+    // Head for the target along the real shortest path, not "whichever neighbour is closest
+    // as the crow flies"; that rule is what sent ghosts circling the same block forever.
+    const [tx, ty] = this.target(g, players), goal = this.openTileNear(tx, ty);
+    const dist = goal >= 0 ? this.distFrom(goal) : null;
+    let best = -1, bd = 1e9;
+    for (const d of o) {
+      const nx = M.wrapX(lv, g.tx + DIRS[d][0]), ny = g.ty + DIRS[d][1], dd = dist ? dist[ny * lv.W + nx] : -1;
+      if (dd >= 0 && dd < bd) { bd = dd; best = d; }
+    }
+    if (best >= 0) return best;
     for (const d of o) { const nx = g.tx + DIRS[d][0], ny = g.ty + DIRS[d][1], dd = (nx - tx) ** 2 + (ny - ty) ** 2; if (dd < bd) { bd = dd; best = d; } }
     return best;
   }
