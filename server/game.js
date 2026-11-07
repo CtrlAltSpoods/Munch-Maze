@@ -143,7 +143,7 @@ class Game {
     if (dx + Math.abs(Math.round(p.y) - ty) > 2 + M.playerSpeed(this.L) * 0.06) return;   // pellets eaten since the last update
     M.setBit(this.bits, i); this.left--; this.eatenSince.push(i);
     p.sc += lv.p[i] === 2 ? 50 : 10;
-    if (lv.p[i] === 2) this.frighten();
+    if (lv.p[i] === 2) { this.frighten(); this.broadcast({ t: 'pw', id: p.id, i }); }   // everyone hears who powered up
     if (this.left <= 0) { this.ph = 1; this.ct = 3.9; }   // long enough for the slot reels to finish
   }
 

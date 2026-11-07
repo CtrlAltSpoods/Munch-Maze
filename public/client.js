@@ -107,6 +107,13 @@ function onMsg(m) {
       break;
     case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col), mdl: m.mdl | 0, paint: M.pickModel(m.mdl, m.ci).paint }); A.sfx('join'); updateLobby(); break;
     case 'leave': S.roster.delete(m.id); S.ov.delete(m.id); updateLobby(); break;
+    case 'pw': {   // a big pellet was eaten; we already played our own
+      if ((m.id | 0) === S.id || !S.lvl) break;
+      const x = (m.i | 0) % S.lvl.W, y = ((m.i | 0) / S.lvl.W) | 0;
+      A.sfx('powerOther', soundAt(x, y));
+      MazeFX.ring(x, y, '#ffcc33', 3.2, 0.5); MazeFX.sparks(x, y, '#ffcc33', 14, 7, 0.5);
+      break;
+    }
     case 'pts': MazeFX.text(+m.x || 0, (+m.y || 0) - 0.3, String(m.v | 0), '#41e0f0', 0.95); break;
     case 'error':
       S.wantGame = false;
@@ -117,10 +124,15 @@ function onMsg(m) {
       break;
     case 's': {
       if ((m.lv | 0) !== S.L) return;
+      let heard = -1;
       for (const i of m.e || []) if (i >= 0 && i < S.lvl.W * S.lvl.H) {
-        if (!M.getBit(S.myBits, i) && !M.getBit(S.srvBits, i)) MazeFX.sparks(i % S.lvl.W, (i / S.lvl.W) | 0, '#ffdcae', 4, 4, 0.3);
+        if (!M.getBit(S.myBits, i) && !M.getBit(S.srvBits, i)) {   // eaten by someone else
+          MazeFX.sparks(i % S.lvl.W, (i / S.lvl.W) | 0, '#ffdcae', 4, 4, 0.3);
+          if (S.lvl.p[i] === 1) heard = i;
+        }
         M.setBit(S.srvBits, i);
       }
+      if (heard >= 0) A.sfx('eatOther', soundAt(heard % S.lvl.W, (heard / S.lvl.W) | 0));
       const wasPh = S.ph;
       S.ph = m.ph | 0; S.fr = +m.fr || 0; S.ct = +m.ct || 0;
       if (S.ph === 1 && wasPh !== 1) levelClear();
@@ -152,6 +164,12 @@ setInterval(() => {
   if (S.eatQ.length) send(Object.assign({ t: 'eat', i: S.eatQ.splice(0, 16) }, pos));
   else send(Object.assign({ t: 'p' }, pos));
 }, 50);
+
+/* Stereo position and loudness for a sound happening at tile (x, y), relative to you. */
+function soundAt(x, y) {
+  const [px, py] = M.entPos(S.me), half = Math.max(8, S.lvl.W / 2);
+  return { pan: (x - px) / half, near: 1 - Math.min(1, Math.hypot(x - px, y - py) / 30) };
+}
 
 /* ---------- local player ---------- */
 const eaten = i => M.getBit(S.srvBits, i) || M.getBit(S.myBits, i);

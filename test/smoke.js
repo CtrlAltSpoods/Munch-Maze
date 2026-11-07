@@ -111,6 +111,9 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   const expected = lv.pList.reduce((n, i) => n + (lv.p[i] === 2 ? 50 : 10), 0);
   if (alice[5] !== expected) fail(`score ${alice[5]} != ${expected}`);
   console.log('ok  all', lv.pList.length, 'pellets eaten, score', alice[5], '- level clear');
+  const pws = b.msgs.filter(m => m.t === 'pw' && m.id === wa.id).length;
+  if (pws !== lv.pList.filter(i => lv.p[i] === 2).length) fail('other players should hear every big pellet (got ' + pws + ')');
+  console.log('ok  every big pellet is announced to the other players');
 
   // after the celebration the maze waits for the host (alice joined first)
   const waiting = await waitFor(b, 's', m => m.ph === 2, 6000);

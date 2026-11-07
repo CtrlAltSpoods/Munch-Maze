@@ -88,20 +88,70 @@ const ARP_A = [0, 1, 2, 1, 0, 2, 3, 2, 0, 1, 2, 3, 2, 1, 0, 2];   // index into 
 const ARP_B = [3, 2, 0, 2, 1, 2, 3, 0, 3, 2, 1, 2, 0, 1, 2, 3];
 const BASS_STEPS = [0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 2]; // 0 rest, 1 root, 2 octave
 const KEYS = [0, 3, -2, 5, 2, -4, 7];
-let music = { on: false, step: 0, next: 0, bpm: 128, trans: 0, pendingTrans: 0, timer: 0, bar: 0, pad: null, kicks: [] };
+let music = { mode: 'normal', baseBpm: 128, on: false, step: 0, next: 0, bpm: 128, trans: 0, pendingTrans: 0, timer: 0, bar: 0, pad: null, kicks: [] };
 
 function stepDur() { return 60 / music.bpm / 4; }
+function kick(t, vol, track = true) {
+  if (track) { music.kicks.push(t); if (music.kicks.length > 8) music.kicks.shift(); }
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(160, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.13);
+  env(g, t, 0.002, vol, 0.32); o.connect(g); g.connect(musicFilter); o.start(t); o.stop(t + 0.4);
+  if (music.pad) { const pg = music.pad.gain, sd = stepDur(); pg.cancelScheduledValues(t); pg.setValueAtTime(0.012, t); pg.linearRampToValueAtTime(music.mode === 'boss' ? 0.045 : 0.07, t + sd * 3); }
+}
+
+/* ---------- boss fight ----------
+   While ghosts are blue: about 20% faster, E phrygian with a tritone turn
+   (E - F - E - Bb), driving distorted 16th bass, syncopated power-chord stabs,
+   a diminished arp, a two-tone alarm lead and snare rolls. */
+const BOSS_ROOTS = [40, 41, 40, 46];
+const BOSS_BASS = [0, 0, 12, 0, 0, 0, 12, 0, 0, 0, 12, 0, 0, 1, 12, 0];
+const BOSS_STABS = [0, 3, 6, 10, 13];
+const DIM = [0, 3, 6, 9];
+let bossDist = null;
+function distCurve(k) { const n = 1024, c = new Float32Array(n); for (let i = 0; i < n; i++) { const x = i * 2 / n - 1; c[i] = (1 + k) * x / (1 + k * Math.abs(x)); } return c; }
+function ensureBossChain() {
+  if (bossDist) return;
+  bossDist = ctx.createWaveShaper(); bossDist.curve = distCurve(18); bossDist.oversample = '2x';
+  const trim = ctx.createGain(); trim.gain.value = 0.55; bossDist.connect(trim); trim.connect(musicFilter);
+}
+function schedBoss(s, t) {
+  const bar = music.bar, root = BOSS_ROOTS[bar % 4] + music.trans, sd = stepDur();
+  // drums: four on the floor plus pushes, claps, 16th hats, a roll into every 4th bar
+  if (s % 4 === 0) kick(t, 1.0);
+  else if (s === 14 || (s === 7 && bar % 2)) kick(t, 0.7, false);
+  if (s === 4 || s === 12) { noise(musicFilter, { t, dur: 0.14, vol: 0.34, type: 'bandpass', freq: 1700, q: 0.9 }); noise(musicFilter, { t: t + 0.01, dur: 0.08, vol: 0.2, type: 'bandpass', freq: 3200, q: 1.2 }); }
+  if (bar % 4 === 3 && s >= 12) { noise(musicFilter, { t, dur: 0.05, vol: 0.2 + (s - 12) * 0.05, type: 'bandpass', freq: 1900, q: 1 }); noise(musicFilter, { t: t + sd / 2, dur: 0.05, vol: 0.2 + (s - 12) * 0.05, type: 'bandpass', freq: 1900, q: 1 }); }
+  noise(musicFilter, { t, dur: s % 4 === 2 ? 0.08 : 0.02, vol: s % 4 === 2 ? 0.13 : 0.06, freq: 9000 });
+  // distorted bass on every 16th
+  tone(bossDist, { type: 'sawtooth', f: hz(root + BOSS_BASS[s]), t, dur: sd * 0.85, vol: 0.16, filter: [1600, 220, 7] });
+  // power-chord stabs
+  if (BOSS_STABS.includes(s)) for (const iv of [24, 31, 36]) tone(bossDist, { type: 'square', f: hz(root + iv), t, dur: sd * 0.7, vol: 0.035, detune: iv === 31 ? 7 : -7, filter: [4200, 900, 2] });
+  // diminished arp up high, through the echo
+  if (bar % 2 === 1 || s >= 8) { const n = root + 48 + DIM[s % 4] + (s >= 8 ? 12 : 0); tone(musicFilter, { type: 'square', f: hz(n), t, dur: sd * 0.6, vol: 0.03, filter: [6000, 2000, 1] }); tone(delaySend, { type: 'square', f: hz(n), t, dur: sd * 0.5, vol: 0.02 }); }
+  // alarm lead: two notes a semitone apart, wailing, every other bar
+  if (bar % 2 === 0 && (s === 0 || s === 8)) {
+    const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter(), lfo = ctx.createOscillator(), lg = ctx.createGain();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(hz(root + (s === 0 ? 36 : 37)), t);
+    lfo.frequency.value = 6.5; lg.gain.value = 9; lfo.connect(lg); lg.connect(o.frequency);
+    f.type = 'lowpass'; f.frequency.value = 3200; f.Q.value = 3;
+    env(g, t, 0.03, 0.045, sd * 7.5, 0.0001, sd * 2);
+    o.connect(f); f.connect(g); g.connect(musicFilter); g.connect(delaySend);
+    o.start(t); lfo.start(t); o.stop(t + sd * 8.5); lfo.stop(t + sd * 8.5);
+  }
+}
+/** The slam when the boss music cuts in. */
+function bossImpact(t) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(28, t + 0.7);
+  env(g, t, 0.003, 0.9, 0.8); o.connect(g); g.connect(musicFilter); o.start(t); o.stop(t + 0.9);
+  noise(musicFilter, { t, dur: 0.45, vol: 0.35, type: 'lowpass', freq: 1200, q: 0.7 });
+  tone(bossDist, { type: 'sawtooth', f: hz(52 + music.trans), f2: hz(40 + music.trans), t, dur: 0.5, vol: 0.12, filter: [2500, 300, 3] });
+}
+
 function schedStep(s, t) {
   const bar = music.bar, chord = PROG[bar % 4].map(n => n + music.trans), sd = stepDur();
   const sec = Math.floor(bar / 8) % 2;       // alternate arp patterns every 8 bars
-  // kick
-  if (s % 4 === 0) {
-    music.kicks.push(t); if (music.kicks.length > 8) music.kicks.shift();
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.type = 'sine'; o.frequency.setValueAtTime(155, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.13);
-    env(g, t, 0.002, 0.95, 0.32); o.connect(g); g.connect(musicFilter); o.start(t); o.stop(t + 0.4);
-    if (music.pad) { const pg = music.pad.gain; pg.cancelScheduledValues(t); pg.setValueAtTime(0.012, t); pg.linearRampToValueAtTime(0.07, t + sd * 3); }
-  }
+  if (s % 4 === 0) kick(t, 0.95);
   // clap on 2 and 4
   if (s === 4 || s === 12) { noise(musicFilter, { t, dur: 0.16, vol: 0.32, type: 'bandpass', freq: 1500, q: 0.9 }); noise(musicFilter, { t: t + 0.012, dur: 0.1, vol: 0.18, type: 'bandpass', freq: 2400, q: 1.2 }); }
   // hats: closed 16ths, open on the off-beat
@@ -129,7 +179,7 @@ function setPad(t) {
     f.connect(g); g.connect(musicFilter);
     music.pad = { gain: g.gain, node: g, filter: f, oscs: [] };
   }
-  const chord = PROG[music.bar % 4].map(n => n + music.trans);
+  const chord = music.mode === 'boss' ? [0, 7, 12].map(iv => BOSS_ROOTS[music.bar % 4] + 12 + iv + music.trans) : PROG[music.bar % 4].map(n => n + music.trans);
   const old = music.pad.oscs; music.pad.oscs = [];
   for (const n of chord) for (const dt of [-8, 8]) {
     const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = hz(n); o.detune.value = dt;
@@ -142,7 +192,7 @@ function scheduler() {
   const ahead = ctx.currentTime + 0.12;
   while (music.next < ahead) {
     if (music.step === 0) { music.trans = music.pendingTrans; setPad(music.next); }
-    schedStep(music.step, music.next);
+    if (music.mode === 'boss') schedBoss(music.step, music.next); else schedStep(music.step, music.next);
     music.next += stepDur();
     music.step = (music.step + 1) % 16;
     if (music.step === 0) music.bar++;
@@ -150,7 +200,8 @@ function scheduler() {
 }
 function startMusic(level = 1) {
   if (!unlock()) return;
-  music.bpm = 128 + Math.min(12, (level - 1) * 1.5);
+  music.baseBpm = 128 + Math.min(12, (level - 1) * 1.5);
+  music.bpm = music.mode === 'boss' ? bossBpm() : music.baseBpm;
   music.pendingTrans = KEYS[(level - 1) % KEYS.length];
   delaySend._delay.delayTime.value = stepDur() * 3;
   if (music.on) return;   // retune at the next bar
@@ -171,19 +222,31 @@ function beat() {
   const p = (performance.now() / 1000 / beatLen) % 1; return Math.pow(1 - p, 2.2) * 0.6;
 }
 function stopMusic() {
-  music.on = false; clearInterval(music.timer); music.kicks = [];
+  music.on = false; clearInterval(music.timer); music.kicks = []; music.mode = 'normal'; frightOn = false;
   if (music.pad && ctx) { const t = ctx.currentTime; music.pad.oscs.forEach(o => { try { o.stop(t + 0.05); } catch (e) { /* ignore */ } }); music.pad.node.disconnect(); music.pad = null; }
 }
 let frightOn = false;
+const bossBpm = () => Math.min(176, Math.round(music.baseBpm * 1.2));
+/** Ghosts turned blue: cut to the boss track on the very next 16th; back again when they recover. */
 function setFright(on) {
   if (!ready() || on === frightOn) return; frightOn = on;
-  const t = ctx.currentTime, f = musicFilter.frequency;
-  f.cancelScheduledValues(t); f.setValueAtTime(f.value, t);
-  f.exponentialRampToValueAtTime(on ? 700 : 18000, t + (on ? 0.25 : 0.6));
+  ensureBossChain();
+  music.mode = on ? 'boss' : 'normal';
+  music.bpm = on ? bossBpm() : music.baseBpm;
+  delaySend._delay.delayTime.setTargetAtTime(stepDur() * 3, ctx.currentTime, 0.05);
+  if (!music.on) return;
+  if (on) bossImpact(Math.max(ctx.currentTime + 0.01, music.next - stepDur()));
+  setPad(music.next);   // swap the pad chord straight away
 }
 
 /* ---------- sound effects ---------- */
-let wakaFlip = false, lastWaka = 0;
+let wakaFlip = false, lastWaka = 0, lastOther = 0;
+function panned(pan) {
+  if (!pan || !ctx.createStereoPanner) return sfxBus;
+  const p = ctx.createStereoPanner(); p.pan.value = Math.max(-0.85, Math.min(0.85, pan)); p.connect(sfxBus);
+  setTimeout(() => { try { p.disconnect(); } catch (e) { /* ignore */ } }, 1500);
+  return p;
+}
 // Streak pitch: every pellet in a streak raises the streak sounds a little, with no ceiling.
 // (7/60 of a semitone per pellet: a fifth by 60, an octave by about 100, two octaves by about 200.)
 const STREAK_STEP = 7 / 60;
@@ -195,6 +258,21 @@ const FX = {
     const up = Math.pow(2, streakSemis(streak) / 12);
     tone(sfxBus, { type: 'triangle', f: (wakaFlip ? 300 : 620) * up, f2: (wakaFlip ? 620 : 300) * up, t, dur: 0.075, vol: 0.32 });
     if (streak >= 25 && streak % 5 === 0) tone(sfxBus, { type: 'sine', f: hz(88 + streakSemis(streak - 25)), t: t + 0.02, dur: 0.12, vol: 0.08 });
+  },
+  /* Other players munching: a soft, higher "pip" instead of the waka, panned to
+     where they are and fading with distance. */
+  eatOther(t, o = {}) {
+    if (t - lastOther < 0.05) return; lastOther = t;
+    const out = panned(o.pan), near = Math.max(0.3, Math.min(1, o.near == null ? 1 : o.near));
+    const f = 1050 + Math.random() * 260;
+    tone(out, { type: 'sine', f, f2: f * 1.45, t, dur: 0.045, vol: 0.075 * near });
+    tone(out, { type: 'triangle', f: f * 2, t, dur: 0.025, vol: 0.02 * near });
+  },
+  /* Someone else grabbed a big pellet: the same power-up, panned towards them. */
+  powerOther(t, o = {}) {
+    const out = panned(o.pan);
+    tone(out, { type: 'sawtooth', f: 160, f2: 1300, t, dur: 0.38, vol: 0.2, filter: [800, 5000, 6] });
+    tone(out, { type: 'square', f: 80, f2: 650, t: t + 0.02, dur: 0.36, vol: 0.1 });
   },
   coin(t) {
     tone(sfxBus, { type: 'square', f: hz(83), t, dur: 0.07, vol: 0.12 });
@@ -258,5 +336,5 @@ document.addEventListener('visibilitychange', () => {
   else ctx.resume().then(() => { if (music.on) music.next = Math.max(music.next, ctx.currentTime + 0.05); }).catch(() => {});
 });
 
-window.MazeAudio = { unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, beat, get supported() { return !!AC; } };
+window.MazeAudio = { get mode() { return music.mode; }, get bpm() { return music.bpm; }, unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, beat, get supported() { return !!AC; } };
 })();
