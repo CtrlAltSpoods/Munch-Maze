@@ -45,60 +45,82 @@
         <button type="button" data-d="1" aria-label="Down">▼</button>
       </div>
       <div class="overlay" id="startOv">
-        <form class="card" id="startForm" autocomplete="off">
-          <h1>Munch<span>Maze</span></h1>
-          <p>A maze chase for however many people show up. Everyone on the same seed shares one maze: clear every pellet together and the next level opens, bigger than the last.</p>
-          <div class="field">
-            <label class="k" for="nameIn">Your name</label>
-            <input id="nameIn" maxlength="16" placeholder="Player">
-          </div>
-          <div class="field">
-            <span class="k" id="charLabel">Your character · <b id="charName">Chomper</b></span>
-            <div class="models" id="modelGrid" role="radiogroup" aria-labelledby="charLabel"></div>
-            <div class="swatches" id="swatches" role="radiogroup" aria-label="Colour"></div>
-            <p class="hint" id="unlockHint"></p>
-          </div>
-          <div class="field">
-            <label class="k" for="seedIn">Seed (optional)</label>
-            <input id="seedIn" maxlength="40" placeholder="Leave blank for a random maze">
-          </div>
-          <div class="field" id="visField">
-            <label class="k" for="visIn">Who can join</label>
-            <select id="visIn">
-              <option value="public">Public: listed under “Mazes running now”</option>
-              <option value="private">Invite only: people with your link</option>
-            </select>
-            <p class="hint" id="visHint">Anyone on this server can see your maze and join it.</p>
-          </div>
-          <div class="field" id="lnameField">
-            <label class="k" for="lnameIn">Lobby name (optional)</label>
-            <input id="lnameIn" maxlength="32" placeholder="Shown in “Mazes running now”">
-            <label class="k" for="setpwIn">Password (optional)</label>
-            <input id="setpwIn" type="password" maxlength="64" autocomplete="new-password" placeholder="Leave blank for an open lobby">
-            <p class="hint">With a password, your lobby is still listed, but people need the password to join.</p>
-          </div>
-          <div class="invite" id="inviteNote" hidden>
-            <p>You’re joining a private maze from an invite link.</p>
-            <button class="linkbtn" id="ownBtn" type="button">Start my own maze instead</button>
-          </div>
-          <div class="field pwjoin" id="joinPwField" hidden>
-            <label class="k" for="joinPwIn" id="joinPwLabel">Lobby password</label>
-            <input id="joinPwIn" type="password" maxlength="64" autocomplete="off">
-          </div>
+        <form class="card start" id="startForm" autocomplete="off">
+          <header class="start-head">
+            <h1>Munch<span>Maze</span></h1>
+            <p>Share a maze with however many people show up. Clear every pellet together and the next level opens, bigger than the last.</p>
+          </header>
           <div class="err" id="joinErr" hidden></div>
-          <button class="cta" id="playBtn" type="submit">Enter the maze</button>
-          <div class="field" id="lobbyBox">
-            <span class="k">Mazes running now</span>
-            <div class="games" id="games"><div class="empty">Loading…</div></div>
-          </div>
-          <div class="field">
-            <span class="k">Top scores on this server</span>
-            <ol class="scores" id="scores"><li class="empty">No scores yet.</li></ol>
-          </div>
-          <div class="field">
-            <span class="k">Level growth</span>
-            <div class="ladder" aria-hidden="true"><i style="height:30%"></i><i style="height:42%"></i><i style="height:54%"></i><i style="height:66%"></i><i style="height:78%"></i><i style="height:90%"></i><i style="height:100%"></i></div>
-            <p>Level 1 is a 15×11 maze with one ghost. Each level adds 4 tiles in each direction, up to 63×51, and brings faster, more numerous ghosts (up to 6).</p>
+          <div class="start-cols">
+            <section class="col join-col" id="lobbyBox" aria-labelledby="joinTitle">
+              <div class="col-head">
+                <h2 id="joinTitle">Join a game</h2>
+                <span class="live"><i></i>Live</span>
+              </div>
+              <div class="games" id="games"><div class="empty">Loading…</div></div>
+              <div class="pwjoin" id="joinPwField" hidden>
+                <label class="k" for="joinPwIn" id="joinPwLabel">Lobby password</label>
+                <div class="pwrow">
+                  <input id="joinPwIn" type="password" maxlength="64" autocomplete="off" placeholder="Password">
+                  <button class="btn primary" id="pwJoinBtn" type="button">Join</button>
+                  <button class="btn" id="pwCancelBtn" type="button">Cancel</button>
+                </div>
+              </div>
+              <details class="scores-box">
+                <summary>Top scores on this server</summary>
+                <ol class="scores" id="scores"><li class="empty">No scores yet.</li></ol>
+              </details>
+            </section>
+            <section class="col you-col" aria-labelledby="youTitle">
+              <h2 id="youTitle">Your player</h2>
+              <div class="field">
+                <label class="k" for="nameIn">Name</label>
+                <input id="nameIn" maxlength="16" placeholder="Player">
+              </div>
+              <div class="field">
+                <span class="k" id="charLabel">Character · <b id="charName">Chomper</b></span>
+                <div class="models" id="modelGrid" role="radiogroup" aria-labelledby="charLabel"></div>
+                <div class="swatches" id="swatches" role="radiogroup" aria-label="Colour"></div>
+                <p class="hint" id="unlockHint"></p>
+              </div>
+              <div class="create" aria-labelledby="createTitle">
+                <h2 id="createTitle">Start a new maze</h2>
+                <div class="invite" id="inviteNote" hidden>
+                  <p>You’re joining a private maze from an invite link.</p>
+                  <button class="linkbtn" id="ownBtn" type="button">Start my own maze instead</button>
+                </div>
+                <div class="field" id="visField">
+                  <span class="k">Who can join</span>
+                  <div class="seg" role="radiogroup" aria-label="Who can join">
+                    <button type="button" class="seg-b on" data-vis="public" role="radio" aria-checked="true">Public</button>
+                    <button type="button" class="seg-b" data-vis="private" role="radio" aria-checked="false">Invite only</button>
+                  </div>
+                  <select id="visIn" hidden>
+                    <option value="public">Public</option>
+                    <option value="private">Invite only</option>
+                  </select>
+                  <p class="hint" id="visHint">Anyone on this server can see your maze and join it.</p>
+                </div>
+                <div class="field" id="lnameField">
+                  <div class="pair">
+                    <div class="field">
+                      <label class="k" for="lnameIn">Lobby name</label>
+                      <input id="lnameIn" maxlength="32" placeholder="Optional">
+                    </div>
+                    <div class="field">
+                      <label class="k" for="setpwIn">Password</label>
+                      <input id="setpwIn" type="password" maxlength="64" autocomplete="new-password" placeholder="Optional">
+                    </div>
+                  </div>
+                </div>
+                <div class="field">
+                  <label class="k" for="seedIn">Seed</label>
+                  <input id="seedIn" maxlength="40" placeholder="Random">
+                  <p class="hint">The same seed always makes the same mazes. If a public maze is already running on it, you’ll join that one.</p>
+                </div>
+                <button class="cta" id="playBtn" type="submit">Start maze</button>
+              </div>
+            </section>
           </div>
         </form>
       </div>
@@ -108,26 +130,32 @@
             <h1 id="lobbyTitle">Lobby</h1>
             <span class="lobby-chips"><span class="chip" id="lobbyVis">Public</span><span class="chip private" id="lobbyLock" hidden>Password</span></span>
           </div>
-          <p id="lobbyMaze">Level 1 · 15 × 11 maze · 1 ghost</p>
-          <div class="field" id="lobbyLevelField" hidden>
-            <label class="k" for="lobbyLevel">Starting level</label>
-            <select id="lobbyLevel"></select>
-            <p class="hint" id="lobbyLevelHint"></p>
-          </div>
-          <div class="field">
-            <span class="k">Players here <b id="lobbyCount">1</b></span>
-            <ul class="lobby-players" id="lobbyPlayers"></ul>
-          </div>
-          <div class="field">
-            <label class="k" for="lobbyLink">Invite link</label>
-            <div class="linkrow">
-              <input id="lobbyLink" readonly>
-              <button class="btn" id="lobbyCopy" type="button">Copy</button>
+          <div class="facts" id="lobbyMaze"></div>
+          <div class="lobby-cols">
+            <div class="field">
+              <span class="k">Players here <b id="lobbyCount">1</b></span>
+              <ul class="lobby-players" id="lobbyPlayers"></ul>
+            </div>
+            <div class="lobby-side">
+              <div class="field" id="lobbyLevelField" hidden>
+                <label class="k" for="lobbyLevel">Starting level</label>
+                <select id="lobbyLevel"></select>
+                <p class="hint" id="lobbyLevelHint"></p>
+              </div>
+              <div class="field">
+                <label class="k" for="lobbyLink">Invite link</label>
+                <div class="linkrow">
+                  <input id="lobbyLink" readonly>
+                  <button class="btn" id="lobbyCopy" type="button">Copy</button>
+                </div>
+              </div>
             </div>
           </div>
-          <button class="cta" id="lobbyStart" type="button">Start game</button>
-          <p class="hint" id="lobbyHint">Start when everyone’s in. Late arrivals can still join once the game is running. Press Enter or Space.</p>
-          <p class="wait" id="lobbyWait" hidden>Waiting for the host to start the game…</p>
+          <div class="lobby-foot">
+            <button class="cta" id="lobbyStart" type="button">Start game</button>
+            <p class="hint" id="lobbyHint">Start when everyone’s in. Late arrivals can still join. Enter or Space also starts.</p>
+            <p class="wait" id="lobbyWait" hidden>Waiting for the host to start the game…</p>
+          </div>
         </div>
       </div>
       <div class="overlay ready-ov" id="readyOv" hidden>

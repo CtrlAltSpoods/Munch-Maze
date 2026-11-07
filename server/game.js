@@ -91,7 +91,10 @@ class Game {
         return;
       }
       case 'eat': {
-        if (this.ph !== 0 || !p.al || p.over) return;
+        // Pellets eaten in the moment before a crate paused the game still count:
+        // the player couldn't have known yet.
+        const grace = this.ph === 4 && (M.PU_SPIN + M.PU_HOLD) - this.ct < 0.5;
+        if ((this.ph !== 0 && !grace) || !p.al || p.over) return;
         if (m.x !== undefined) this.onMessage(p, { t: 'p', x: m.x, y: m.y, f: m.f });
         const list = Array.isArray(m.i) ? m.i.slice(0, 16) : [m.i];
         for (const raw of list) this.eat(p, raw | 0);
@@ -301,14 +304,18 @@ class Game {
       this.ct -= dt;
       if (this.ct <= 0) {
         const pu = M.POWERUPS[this.pending.kind];
-        if (pu.id === 'nuke') { this.ph = 5; this.ct = M.NUKE_TIME; this.broadcast({ t: 'nuke', x: this.pending.x, y: this.pending.y }); }
+        if (pu.id === 'nuke') {
+          this.ph = 5; this.ct = M.NUKE_TIME;
+          for (const i of this.lv.pList) M.setBit(this.bits, i);
+          this.left = 0;
+          this.broadcast({ t: 'nuke', x: this.pending.x, y: this.pending.y });
+        }
         else { this.ph = 0; this.activate(this.pending); this.pending = null; }
       }
     } else if (this.ph === 5) {      // nuke going off; still paused
       this.ct -= dt;
       if (this.ct <= 0) {
-        for (const i of this.lv.pList) M.setBit(this.bits, i);
-        this.left = 0; this.pending = null; this.effects = [];
+        this.pending = null; this.effects = [];
         this.ph = 1; this.ct = 3.9;   // level passed: on to the usual celebration
       }
     } else if (this.ph === 2 || this.ph === 3) {   // waiting for the host
@@ -338,7 +345,9 @@ class Game {
       fx: this.effects.map(e => [e.kind, r2(e.rem), e.by]),
       c: this.crates.map(c => [c.id, c.x, c.y]),
       p: [...this.players.values()].map(p => [p.id, r2(p.x), r2(p.y), p.f, p.al ? 1 : 0, p.sc, p.li, p.over ? 1 : 0]),
-      e: this.eatenSince
+      e: this.eatenSince,
+      left: this.left,
+      b: (this.syncN = (this.syncN || 0) + 1) % 30 === 0 ? M.toB64(this.bits) : undefined   // full resync every ~2 s
     });
     this.eatenSince = [];
     for (const p of this.players.values()) p.ws.send(msg);

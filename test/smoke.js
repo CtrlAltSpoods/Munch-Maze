@@ -97,6 +97,10 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   const s1 = await waitFor(b, 's', m => m.ph === 0);
   if (s1.g.length !== M.ghostCount(1)) fail('ghost count');
   console.log('ok  state stream running,', s1.g.length, 'ghost(s)');
+  if (typeof s1.left !== 'number') fail('state should carry the server pellet count');
+  const full = await waitFor(b, 's', m => typeof m.b === 'string', 4000);
+  if (M.fromB64(full.b, lv.bytes).length !== lv.bytes) fail('full pellet map should decode');
+  console.log('ok  state carries the pellet count and a full pellet map every ~2 s');
 
   // alice walks to every pellet and eats it
   for (const i of lv.pList) {

@@ -38,7 +38,7 @@ const S = {
   sc: 0, li: 3, over: false, alive: true, deadT: 0, inv: 0, ge: [],
   ph: 0, fr: 0, fid: 0, roster: new Map(), players: [], gTarget: [], gv: [], ov: new Map(),
   streak: 0, streakT: 0, streakTier: 0, shownScore: 0, mazeGlow: null, bulbs: [],
-  host: 0, eatQ: [],
+  host: 0, eatQ: [], pend: new Map(), left: -1,
   crates: [], fx: [], grabbing: 0, nuked: false, prevFx: '',
   time: 0, lastT: performance.now(), bannerT: 0, camX: null, camY: null, mazeKey: '', mazeCv: null, mazeFlash: null
 };
@@ -54,7 +54,7 @@ function loadLevel(L, b64, ph = 0) {
   S.L = L; S.lvl = M.genLevel(S.seed, L);
   S.myBits = new Uint8Array(S.lvl.bytes);
   S.srvBits = b64 ? M.fromB64(b64, S.lvl.bytes) : new Uint8Array(S.lvl.bytes);
-  S.ge = []; S.gv = []; S.gTarget = []; S.ph = ph; S.fr = 0; S.crates = []; S.fx = []; S.grabbing = 0; S.nuked = false;
+  S.ge = []; S.gv = []; S.gTarget = []; S.ph = ph; S.fr = 0; S.crates = []; S.fx = []; S.grabbing = 0; S.nuked = false; S.pend.clear(); S.left = -1;
   S.alive = true; respawn(); S.mazeKey = '';
   const n = M.ghostCount(L);
   endStreak(true);
@@ -86,7 +86,7 @@ function onMsg(m) {
       loadLevel(m.lv | 0, m.b, m.ph | 0);
       S.inGame = true;
       $('startOv').hidden = true; $('overOv').hidden = !S.over; $('leaveBtn').hidden = false; $('app').classList.add('ingame');
-      $('playBtn').disabled = false; $('playBtn').textContent = 'Enter the maze';
+      $('playBtn').disabled = false; $('playBtn').textContent = S.inviteKey ? 'Join maze' : 'Start maze';
       S.key = typeof m.key === 'string' ? m.key : ''; S.vis = m.vis === 'private' ? 'private' : 'public';
       S.title = typeof m.title === 'string' ? m.title : ''; S.locked = !!m.locked; S.room = '';
       S.setpw = '';   // only sent when opening the lobby
@@ -136,7 +136,7 @@ function onMsg(m) {
       S.wantGame = false;
       $('joinErr').textContent = String(m.msg || 'Could not join.'); $('joinErr').hidden = false;
       if (m.code === 'pw_needed' || m.code === 'pw_wrong') askPassword(S.room, '');
-      $('playBtn').disabled = false; $('playBtn').textContent = 'Enter the maze';
+      $('playBtn').disabled = false; $('playBtn').textContent = S.inviteKey ? 'Join maze' : 'Start maze';
       if (S.ws) S.ws.close();
       break;
     case 's': {
@@ -150,6 +150,7 @@ function onMsg(m) {
         M.setBit(S.srvBits, i);
       }
       if (heard >= 0) A.sfx('eatOther', soundAt(heard % S.lvl.W, (heard / S.lvl.W) | 0));
+      reconcilePellets(m);
       const wasPh = S.ph;
       S.ph = m.ph | 0; S.fr = +m.fr || 0; S.ct = +m.ct || 0;
       if (S.ph === 1 && wasPh !== 1) levelClear();
@@ -193,10 +194,32 @@ function soundAt(x, y) {
 
 /* ---------- local player ---------- */
 const eaten = i => M.getBit(S.srvBits, i) || M.getBit(S.myBits, i);
+const clearBit = (u, i) => { u[i >> 3] &= ~(1 << (i & 7)); };
+/* Keep pellets in step with the server. Pellets you ate show as gone straight away;
+   if the server hasn't confirmed one within 1.5 s it didn't count, so it comes back.
+   Every ~2 s the server sends its full pellet map, which replaces ours. */
+const PEND_MS = 1500;
+// read-only, for tests: how many pellets this browser is showing
+window.__munchVisible = () => S.lvl ? S.lvl.pList.filter(i => !eaten(i)).length : -1;
+function reconcilePellets(m) {
+  for (const i of m.e || []) S.pend.delete(i);
+  if (typeof m.left === 'number') S.left = m.left;
+  if (typeof m.b === 'string') S.srvBits = M.fromB64(m.b, S.lvl.bytes);
+  const now = performance.now();
+  for (const [i, t] of S.pend) {
+    if (M.getBit(S.srvBits, i)) S.pend.delete(i);
+    else if (now - t > PEND_MS) { clearBit(S.myBits, i); S.pend.delete(i); }
+  }
+  if (typeof m.b === 'string') {   // anything we think we ate that the server doesn't know about and isn't pending
+    for (let k = 0; k < S.myBits.length; k++) if (S.myBits[k] & ~S.srvBits[k]) {
+      for (let b = 0; b < 8; b++) { const i = k * 8 + b; if ((S.myBits[k] >> b & 1) && !M.getBit(S.srvBits, i) && !S.pend.has(i)) clearBit(S.myBits, i); }
+    }
+  }
+}
 function eatAt(x, y) {
   const lv = S.lvl, i = y * lv.W + x;
   if (!lv.p[i] || eaten(i)) return;
-  M.setBit(S.myBits, i); S.eatQ.push(i);
+  M.setBit(S.myBits, i); S.eatQ.push(i); S.pend.set(i, performance.now());
   if (lv.p[i] === 2) {
     A.sfx('power');
     MazeFX.ring(x, y, '#ffcc33', 3.2, 0.5); MazeFX.ring(x, y, '#41e0f0', 5, 0.7);
@@ -276,18 +299,36 @@ async function refreshLobby() {
   if (S.inGame) return;
   if (lobbyOn) try {
     const list = await getJSON('api/games');
-    const box = $('games'); box.textContent = '';
-    if (!list.length) { const d = document.createElement('div'); d.className = 'empty'; d.textContent = 'No one is in a maze right now. Start one and share the seed.'; box.appendChild(d); }
-    for (const g of list) {
-      const b = document.createElement('button'); b.type = 'button';
-      const a = document.createElement('span'); a.className = 's'; a.textContent = g.name;
-      const c = document.createElement('span'); c.className = 'c'; c.textContent = g.players + (g.players === 1 ? ' player' : ' players') + ' · ' + (g.lobby ? 'in lobby' : 'L' + g.level);
-      if (g.locked) { const lk = document.createElement('span'); lk.className = 'chip private'; lk.textContent = 'Password'; a.append(' ', lk); b.title = 'Password protected'; }
-      b.append(a, c); b.addEventListener('click', () => {
-        clearInvite(); $('visIn').value = 'public'; updateVisHint();
-        if (g.locked && ($('joinPwField').hidden || S.pwRoom !== g.id)) { $('joinErr').hidden = true; askPassword(g.id, g.name); return; }
-        join(g.id);
-      }); box.appendChild(b);
+    const sig = JSON.stringify(list);
+    if (sig !== refreshLobby.sig) {   // only rebuild when something changed
+      refreshLobby.sig = sig;
+      const box = $('games'); box.textContent = '';
+      if (!list.length) {
+        const d = document.createElement('div'); d.className = 'empty';
+        const t = document.createElement('b'); t.textContent = 'No public mazes right now.';
+        const h = document.createElement('span'); h.textContent = 'Start one on the right. It appears here for everyone on this server.';
+        d.append(t, h); box.appendChild(d);
+      }
+      for (const g of list) {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'lrow';
+        const main = document.createElement('span'); main.className = 'lr-main';
+        const nm = document.createElement('span'); nm.className = 'lr-name'; nm.textContent = g.name; main.appendChild(nm);
+        if (g.locked) { const lk = document.createElement('span'); lk.className = 'chip private'; lk.textContent = 'Password'; main.appendChild(lk); }
+        const meta = document.createElement('span'); meta.className = 'lr-meta';
+        const st = document.createElement('span'); st.className = 'lr-status ' + (g.lobby ? 'open' : 'playing');
+        st.textContent = g.lobby ? 'In lobby' : 'Level ' + g.level;
+        const pl = document.createElement('span'); pl.textContent = g.players + (g.players === 1 ? ' player' : ' players');
+        meta.append(st, pl);
+        const go = document.createElement('span'); go.className = 'lr-go'; go.textContent = 'Join';
+        b.append(main, meta, go);
+        b.title = g.locked ? 'Password protected' : 'Join ' + g.name;
+        b.addEventListener('click', () => {
+          clearInvite(); setVis('public');
+          if (g.locked && ($('joinPwField').hidden || S.pwRoom !== g.id)) { $('joinErr').hidden = true; askPassword(g.id, g.name); return; }
+          join(g.id);
+        });
+        box.appendChild(b);
+      }
     }
   } catch (e) { /* server busy; try again later */ }
   try {
@@ -297,14 +338,15 @@ async function refreshLobby() {
     for (const s of sc) {
       const li = document.createElement('li');
       const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = s.n + ' ';
-      const sm = document.createElement('small'); sm.textContent = 'L' + s.lv + ' · ' + s.seed; nm.appendChild(sm);
+      const sm = document.createElement('small'); sm.textContent = 'level ' + s.lv; nm.appendChild(sm);
       const v = document.createElement('span'); v.className = 'sc'; v.textContent = (s.sc | 0).toLocaleString();
       li.append(nm, v); ol.appendChild(li);
     }
   } catch (e) { /* ignore */ }
 }
 getJSON('api/info').then(info => {
-  lobbyOn = !!info.lobby; $('lobbyBox').hidden = !lobbyOn;
+  lobbyOn = !!info.lobby;
+  if (!lobbyOn) { const g = $('games'); g.textContent = ''; const d = document.createElement('div'); d.className = 'empty'; const t = document.createElement('b'); t.textContent = 'This server keeps its mazes unlisted.'; const h = document.createElement('span'); h.textContent = 'Ask a friend for their invite link or seed, or start your own.'; d.append(t, h); g.appendChild(d); document.querySelector('.join-col .live').hidden = true; }
   if (info.name && info.name !== 'Munch Maze') document.title = info.name + ' · Munch Maze';
   if (info.defaultSeed && !$('seedIn').value) $('seedIn').placeholder = 'Leave blank for ' + info.defaultSeed;
 }).catch(() => {});
@@ -626,7 +668,8 @@ function hud(dt, now) {
   if (S.bannerT > 0) { S.bannerT -= dt; if (S.bannerT <= 0) bannerEl.hidden = true; }
   if (now - boardAt < 300) return; boardAt = now;
   if (!S.inGame) { setTxt('pCount', '0'); return; }
-  let left = 0; for (const i of lv.pList) if (!eaten(i)) left++;
+  let left = S.left;   // the server's count is the one that matters
+  if (left < 0) { left = 0; for (const i of lv.pList) if (!eaten(i)) left++; }
   setTxt('pLeft', left); setTxt('gCount', M.ghostCount(S.L));
   const rows = [{ nm: S.name, col: S.color, sc: S.sc, al: S.alive && !S.over, me: true, host: S.host === S.id }];
   for (const p of S.players) rows.push({ nm: p.nm, col: p.col, sc: p.sc, al: p.al && !p.over, me: false, host: p.id === S.host });
@@ -656,6 +699,8 @@ cv.addEventListener('touchmove', e => {
 }, { passive: false });
 document.querySelectorAll('#dpad button').forEach(b => b.addEventListener('pointerdown', e => { e.preventDefault(); if (S.inGame) setWant(+b.dataset.d); }));
 $('startForm').addEventListener('submit', e => { e.preventDefault(); join(); });
+$('pwJoinBtn').addEventListener('click', () => join());
+$('pwCancelBtn').addEventListener('click', () => { $('joinPwField').hidden = true; S.pwRoom = ''; $('joinErr').hidden = true; updateVisHint(); });
 $('seedIn').addEventListener('input', () => { if (!$('joinPwField').hidden && S.pwRoom) { $('joinPwField').hidden = true; S.pwRoom = ''; $('joinErr').hidden = true; updateVisHint(); } });
 $('leaveBtn').addEventListener('click', leave);
 $('againBtn').addEventListener('click', () => { send({ t: 'again' }); S.over = false; S.alive = true; respawn(); $('overOv').hidden = true; });
@@ -763,7 +808,7 @@ function laserEat() {
   let x = Math.round(px), y = Math.round(py), n = 0, got = 0;
   while (n++ < lv.W + lv.H) {
     const i = y * lv.W + x;
-    if (lv.p[i] && !eaten(i)) { M.setBit(S.myBits, i); S.eatQ.push(i); bumpStreak(x, y); MazeFX.sparks(x, y, '#ff6b8b', 4, 4, 0.3); got++; if (lv.p[i] === 2) A.sfx('power'); }
+    if (lv.p[i] && !eaten(i)) { M.setBit(S.myBits, i); S.eatQ.push(i); S.pend.set(i, performance.now()); bumpStreak(x, y); MazeFX.sparks(x, y, '#ff6b8b', 4, 4, 0.3); got++; if (lv.p[i] === 2) A.sfx('power'); }
     if (x === ex && y === ey) break;
     x += DIRS[face][0]; y += DIRS[face][1];
   }
@@ -917,7 +962,12 @@ function updateLobby() {
   $('lobbyVis').textContent = S.vis === 'private' ? 'Invite only' : 'Public';
   $('lobbyVis').classList.toggle('private', S.vis === 'private');
   $('lobbyLock').hidden = !S.locked;
-  $('lobbyMaze').textContent = 'Level ' + S.L + ' · ' + lv.W + ' × ' + lv.H + ' maze · ' + g + (g > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(S.L) + (S.vis === 'private' ? ' · only people with the link can join' : ' · listed for everyone on this server');
+  const facts = ['Level ' + S.L, lv.W + ' × ' + lv.H, g + (g > 1 ? ' ghosts' : ' ghost'), 'Speed ' + speedLabel(S.L), S.vis === 'private' ? 'Link only' : 'Listed publicly'];
+  const fsig = facts.join('|');
+  if ($('lobbyMaze').dataset.sig !== fsig) {
+    $('lobbyMaze').dataset.sig = fsig; $('lobbyMaze').textContent = '';
+    for (const f of facts) { const c = document.createElement('span'); c.className = 'fact'; c.textContent = f; $('lobbyMaze').appendChild(c); }
+  }
   if ($('lobbyLink').value !== inviteLink()) $('lobbyLink').value = inviteLink();
   $('lobbyStart').hidden = !isHost; $('lobbyHint').hidden = !isHost; $('lobbyWait').hidden = isHost;
   $('lobbyWait').textContent = 'Waiting for ' + hostName() + ' to start the game…';
@@ -958,13 +1008,17 @@ function renderLobbyPlayers() {
   const ul = $('lobbyPlayers'); ul.textContent = '';
   for (const id of ids) {
     const r = S.roster.get(id), li = document.createElement('li');
-    const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = /^#[0-9a-f]{6}$/i.test(r.col) ? r.col : '#ffcc33';
+    const cv = document.createElement('canvas'); cv.width = 64; cv.height = 64; cv.className = 'av';
+    const paint = id === S.id ? S.paint : (r.paint || r.col);
+    MazeModels.draw(cv.getContext('2d'), id === S.id ? S.model : r.mdl | 0, 32, 34, 22, paint, 0, 0.45, 0);
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.nm;
-    const tags = [id === S.host ? 'host' : '', id === S.id ? 'you' : ''].filter(Boolean).join(' · ');
-    if (tags) { const sm = document.createElement('small'); sm.textContent = tags; nm.appendChild(sm); }
-    li.append(sw, nm); ul.appendChild(li);
+    const tags = [id === S.host ? 'Host' : '', id === S.id ? 'You' : ''].filter(Boolean);
+    li.append(cv, nm);
+    for (const t of tags) { const c = document.createElement('span'); c.className = 'tag' + (t === 'Host' ? ' host' : ''); c.textContent = t; li.appendChild(c); }
+    ul.appendChild(li);
   }
 }
+
 $('lobbyStart').addEventListener('click', () => sendReady());
 $('lobbyCopy').addEventListener('click', () => {
   const link = inviteLink(), b = $('lobbyCopy');
@@ -1057,6 +1111,7 @@ function inviteHash() { return S.vis === 'private' && S.key ? S.seed + '~' + S.k
 function clearInvite() {
   S.inviteKey = '';
   $('inviteNote').hidden = true; $('visField').hidden = false; $('seedIn').readOnly = false; updateVisHint();
+  $('createTitle').textContent = 'Start a new maze'; $('playBtn').textContent = 'Start maze';
 }
 function updateVisHint() {
   $('lnameField').hidden = $('visIn').value === 'private' || !!S.inviteKey || !!S.pwRoom;   // no create options while joining someone's locked lobby
@@ -1064,6 +1119,12 @@ function updateVisHint() {
     ? 'Your maze stays off the list. You’ll get a link to share; only people with it can join.'
     : 'Anyone on this server can see your maze and join it.';
 }
+function setVis(v) {
+  $('visIn').value = v === 'private' ? 'private' : 'public';
+  for (const b of document.querySelectorAll('.seg-b')) { const on = b.dataset.vis === $('visIn').value; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); }
+  updateVisHint();
+}
+for (const b of document.querySelectorAll('.seg-b')) b.addEventListener('click', () => { setVis(b.dataset.vis); store.set('mm.vis', b.dataset.vis); });
 $('visIn').addEventListener('change', updateVisHint);
 $('ownBtn').addEventListener('click', () => {
   clearInvite(); $('seedIn').value = '';
@@ -1115,11 +1176,12 @@ const [hashSeedPart, hashKey = ''] = rawHash.split('~');
 const hashSeed = M.slug(hashSeedPart);
 if (hashSeed) $('seedIn').value = hashSeed;
 S.seed = hashSeed || M.randomSeed();
-{ const v = store.get('mm.vis'); if (v === 'private' || v === 'public') $('visIn').value = v; }
+{ const v = store.get('mm.vis'); if (v === 'private' || v === 'public') setVis(v); }
 if (hashSeed && /^[a-z0-9]{12}$/.test(hashKey)) {
   // Arrived from an invite link: join that private maze.
   S.inviteKey = hashKey;
   $('inviteNote').hidden = false; $('visField').hidden = true; $('lnameField').hidden = true; $('seedIn').readOnly = true;
+  $('createTitle').textContent = 'Join private maze'; $('playBtn').textContent = 'Join maze';
 }
 updateVisHint();
 S.lvl = M.genLevel(S.seed, 1); S.L = 1;
