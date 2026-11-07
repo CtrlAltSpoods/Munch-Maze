@@ -11,7 +11,7 @@
 (function () {
 'use strict';
 const AC = window.AudioContext || window.webkitAudioContext;
-let ctx = null, master, musicBus, musicFilter, sfxBus, noiseBuf, delaySend;
+let ctx = null, master, musicBus, musicFilter, sfxBus, noiseBuf, delaySend, tracks;
 let musicVol = 0.1, sfxVol = 0.4;
 
 // Slider position -> gain. A gentle curve so the low end of the slider stays usable.
@@ -32,11 +32,19 @@ function build() {
 
   sfxBus = ctx.createGain(); sfxBus.gain.value = curve(sfxVol); sfxBus.connect(master);
 
-  // Dotted-eighth echo for the arp.
-  const d = ctx.createDelay(1); const fb = ctx.createGain(); const wet = ctx.createGain(); const tone = ctx.createBiquadFilter();
-  tone.type = 'lowpass'; tone.frequency.value = 3200; fb.gain.value = 0.38; wet.gain.value = 0.35;
-  delaySend = ctx.createGain(); delaySend.connect(d); d.connect(tone); tone.connect(fb); fb.connect(d); tone.connect(wet); wet.connect(musicFilter);
-  delaySend._delay = d;
+  // Each track plays into its own channel with its own dotted-eighth echo, so switching
+  // tracks can silence everything the outgoing one still has queued, sustained or echoing.
+  const track = () => {
+    const bus = ctx.createGain(); bus.connect(musicFilter);
+    const d = ctx.createDelay(1), fb = ctx.createGain(), wet = ctx.createGain(), lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 3200; fb.gain.value = 0.38; wet.gain.value = 0.35;
+    const send = ctx.createGain(); send.connect(d); d.connect(lp); lp.connect(fb); fb.connect(d); lp.connect(wet); wet.connect(bus);
+    send._delay = d;
+    return { bus, send };
+  };
+  tracks = { normal: track(), boss: track() };
+  tracks.boss.bus.gain.value = 0;
+  delaySend = tracks.normal.send;
 
   noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
   const ch = noiseBuf.getChannelData(0); for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
@@ -95,7 +103,7 @@ function kick(t, vol, track = true) {
   if (track) { music.kicks.push(t); if (music.kicks.length > 8) music.kicks.shift(); }
   const o = ctx.createOscillator(), g = ctx.createGain();
   o.type = 'sine'; o.frequency.setValueAtTime(160, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.13);
-  env(g, t, 0.002, vol, 0.32); o.connect(g); g.connect(musicFilter); o.start(t); o.stop(t + 0.4);
+  env(g, t, 0.002, vol, 0.32); o.connect(g); g.connect(tracks[music.mode].bus); o.start(t); o.stop(t + 0.4);
   if (music.pad) { const pg = music.pad.gain, sd = stepDur(); pg.cancelScheduledValues(t); pg.setValueAtTime(0.012, t); pg.linearRampToValueAtTime(music.mode === 'boss' ? 0.045 : 0.07, t + sd * 3); }
 }
 
@@ -112,22 +120,22 @@ function distCurve(k) { const n = 1024, c = new Float32Array(n); for (let i = 0;
 function ensureBossChain() {
   if (bossDist) return;
   bossDist = ctx.createWaveShaper(); bossDist.curve = distCurve(18); bossDist.oversample = '2x';
-  const trim = ctx.createGain(); trim.gain.value = 0.55; bossDist.connect(trim); trim.connect(musicFilter);
+  const trim = ctx.createGain(); trim.gain.value = 0.55; bossDist.connect(trim); trim.connect(tracks.boss.bus);
 }
 function schedBoss(s, t) {
   const bar = music.bar, root = BOSS_ROOTS[bar % 4] + music.trans, sd = stepDur();
   // drums: four on the floor plus pushes, claps, 16th hats, a roll into every 4th bar
   if (s % 4 === 0) kick(t, 1.0);
   else if (s === 14 || (s === 7 && bar % 2)) kick(t, 0.7, false);
-  if (s === 4 || s === 12) { noise(musicFilter, { t, dur: 0.14, vol: 0.34, type: 'bandpass', freq: 1700, q: 0.9 }); noise(musicFilter, { t: t + 0.01, dur: 0.08, vol: 0.2, type: 'bandpass', freq: 3200, q: 1.2 }); }
-  if (bar % 4 === 3 && s >= 12) { noise(musicFilter, { t, dur: 0.05, vol: 0.2 + (s - 12) * 0.05, type: 'bandpass', freq: 1900, q: 1 }); noise(musicFilter, { t: t + sd / 2, dur: 0.05, vol: 0.2 + (s - 12) * 0.05, type: 'bandpass', freq: 1900, q: 1 }); }
-  noise(musicFilter, { t, dur: s % 4 === 2 ? 0.08 : 0.02, vol: s % 4 === 2 ? 0.13 : 0.06, freq: 9000 });
+  if (s === 4 || s === 12) { noise(tracks.boss.bus, { t, dur: 0.14, vol: 0.34, type: 'bandpass', freq: 1700, q: 0.9 }); noise(tracks.boss.bus, { t: t + 0.01, dur: 0.08, vol: 0.2, type: 'bandpass', freq: 3200, q: 1.2 }); }
+  if (bar % 4 === 3 && s >= 12) { noise(tracks.boss.bus, { t, dur: 0.05, vol: 0.2 + (s - 12) * 0.05, type: 'bandpass', freq: 1900, q: 1 }); noise(tracks.boss.bus, { t: t + sd / 2, dur: 0.05, vol: 0.2 + (s - 12) * 0.05, type: 'bandpass', freq: 1900, q: 1 }); }
+  noise(tracks.boss.bus, { t, dur: s % 4 === 2 ? 0.08 : 0.02, vol: s % 4 === 2 ? 0.13 : 0.06, freq: 9000 });
   // distorted bass on every 16th
   tone(bossDist, { type: 'sawtooth', f: hz(root + BOSS_BASS[s]), t, dur: sd * 0.85, vol: 0.16, filter: [1600, 220, 7] });
   // power-chord stabs
   if (BOSS_STABS.includes(s)) for (const iv of [24, 31, 36]) tone(bossDist, { type: 'square', f: hz(root + iv), t, dur: sd * 0.7, vol: 0.035, detune: iv === 31 ? 7 : -7, filter: [4200, 900, 2] });
   // diminished arp up high, through the echo
-  if (bar % 2 === 1 || s >= 8) { const n = root + 48 + DIM[s % 4] + (s >= 8 ? 12 : 0); tone(musicFilter, { type: 'square', f: hz(n), t, dur: sd * 0.6, vol: 0.03, filter: [6000, 2000, 1] }); tone(delaySend, { type: 'square', f: hz(n), t, dur: sd * 0.5, vol: 0.02 }); }
+  if (bar % 2 === 1 || s >= 8) { const n = root + 48 + DIM[s % 4] + (s >= 8 ? 12 : 0); tone(tracks.boss.bus, { type: 'square', f: hz(n), t, dur: sd * 0.6, vol: 0.03, filter: [6000, 2000, 1] }); tone(tracks.boss.send, { type: 'square', f: hz(n), t, dur: sd * 0.5, vol: 0.02 }); }
   // alarm lead: two notes a semitone apart, wailing, every other bar
   if (bar % 2 === 0 && (s === 0 || s === 8)) {
     const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter(), lfo = ctx.createOscillator(), lg = ctx.createGain();
@@ -135,7 +143,7 @@ function schedBoss(s, t) {
     lfo.frequency.value = 6.5; lg.gain.value = 9; lfo.connect(lg); lg.connect(o.frequency);
     f.type = 'lowpass'; f.frequency.value = 3200; f.Q.value = 3;
     env(g, t, 0.03, 0.045, sd * 7.5, 0.0001, sd * 2);
-    o.connect(f); f.connect(g); g.connect(musicFilter); g.connect(delaySend);
+    o.connect(f); f.connect(g); g.connect(tracks.boss.bus); g.connect(tracks.boss.send);
     o.start(t); lfo.start(t); o.stop(t + sd * 8.5); lfo.stop(t + sd * 8.5);
   }
 }
@@ -143,8 +151,8 @@ function schedBoss(s, t) {
 function bossImpact(t) {
   const o = ctx.createOscillator(), g = ctx.createGain();
   o.type = 'sine'; o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(28, t + 0.7);
-  env(g, t, 0.003, 0.9, 0.8); o.connect(g); g.connect(musicFilter); o.start(t); o.stop(t + 0.9);
-  noise(musicFilter, { t, dur: 0.45, vol: 0.35, type: 'lowpass', freq: 1200, q: 0.7 });
+  env(g, t, 0.003, 0.9, 0.8); o.connect(g); g.connect(tracks.boss.bus); o.start(t); o.stop(t + 0.9);
+  noise(tracks.boss.bus, { t, dur: 0.45, vol: 0.35, type: 'lowpass', freq: 1200, q: 0.7 });
   tone(bossDist, { type: 'sawtooth', f: hz(52 + music.trans), f2: hz(40 + music.trans), t, dur: 0.5, vol: 0.12, filter: [2500, 300, 3] });
 }
 
@@ -153,31 +161,38 @@ function schedStep(s, t) {
   const sec = Math.floor(bar / 8) % 2;       // alternate arp patterns every 8 bars
   if (s % 4 === 0) kick(t, 0.95);
   // clap on 2 and 4
-  if (s === 4 || s === 12) { noise(musicFilter, { t, dur: 0.16, vol: 0.32, type: 'bandpass', freq: 1500, q: 0.9 }); noise(musicFilter, { t: t + 0.012, dur: 0.1, vol: 0.18, type: 'bandpass', freq: 2400, q: 1.2 }); }
+  if (s === 4 || s === 12) { noise(tracks.normal.bus, { t, dur: 0.16, vol: 0.32, type: 'bandpass', freq: 1500, q: 0.9 }); noise(tracks.normal.bus, { t: t + 0.012, dur: 0.1, vol: 0.18, type: 'bandpass', freq: 2400, q: 1.2 }); }
   // hats: closed 16ths, open on the off-beat
-  noise(musicFilter, { t, dur: s % 4 === 2 ? 0.09 : 0.025, vol: s % 4 === 2 ? 0.12 : 0.045, freq: 8000 });
+  noise(tracks.normal.bus, { t, dur: s % 4 === 2 ? 0.09 : 0.025, vol: s % 4 === 2 ? 0.12 : 0.045, freq: 8000 });
   // bass
   const bs = BASS_STEPS[s];
-  if (bs) tone(musicFilter, { type: 'sawtooth', f: hz(BASS[bar % 4] + music.trans + (bs === 2 ? 12 : 0)), t, dur: sd * 0.9, vol: 0.2, filter: [900, 160, 4] });
+  if (bs) tone(tracks.normal.bus, { type: 'sawtooth', f: hz(BASS[bar % 4] + music.trans + (bs === 2 ? 12 : 0)), t, dur: sd * 0.9, vol: 0.2, filter: [900, 160, 4] });
   // arp (from bar 2 on, so the loop opens with drums and bass)
   if (bar % 16 !== 0) {
     const idx = (sec ? ARP_B : ARP_A)[s];
     const n = idx === 3 ? chord[0] + 12 : chord[idx];
-    tone(musicFilter, { type: 'square', f: hz(n + 12), t, dur: sd * 0.75, vol: 0.055, filter: [3800, 1200, 2] });
-    tone(delaySend, { type: 'square', f: hz(n + 12), t, dur: sd * 0.6, vol: 0.04 });
+    tone(tracks.normal.bus, { type: 'square', f: hz(n + 12), t, dur: sd * 0.75, vol: 0.055, filter: [3800, 1200, 2] });
+    tone(tracks.normal.send, { type: 'square', f: hz(n + 12), t, dur: sd * 0.6, vol: 0.04 });
   }
   // a short lead hook every other bar, on the off-beats
   if (bar % 2 === 1 && (s === 6 || s === 10 || s === 14)) {
     const n = chord[s === 14 ? 2 : s === 10 ? 1 : 0] + 24;
-    tone(musicFilter, { type: 'sawtooth', f: hz(n), t, dur: sd * 1.6, vol: 0.05, detune: 6, filter: [5200, 1800, 1] });
+    tone(tracks.normal.bus, { type: 'sawtooth', f: hz(n), t, dur: sd * 1.6, vol: 0.05, detune: 6, filter: [5200, 1800, 1] });
   }
 }
+function stopPad(t) {
+  if (!music.pad) return;
+  for (const o of music.pad.oscs) { try { o.stop(t); } catch (e) { /* ignore */ } }
+  const node = music.pad.node; setTimeout(() => { try { node.disconnect(); } catch (e) { /* ignore */ } }, 300);
+  music.pad = null;
+}
 function setPad(t) {
+  if (music.pad && music.pad.mode !== music.mode) stopPad(t);
   if (!music.pad) {
     const g = ctx.createGain(); g.gain.value = 0.05;
     const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1400; f.Q.value = 0.6;
-    f.connect(g); g.connect(musicFilter);
-    music.pad = { gain: g.gain, node: g, filter: f, oscs: [] };
+    f.connect(g); g.connect(tracks[music.mode].bus);
+    music.pad = { gain: g.gain, node: g, filter: f, oscs: [], mode: music.mode };
   }
   const chord = music.mode === 'boss' ? [0, 7, 12].map(iv => BOSS_ROOTS[music.bar % 4] + 12 + iv + music.trans) : PROG[music.bar % 4].map(n => n + music.trans);
   const old = music.pad.oscs; music.pad.oscs = [];
@@ -187,6 +202,7 @@ function setPad(t) {
   }
   for (const o of old) { try { o.stop(t); } catch (e) { /* ignore */ } }
 }
+
 function scheduler() {
   if (!music.on || !ready()) return;
   const ahead = ctx.currentTime + 0.12;
@@ -203,7 +219,7 @@ function startMusic(level = 1) {
   music.baseBpm = 128 + Math.min(12, (level - 1) * 1.5);
   music.bpm = music.mode === 'boss' ? bossBpm() : music.baseBpm;
   music.pendingTrans = KEYS[(level - 1) % KEYS.length];
-  delaySend._delay.delayTime.value = stepDur() * 3;
+  setDelays();
   if (music.on) return;   // retune at the next bar
   music.on = true; music.step = 0; music.bar = 0; music.trans = music.pendingTrans;
   music.next = ctx.currentTime + 0.06;
@@ -223,9 +239,16 @@ function beat() {
 }
 function stopMusic() {
   music.on = false; clearInterval(music.timer); music.kicks = []; music.mode = 'normal'; frightOn = false;
+  if (tracks) { const t = ctx.currentTime; tracks.boss.bus.gain.cancelScheduledValues(t); tracks.boss.bus.gain.setValueAtTime(0, t); tracks.normal.bus.gain.cancelScheduledValues(t); tracks.normal.bus.gain.setValueAtTime(1, t); }
   if (music.pad && ctx) { const t = ctx.currentTime; music.pad.oscs.forEach(o => { try { o.stop(t + 0.05); } catch (e) { /* ignore */ } }); music.pad.node.disconnect(); music.pad = null; }
 }
 let frightOn = false;
+/** Dotted-eighth echo for each track at its own tempo. */
+function setDelays() {
+  if (!tracks) return;
+  tracks.normal.send._delay.delayTime.setTargetAtTime(60 / music.baseBpm / 4 * 3, ctx.currentTime, 0.02);
+  tracks.boss.send._delay.delayTime.setTargetAtTime(60 / bossBpm() / 4 * 3, ctx.currentTime, 0.02);
+}
 const bossBpm = () => Math.min(176, Math.round(music.baseBpm * 1.2));
 /** Ghosts turned blue: cut to the boss track on the very next 16th; back again when they recover. */
 function setFright(on) {
@@ -233,10 +256,16 @@ function setFright(on) {
   ensureBossChain();
   music.mode = on ? 'boss' : 'normal';
   music.bpm = on ? bossBpm() : music.baseBpm;
-  delaySend._delay.delayTime.setTargetAtTime(stepDur() * 3, ctx.currentTime, 0.05);
+  setDelays();
+  const now = ctx.currentTime, out = tracks[on ? 'normal' : 'boss'].bus.gain, inn = tracks[on ? 'boss' : 'normal'].bus.gain;
+  // silence the outgoing track at once (its queued notes, pad and echoes go with it)
+  out.cancelScheduledValues(now); out.setValueAtTime(out.value, now); out.linearRampToValueAtTime(0, now + 0.025);
+  inn.cancelScheduledValues(now); inn.setValueAtTime(1, now);
   if (!music.on) return;
-  if (on) bossImpact(Math.max(ctx.currentTime + 0.01, music.next - stepDur()));
-  setPad(music.next);   // swap the pad chord straight away
+  stopPad(now + 0.03);
+  music.next = now + 0.03;   // drop the old track's lookahead; the new one starts on this step
+  if (on) bossImpact(music.next);
+  setPad(music.next);
 }
 
 /* ---------- sound effects ---------- */
@@ -336,5 +365,5 @@ document.addEventListener('visibilitychange', () => {
   else ctx.resume().then(() => { if (music.on) music.next = Math.max(music.next, ctx.currentTime + 0.05); }).catch(() => {});
 });
 
-window.MazeAudio = { get mode() { return music.mode; }, get bpm() { return music.bpm; }, unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, beat, get supported() { return !!AC; } };
+window.MazeAudio = { get mode() { return music.mode; }, /* for tests */ levels() { return tracks ? { normal: +tracks.normal.bus.gain.value.toFixed(3), boss: +tracks.boss.bus.gain.value.toFixed(3) } : null; }, get bpm() { return music.bpm; }, unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, beat, get supported() { return !!AC; } };
 })();
