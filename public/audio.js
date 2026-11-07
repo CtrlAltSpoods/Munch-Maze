@@ -88,7 +88,7 @@ const ARP_A = [0, 1, 2, 1, 0, 2, 3, 2, 0, 1, 2, 3, 2, 1, 0, 2];   // index into 
 const ARP_B = [3, 2, 0, 2, 1, 2, 3, 0, 3, 2, 1, 2, 0, 1, 2, 3];
 const BASS_STEPS = [0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 2]; // 0 rest, 1 root, 2 octave
 const KEYS = [0, 3, -2, 5, 2, -4, 7];
-let music = { on: false, step: 0, next: 0, bpm: 128, trans: 0, pendingTrans: 0, timer: 0, bar: 0, pad: null };
+let music = { on: false, step: 0, next: 0, bpm: 128, trans: 0, pendingTrans: 0, timer: 0, bar: 0, pad: null, kicks: [] };
 
 function stepDur() { return 60 / music.bpm / 4; }
 function schedStep(s, t) {
@@ -96,6 +96,7 @@ function schedStep(s, t) {
   const sec = Math.floor(bar / 8) % 2;       // alternate arp patterns every 8 bars
   // kick
   if (s % 4 === 0) {
+    music.kicks.push(t); if (music.kicks.length > 8) music.kicks.shift();
     const o = ctx.createOscillator(), g = ctx.createGain();
     o.type = 'sine'; o.frequency.setValueAtTime(155, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.13);
     env(g, t, 0.002, 0.95, 0.32); o.connect(g); g.connect(musicFilter); o.start(t); o.stop(t + 0.4);
@@ -159,8 +160,18 @@ function startMusic(level = 1) {
   musicFilter.frequency.setValueAtTime(18000, ctx.currentTime);
   clearInterval(music.timer); music.timer = setInterval(scheduler, 25); scheduler();
 }
+/** 1 on the kick, decaying to 0 before the next beat. Falls back to a 128 BPM clock when the music is off. */
+function beat() {
+  const beatLen = 60 / music.bpm;
+  if (music.on && ready()) {
+    const now = ctx.currentTime; let last = -1;
+    for (const k of music.kicks) if (k <= now) last = k;
+    if (last >= 0) return Math.pow(Math.max(0, 1 - (now - last) / beatLen), 2.2);
+  }
+  const p = (performance.now() / 1000 / beatLen) % 1; return Math.pow(1 - p, 2.2) * 0.6;
+}
 function stopMusic() {
-  music.on = false; clearInterval(music.timer);
+  music.on = false; clearInterval(music.timer); music.kicks = [];
   if (music.pad && ctx) { const t = ctx.currentTime; music.pad.oscs.forEach(o => { try { o.stop(t + 0.05); } catch (e) { /* ignore */ } }); music.pad.node.disconnect(); music.pad = null; }
 }
 let frightOn = false;
@@ -174,9 +185,34 @@ function setFright(on) {
 /* ---------- sound effects ---------- */
 let wakaFlip = false, lastWaka = 0;
 const FX = {
-  eat(t) {
+  eat(t, streak = 0) {
     if (t - lastWaka < 0.06) return; lastWaka = t; wakaFlip = !wakaFlip;
-    tone(sfxBus, { type: 'triangle', f: wakaFlip ? 300 : 620, f2: wakaFlip ? 620 : 300, t, dur: 0.075, vol: 0.32 });
+    // pitch climbs with the streak, up to a fifth higher
+    const up = Math.pow(2, Math.min(streak, 60) / 60 * 7 / 12);
+    tone(sfxBus, { type: 'triangle', f: (wakaFlip ? 300 : 620) * up, f2: (wakaFlip ? 620 : 300) * up, t, dur: 0.075, vol: 0.32 });
+    if (streak >= 25 && streak % 5 === 0) tone(sfxBus, { type: 'sine', f: hz(88 + Math.min(12, Math.floor(streak / 25))), t: t + 0.02, dur: 0.12, vol: 0.08 });
+  },
+  coin(t) {
+    tone(sfxBus, { type: 'square', f: hz(83), t, dur: 0.07, vol: 0.12 });
+    tone(sfxBus, { type: 'square', f: hz(88), t: t + 0.07, dur: 0.25, vol: 0.12 });
+  },
+  streak(t, tier = 1) {
+    const base = 72 + tier * 2;
+    [0, 4, 7, 12, 16].slice(0, 3 + Math.min(2, tier)).forEach((iv, i) => tone(sfxBus, { type: 'square', f: hz(base + iv), t: t + i * 0.055, dur: 0.09, vol: 0.13 }));
+    tone(sfxBus, { type: 'sine', f: hz(base + 24), t: t + 0.25, dur: 0.35, vol: 0.08 });
+  },
+  jackpot(t) {
+    // bell chord, then a cascade of coin dings
+    [84, 88, 91, 96].forEach(m => tone(sfxBus, { type: 'sine', f: hz(m), t, dur: 0.9, vol: 0.09, a: 0.002 }));
+    [84, 88, 91, 96].forEach(m => tone(sfxBus, { type: 'triangle', f: hz(m + 12), t, dur: 0.4, vol: 0.05 }));
+    for (let i = 0; i < 14; i++) {
+      const tt = t + 0.12 + i * 0.055 + Math.random() * 0.02, m = 88 + [0, 3, 7, 10, 12][i % 5];
+      tone(sfxBus, { type: 'square', f: hz(m), t: tt, dur: 0.05, vol: 0.06 });
+    }
+  },
+  reel(t) {
+    noise(sfxBus, { t, dur: 0.06, vol: 0.25, type: 'bandpass', freq: 900, q: 2 });
+    tone(sfxBus, { type: 'square', f: 180, f2: 90, t, dur: 0.08, vol: 0.18 });
   },
   power(t) {
     tone(sfxBus, { type: 'sawtooth', f: 160, f2: 1300, t, dur: 0.38, vol: 0.22, filter: [800, 5000, 6] });
@@ -202,9 +238,9 @@ const FX = {
   respawn(t) { tone(sfxBus, { type: 'sine', f: 400, f2: 1200, t, dur: 0.18, vol: 0.22 }); },
   join(t) { [79, 84].forEach((m, i) => tone(sfxBus, { type: 'sine', f: hz(m), t: t + i * 0.07, dur: 0.18, vol: 0.12 })); }
 };
-function sfx(name) {
+function sfx(name, arg) {
   if (!ready() || ctx.state !== 'running' || sfxVol <= 0 || !FX[name]) return;
-  try { FX[name](ctx.currentTime + 0.005); } catch (e) { /* ignore */ }
+  try { FX[name](ctx.currentTime + 0.005, arg); } catch (e) { /* ignore */ }
 }
 
 function setMusicVolume(v) { musicVol = v; if (musicBus) musicBus.gain.setTargetAtTime(curve(v) * MUSIC_TRIM, ctx.currentTime, 0.03); }
@@ -217,5 +253,5 @@ document.addEventListener('visibilitychange', () => {
   else ctx.resume().then(() => { if (music.on) music.next = Math.max(music.next, ctx.currentTime + 0.05); }).catch(() => {});
 });
 
-window.MazeAudio = { unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, get supported() { return !!AC; } };
+window.MazeAudio = { unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, beat, get supported() { return !!AC; } };
 })();
