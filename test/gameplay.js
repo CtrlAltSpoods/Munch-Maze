@@ -17,7 +17,7 @@ function client(name, extra = {}) {
     ws.onmessage = e => { const m = JSON.parse(e.data); c.msgs.push(m); c.last[m.t] = m; if (m.t === 'welcome' || m.t === 'error') res(c); };
   });
 }
-const send = (c, o) => c.ws.send(JSON.stringify(o));
+const send = (c, o) => { if (o.t === 'p') c.pos = [o.x, o.y]; c.ws.send(JSON.stringify(o)); };
 const until = async (c, pred, ms = 6000, what = 'message') => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const m = c.msgs.find(pred); if (m) return m; await wait(30); } fail('timed out waiting for ' + what); };
 async function room(level, extra = {}) {
   const a = await client('host', extra), b = await client('guest', { room: a.last.welcome.gid });
@@ -30,9 +30,9 @@ async function room(level, extra = {}) {
 }
 async function power(r, id) {
   send(r.a, { t: 'testcrate', kind: idx(id) });
-  const cr = await until(r.b, m => m.t === 'crate' && !m.seen && (m.seen = true), 6000, 'crate');
+  const cr = await until(r.b, m => m.t === 'crate' && m.x === Math.round(r.a.pos[0]) && m.y === Math.round(r.a.pos[1]) && !m.seen && (m.seen = true), 6000, 'crate');   // ours, not a natural one
   send(r.a, { t: 'grab', id: cr.id });
-  await until(r.b, m => m.t === 'vote' && !m.seen && (m.seen = true), 6000, 'vote');
+  await until(r.b, m => m.t === 'vote' && m.crate === cr.id, 6000, 'vote');
   send(r.a, { t: 'vote', y: true }); send(r.b, { t: 'vote', y: true });
   return until(r.b, m => m.t === 'puon' && M.POWERUPS[m.kind].id === id && !m.seen && (m.seen = true), 8000, id);
 }
@@ -118,9 +118,24 @@ async function power(r, id) {
   await power(it, 'swap');
   const sw = await until(it.a, m => m.t === 'swapto', 2000, 'swap');
   if (!Number.isInteger(sw.x) || !Number.isInteger(sw.y)) fail('swap sends the opener to a tile');
+  send(it.a, { t: 'p', x: sw.x, y: sw.y, f: 0 }); await wait(60);   // the client follows the swap
   console.log('ok  Ghost Swap: the opener is moved to the nearest ghost’s spot');
   await power(it, 'magnet');
   console.log('ok  Magnet activates (pellets within reach count while it lasts)');
+
+  // emotes (rate limited) and cheers (only once you're out)
+  const em = await room(1);
+  send(em.a, { t: 'emo', e: 2 }); send(em.a, { t: 'emo', e: 1 }); send(em.a, { t: 'emo', e: 9 });
+  await wait(300);
+  const emos = em.b.msgs.filter(m => m.t === 'emo');
+  if (emos.length !== 1 || emos[0].e !== 2) fail('one emote per 1.2 s, valid ones only: ' + JSON.stringify(emos));
+  send(em.a, { t: 'cheer', e: 0 }); await wait(200);
+  if (em.b.msgs.some(m => m.t === 'cheer')) fail('only players who are out can cheer');
+  for (let k = 0; k < 3; k++) { await wait(1600); send(em.a, { t: 'die' }); await wait(100); if (k < 2) send(em.a, { t: 'respawn' }); }   // three lives gone
+  await wait(200); send(em.a, { t: 'cheer', e: 1 });
+  const ch = await until(em.b, m => m.t === 'cheer', 2000, 'cheer');
+  if (ch.e !== 1 || ch.nm !== 'host') fail('cheer carries who and which');
+  console.log('ok  emotes are rate limited; players who are out can cheer');
 
   console.log('\nAll gameplay tests passed.');
   srv.kill(); process.exit(0);

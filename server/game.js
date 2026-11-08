@@ -184,6 +184,18 @@ class Game {
         this.broadcast({ t: 'steal', from: p.id, to: o.id, n });
         return;
       }
+      case 'emo': {   // quick emote bubble over your character (keys 1-4)
+        const e = m.e | 0, now = Date.now();
+        if (e < 0 || e > 3 || now - (p.emoAt || 0) < 1200) return;
+        p.emoAt = now; this.broadcast({ t: 'emo', id: p.id, e });
+        return;
+      }
+      case 'cheer': {   // out of lives? you can still cheer the others on
+        const e = m.e | 0, now = Date.now();
+        if (!p.over || e < 0 || e > 2 || now - (p.cheerAt || 0) < 700) return;
+        p.cheerAt = now; this.broadcast({ t: 'cheer', id: p.id, nm: p.nm, e });
+        return;
+      }
       case 'hf': {   // a high five (the client spotted it); both players must really be next to each other
         const o = this.players.get(m.id | 0);
         if (!o || o === p || !o.al || !p.al || Math.hypot(o.x - p.x, o.y - p.y) > 1.6) return;

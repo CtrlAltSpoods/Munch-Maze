@@ -223,12 +223,15 @@
           <p class="vote-note">Most votes wins. A tie, or no votes at all, opens it.</p>
         </div>
       </div>
-      <div class="overlay" id="overOv" hidden>
-        <div class="card">
-          <h1>Game over</h1>
-          <p id="overTxt">You scored 0.</p>
-          <button class="cta" id="againBtn" type="button">Play again</button>
-          <p>You rejoin this maze at the level it's on now, with a fresh score and 3 lives.</p>
+      <div class="spectate" id="overOv" hidden>
+        <div class="spec-card">
+          <div class="spec-txt"><b>Game over · spectating</b><span id="overTxt">You scored 0.</span></div>
+          <div class="cheers" role="group" aria-label="Cheer the others on">
+            <button type="button" class="cheer-b" data-e="0" title="Applaud">👏</button>
+            <button type="button" class="cheer-b" data-e="1" title="On fire">🔥</button>
+            <button type="button" class="cheer-b" data-e="2" title="Party">🎉</button>
+          </div>
+          <button class="cta" id="againBtn" type="button" title="Rejoin at the current level with a fresh score and 3 lives">Play again</button>
         </div>
       </div>
     </div>
@@ -253,6 +256,12 @@
         <div class="row"><span class="k">Pellets left</span><span class="sc" id="pLeft">—</span></div>
         <div class="row"><span class="k">Ghosts</span><span class="sc" id="gCount">—</span></div>
         <div class="net" id="netState">Not in a maze yet.</div>
+      </div>
+      <div class="emotes" id="emoteBar" role="group" aria-label="Emotes (keys 1-4)">
+        <button type="button" class="emo-b" data-e="0" title="1">👍</button>
+        <button type="button" class="emo-b" data-e="1" title="2">😂</button>
+        <button type="button" class="emo-b" data-e="2" title="3">😱</button>
+        <button type="button" class="emo-b" data-e="3" title="4">❤️</button>
       </div>
       <div class="sound" role="group" aria-label="Sound">
         <div class="slider">

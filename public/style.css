@@ -709,3 +709,23 @@ input[type=range]{accent-color:var(--pink)}
 .tbar{height:8px;background:#00a2ff;box-shadow:0 0 8px rgba(0,162,255,.4)}
 .tbar i{display:block;height:100%;width:50%;background:#ff3864;box-shadow:0 0 8px rgba(255,56,100,.5);transition:width .3s}
 @media (max-width:420px){ .cta-row{grid-template-columns:1fr} }
+
+/* emotes in the side panel */
+.emotes{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.emo-b,.cheer-b{font-size:18px;line-height:1;padding:7px 0;background:rgba(7,6,15,.6);border:1px solid var(--line);cursor:pointer;
+  clip-path:polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px);transition:transform .1s,border-color .1s}
+.emo-b:hover,.cheer-b:hover{border-color:var(--cyan);transform:translateY(-1px)}
+.app:not(.ingame) .emotes{display:none}
+
+/* spectating after game over: a bar along the bottom of the maze, not a wall in front of it */
+.spectate{position:absolute;left:0;right:0;bottom:0;z-index:3;display:flex;justify-content:center;padding:12px;pointer-events:none}
+.spectate[hidden]{display:none}
+.spec-card{pointer-events:auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center;padding:10px 14px;
+  background:linear-gradient(165deg, rgba(24,16,60,.95), rgba(9,7,24,.95));border:1px solid var(--line);border-top:2px solid var(--pink);
+  clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)}
+.spec-txt{display:flex;flex-direction:column;gap:2px}
+.spec-txt b{font-family:var(--display);font-weight:700;letter-spacing:.12em;text-transform:uppercase;font-size:12px;color:var(--pink)}
+.spec-txt span{font-size:12px;color:var(--muted)}
+.cheers{display:flex;gap:6px}
+.cheer-b{width:42px}
+.spec-card .cta{font-size:13px;padding:10px 16px;margin:0}

@@ -538,6 +538,8 @@ const FX = {
   freeze(t) { for (let k = 0; k < 6; k++) tone(sfxBus, { type: 'sine', f: 1800 + k * 260, t: t + k * 0.04, dur: 0.4, vol: 0.045 }); noise(sfxBus, { t, dur: 0.5, vol: 0.08, type: 'highpass', freq: 6000 }); },
   shrink(t) { tone(sfxBus, { type: 'square', f: 900, f2: 1800, t, dur: 0.35, vol: 0.05, filter: [3000, 3000, 1] }); },
   fog(t) { noise(sfxBus, { t, dur: 1.2, vol: 0.16, type: 'lowpass', freq: 500 }); tone(sfxBus, { type: 'sine', f: 110, f2: 70, t, dur: 1, vol: 0.12 }); },
+  emote(t) { tone(sfxBus, { type: 'sine', f: 660, f2: 990, t, dur: 0.08, vol: 0.06 }); },
+  beep(t, n = 0) { const f = 900 + Math.min(1200, (n | 0) * 12); tone(sfxBus, { type: 'square', f, t, dur: 0.04, vol: 0.035, filter: [3000, 3000, 1] }); tone(sfxBus, { type: 'square', f: f * 1.5, t: t + 0.045, dur: 0.03, vol: 0.025, filter: [3000, 3000, 1] }); },
   clap(t) {   // a crisp hand clap: a few tight bursts, then a short tail
     for (const [d, v] of [[0, 0.5], [0.011, 0.38], [0.022, 0.3]]) noise(sfxBus, { t: t + d, dur: 0.03, vol: v, type: 'bandpass', freq: 1400, q: 1.1 });
     noise(sfxBus, { t: t + 0.03, dur: 0.16, vol: 0.22, type: 'bandpass', freq: 1100, q: 0.8 });

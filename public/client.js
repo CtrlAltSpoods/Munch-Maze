@@ -107,6 +107,9 @@ function onMsg(m) {
       setNet('');
       A.startMusic(S.L); A.sfx('start');
       if (isPeanut(S.name)) MazeFX.bigText('PEANUT MODE', 'quack quack', '#ffd83b', 1.8);
+      if (isDisco(S.name)) MazeFX.bigText('DISCO MODE', 'the maze can’t stop dancing', '#ff2bd6', 1.8);
+      else if (eggOf(S.name) === 'banana') MazeFX.bigText('BANANA MODE', 'a-peel-ing', '#ffe23a', 1.8);
+      else if (eggOf(S.name) === 'robot') MazeFX.bigText('ROBOT MODE', 'beep boop', '#41e0f0', 1.8);
       if (M.isBossLevel(S.L)) MazeFX.bigText('BOSS LEVEL', 'Big pellets hurt it. 3 hits to win.', '#ff2a6d', 2.4);
       break;
     }
@@ -174,6 +177,8 @@ function onMsg(m) {
       break;
     }
     case 'lvstats': S.lvStats = m; renderStats(); break;
+    case 'emo': S.emotes.set(m.id | 0, { e: m.e | 0, at: performance.now(), until: performance.now() + 2200 }); A.sfx('emote'); break;
+    case 'cheer': S.cheers.push({ e: m.e | 0, nm: String(m.nm || ''), x: 0.1 + Math.random() * 0.8, at: performance.now() }); if (S.cheers.length > 40) S.cheers.shift(); A.sfx('emote'); break;
     case 'fruit': { const f = M.FRUITS[m.k | 0]; MazeFX.ring(+m.x, +m.y, '#3dffa0', 2.2, 0.5); A.sfx('coin'); toast('Bonus fruit!', (f ? f.name : 'Fruit') + ' in the middle for ' + (f ? f.pts : 0) + ' points'); break; }
     case 'fruitgot': {
       const x = +m.x, y = +m.y; MazeFX.sparks(x, y, '#3dffa0', 26, 7, 0.6); MazeFX.text(x, y - 0.4, '+' + (m.v | 0), '#3dffa0'); S.fruit = null;
@@ -316,7 +321,7 @@ function eatAt(x, y) {
     MazeFX.ring(x, y, '#ffcc33', 3.2, 0.5); MazeFX.ring(x, y, '#41e0f0', 5, 0.7);
     MazeFX.sparks(x, y, '#ffcc33', 26, 9, 0.6); MazeFX.flash('#2f45ff', 0.3); MazeFX.shake(4);
   } else {
-    A.sfx('eat', S.streak);
+    if (eggOf(S.name) === 'robot') A.sfx('beep', S.streak); else A.sfx('eat', S.streak);
     MazeFX.sparks(x, y, S.streakTier >= 3 ? '#ff7a1a' : '#ffdcae', 3 + Math.min(5, S.streakTier), 5, 0.3);
   }
   bumpStreak(x, y);
@@ -540,6 +545,48 @@ $('pfClose').addEventListener('click', () => { $('profileOv').hidden = true; });
 $('profileOv').addEventListener('click', e => { if (e.target === $('profileOv')) $('profileOv').hidden = true; });
 addEventListener('keydown', e => { if (e.key === 'Escape' && !$('profileOv').hidden) $('profileOv').hidden = true; });
 
+/* ---------- emotes (keys 1-4) and cheers from players who are out ---------- */
+const EMOTES = ['👍', '😂', '😱', '❤️'], CHEERS = ['👏', '🔥', '🎉'];
+S.emotes = new Map(); S.cheers = [];
+function emote(e) { if (S.inGame && S.ws) send({ t: 'emo', e }); }
+for (const b of document.querySelectorAll('.emo-b')) b.addEventListener('click', () => { emote(+b.dataset.e); b.blur(); });
+for (const b of document.querySelectorAll('.cheer-b')) b.addEventListener('click', () => { send({ t: 'cheer', e: +b.dataset.e }); b.blur(); });
+addEventListener('keydown', e => {
+  if (!S.inGame || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  const k = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code);
+  if (k >= 0) { if (S.over && k < 3) send({ t: 'cheer', e: k }); else emote(k); e.preventDefault(); }
+});
+function drawEmotes(T) {
+  const now = performance.now();
+  for (const [id, em] of S.emotes) {
+    if (now > em.until) { S.emotes.delete(id); continue; }
+    let x, y;
+    if (id === S.id) { if (!S.alive) continue; [x, y] = M.entPos(S.me); }
+    else { const p = S.players.find(q => q.id === id); if (!p || !p.al) continue; const o = S.ov.get(id) || p; x = o.x; y = o.y; }
+    const k = Math.min(1, (em.until - now) / 300, (now - em.at) / 150), cx = (x + .5) * T, cy = (y + .5) * T - T * 1.25 - (1 - k) * T * 0.2, w = T * 1.05;
+    ctx.save(); ctx.globalAlpha = Math.max(0, k);
+    ctx.fillStyle = 'rgba(17,12,43,0.92)'; ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = Math.max(1, T * 0.05);
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(cx - w / 2, cy - w / 2, w, w, T * 0.25) : ctx.rect(cx - w / 2, cy - w / 2, w, w); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - T * 0.12, cy + w / 2); ctx.lineTo(cx, cy + w / 2 + T * 0.18); ctx.lineTo(cx + T * 0.12, cy + w / 2); ctx.fill();
+    ctx.font = Math.round(T * 0.62) + 'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(EMOTES[em.e] || '', cx, cy + T * 0.04);
+    ctx.restore();
+  }
+}
+function drawCheers() {
+  const now = performance.now();
+  S.cheers = S.cheers.filter(c => now - c.at < 2600);
+  if (!S.cheers.length) return;
+  ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const c of S.cheers) {
+    const k = (now - c.at) / 2600, x = c.x * CW + Math.sin(k * 9 + c.x * 20) * 14, y = CH - 30 - k * CH * 0.55;
+    ctx.globalAlpha = k < 0.8 ? 1 : (1 - k) / 0.2;
+    ctx.font = Math.round(30 + 10 * Math.sin(k * 3.14)) + 'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; ctx.fillText(CHEERS[c.e] || '', x, y);
+    ctx.font = '600 11px "IBM Plex Mono", monospace'; ctx.fillStyle = '#c9cdfb'; ctx.fillText(c.nm, x, y + 26);
+  }
+  ctx.restore();
+}
+
 /* ---------- toasts (achievements and other little news) ---------- */
 function toast(title, text, kind = '') {
   const t = document.createElement('div'); t.className = 'toast ' + kind;
@@ -618,7 +665,12 @@ refreshLobby(); setInterval(refreshLobby, 3000);
 /* Easter egg: play as "Peanut" and you're a waddling duck with your own song.
    Anyone named Peanut shows up as a duck for everyone; only Peanut hears the song. */
 const isPeanut = nm => String(nm || '').trim().toLowerCase() === 'peanut';
-const looksOf = (nm, mdl) => isPeanut(nm) ? 'duck' : mdl;
+// more secret names: each turns you into someone else, for everyone to see
+const EGGS = { peanut: 'duck', banana: 'banana', robot: 'robot' };
+const EGG_NAMES = { duck: 'Duck', banana: 'Banana', robot: 'Robot' };
+const eggOf = nm => EGGS[String(nm || '').trim().toLowerCase()] || '';
+const isDisco = nm => String(nm || '').trim().toLowerCase() === 'disco';
+const looksOf = (nm, mdl) => eggOf(nm) || mdl;
 /* Title screen tabs: Join a game / New maze / Top scores */
 function setTab(name) {
   for (const [id, pane] of [['tabJoin', 'paneJoin'], ['tabNew', 'paneNew'], ['tabScores', 'paneScores']]) {
@@ -639,7 +691,7 @@ function drawHero() {
   halo.addColorStop(0, col + '55'); halo.addColorStop(1, col + '00');
   g.fillStyle = halo; g.fillRect(0, 0, w, w);
   const chew = MazeFX.reduced() ? 0.45 : 0.5 + 0.5 * Math.sin(t * 7);
-  setTxt('charName', isPeanut($('nameIn').value) ? 'Duck' : M.MODELS[S.model].name);
+  setTxt('charName', EGG_NAMES[eggOf($('nameIn').value)] || (isDisco($('nameIn').value) ? M.MODELS[S.model].name + ' · Disco' : M.MODELS[S.model].name));
   MazeModels.draw(g, looksOf($('nameIn').value, S.model), w / 2, w / 2 + Math.sin(t * 2) * (MazeFX.reduced() ? 0 : 3), w * 0.3, S.paint, 0, chew, t);
 }
 function askPassword(room, name) {
@@ -844,7 +896,8 @@ function render(dt) {
   const gone = S.inGame && S.nuked;   // the nuke blew the maze away
   if (!gone) {
   ctx.fillStyle = 'rgba(6,7,20,0.86)'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(T * 0.2, T * 0.2, mw - T * 0.4, mh - T * 0.4, T * 0.5) : ctx.rect(0, 0, mw, mh); ctx.fill();
-  ctx.drawImage(S.mazeCv, -T, -T);
+  if (S.inGame && isDisco(S.name) && 'filter' in ctx) { ctx.filter = 'hue-rotate(' + Math.round(S.time * 120 % 360) + 'deg) saturate(1.4)'; ctx.drawImage(S.mazeCv, -T, -T); ctx.filter = 'none'; }
+  else ctx.drawImage(S.mazeCv, -T, -T);
   const swell = S.inGame && S.ph === 1 ? 0.25 + 0.2 * Math.sin(S.time * 4) : 0;   // gentle glow on level clear, no flashing
   ctx.globalCompositeOperation = 'lighter';
   ctx.globalAlpha = 0.18 + beat * 0.18 + (S.streakTier >= 3 ? 0.12 : 0) + swell; ctx.drawImage(S.mazeGlow, -T, -T);
@@ -926,6 +979,7 @@ function render(dt) {
       }
     }
   }
+  if (S.inGame) drawEmotes(T);
   if (S.inGame && !gone && effectOn('quake')) drawQuake(T, mw, mh);
   drawEffectMarks(T);
   MazeFX.drawWorld(ctx, T);
@@ -941,6 +995,7 @@ function render(dt) {
   if (S.inGame && S.nukeIn > 0 && S.ph === 0) MazeNuke.drawWarning(ctx, CW, CH, S.nukeIn, S.time, false);
   if (MazeNuke.active) MazeNuke.draw(ctx, CW, CH, { ox, oy, T });
   if (S.inGame && S.ph === 0 && effectOn('fog')) drawFog(ox, oy, T);
+  if (S.inGame) drawCheers();
   MazeFX.drawScreen(ctx, CW, CH);
 }
 

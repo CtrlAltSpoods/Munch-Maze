@@ -308,8 +308,54 @@ function drawDuck(g, cx, cy, r, face = 0, chew = 0.5, t = 0) {
   g.fillStyle = 'rgba(255,120,120,0.45)'; g.beginPath(); g.ellipse(hx + r * 0.02, hy + r * 0.08, r * 0.08, r * 0.05, 0, 0, Math.PI * 2); g.fill();
   g.restore();
 }
+/* Secret character: a jolly banana that hops along, mouth opening as it eats. */
+function drawBanana(g, cx, cy, r, face = 0, chew = 0.5, t = 0) {
+  const hop = Math.abs(Math.sin(t * 9)) * r * 0.08;
+  g.save(); g.translate(cx, cy - hop); if (face === 2) g.scale(-1, 1); g.rotate(face === 3 ? -0.3 : face === 1 ? 0.3 : 0);
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  // the curved body
+  const body = g.createLinearGradient(0, -r * 0.6, 0, r * 0.6); body.addColorStop(0, '#fff3a0'); body.addColorStop(1, '#f2c300');
+  g.fillStyle = body; g.strokeStyle = '#9c7a00'; g.lineWidth = Math.max(1, r * 0.06);
+  g.beginPath(); g.moveTo(-r * 0.72, -r * 0.42);
+  g.quadraticCurveTo(-r * 0.6, r * 0.62, r * 0.68, r * 0.24);
+  g.quadraticCurveTo(r * 0.82, r * 0.12, r * 0.7, r * 0.02);
+  g.quadraticCurveTo(-r * 0.3, r * 0.22, -r * 0.5, -r * 0.5); g.closePath(); g.fill(); g.stroke();
+  // stalk and tip
+  g.fillStyle = '#6b4a1a'; g.beginPath(); g.moveTo(-r * 0.72, -r * 0.42); g.lineTo(-r * 0.78, -r * 0.62); g.lineTo(-r * 0.58, -r * 0.6); g.lineTo(-r * 0.5, -r * 0.5); g.closePath(); g.fill();
+  g.beginPath(); g.arc(r * 0.72, r * 0.13, r * 0.06, 0, Math.PI * 2); g.fill();
+  // face
+  g.fillStyle = '#2a1a06'; for (const ex of [-0.05, 0.22]) { g.beginPath(); g.arc(r * ex, r * 0.12, r * 0.055, 0, Math.PI * 2); g.fill(); }
+  const open = Math.max(0, Math.min(1, chew)) * r * 0.12;
+  g.fillStyle = '#7a1f1f'; g.beginPath(); g.ellipse(r * 0.1, r * 0.28 + open * 0.3, r * 0.1, r * 0.03 + open, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = 'rgba(255,120,120,0.45)'; g.beginPath(); g.ellipse(r * 0.38, r * 0.18, r * 0.06, r * 0.035, 0, 0, Math.PI * 2); g.fill();
+  g.restore();
+}
+/* Secret character: a little box robot with an antenna and a screen face. */
+function drawRobot(g, cx, cy, r, face = 0, chew = 0.5, t = 0) {
+  const step = Math.sin(t * 12) * r * 0.05;
+  g.save(); g.translate(cx, cy); if (face === 2) g.scale(-1, 1);
+  g.lineJoin = 'round';
+  // wheels
+  g.fillStyle = '#2b3140'; for (const wx of [-0.35, 0.35]) { g.beginPath(); g.arc(r * wx, r * 0.62, r * 0.16, 0, Math.PI * 2); g.fill(); }
+  g.strokeStyle = '#8a93a8'; g.lineWidth = Math.max(1, r * 0.04); for (const wx of [-0.35, 0.35]) { g.beginPath(); g.moveTo(r * wx, r * 0.62); g.lineTo(r * wx + Math.cos(t * 14) * r * 0.12, r * 0.62 + Math.sin(t * 14) * r * 0.12); g.stroke(); }
+  // body
+  const body = g.createLinearGradient(0, -r * 0.55, 0, r * 0.55); body.addColorStop(0, '#d8dee9'); body.addColorStop(1, '#8a93a8');
+  g.fillStyle = body; g.strokeStyle = '#4a5266'; g.lineWidth = Math.max(1, r * 0.06);
+  g.beginPath(); g.roundRect ? g.roundRect(-r * 0.6, -r * 0.5 + step, r * 1.2, r * 1.0, r * 0.18) : g.rect(-r * 0.6, -r * 0.5 + step, r * 1.2, r * 1.0); g.fill(); g.stroke();
+  // antenna with a blinking light
+  g.beginPath(); g.moveTo(0, -r * 0.5 + step); g.lineTo(0, -r * 0.78 + step); g.stroke();
+  g.fillStyle = Math.floor(t * 3) % 2 ? '#ff3d5e' : '#3dffa0'; g.beginPath(); g.arc(0, -r * 0.84 + step, r * 0.09, 0, Math.PI * 2); g.fill();
+  // screen face: two eyes and a mouth line that opens
+  g.fillStyle = '#0d1424'; g.beginPath(); g.roundRect ? g.roundRect(-r * 0.44, -r * 0.34 + step, r * 0.88, r * 0.6, r * 0.1) : g.rect(-r * 0.44, -r * 0.34 + step, r * 0.88, r * 0.6); g.fill();
+  g.fillStyle = '#41e0f0'; for (const ex of [-0.18, 0.2]) g.fillRect(r * ex - r * 0.07, -r * 0.18 + step, r * 0.14, r * 0.14);
+  const open = Math.max(0, Math.min(1, chew)) * r * 0.12;
+  g.fillRect(-r * 0.2, r * 0.08 + step, r * 0.44, r * 0.04 + open);
+  g.restore();
+}
 function draw(g, mdl, cx, cy, r, paint, face = 0, chew = 0.5, t = 0) {
   if (mdl === 'duck') return drawDuck(g, cx, cy, r, face, chew, t);
+  if (mdl === 'banana') return drawBanana(g, cx, cy, r, face, chew, t);
+  if (mdl === 'robot') return drawRobot(g, cx, cy, r, face, chew, t);
   const list = (window.MazeCore && MazeCore.MODELS) || [];
   const fn = DRAW[(list[mdl] || list[0] || { id: 'chomper' }).id] || chomper;
   const premium = typeof paint === 'string' && paint.startsWith('p:') ? paint.slice(2) : '';
