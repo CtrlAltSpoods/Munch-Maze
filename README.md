@@ -51,7 +51,7 @@ npm test         # end-to-end smoke test
 | `TEST_MODE` | `false` | Set `true` to give each maze's host an effects menu beside the map. Picking one pauses the game, the slot lands on that effect (no randomness) and it activates. Crates still spawn as normal. Off: no menu, everything stays random |
 | `PUBLIC_URL` | *(empty)* | The address players use, e.g. `http://10.0.10.160:8080`. Used to build the Discord redirect address |
 | `DISCORD_CLIENT_ID` | *(empty)* | Discord application client ID. Set this and the secret to turn on Discord login |
-| `DISCORD_CLIENT_SECRET` | *(empty)* | Discord application client secret (stays on the server) |
+| `DISCORD_CLIENT_SECRET` | *(empty)* | Discord application client secret (stays on the server). Or put it in a file and set `DISCORD_CLIENT_SECRET_FILE` to its path (a Docker secret) |
 | `ADMIN_DISCORD_IDS` | *(empty)* | Discord user IDs allowed into `/admin.html` (comma-separated) |
 | `DISCORD_WEBHOOK_URL` | *(empty)* | Channel webhook for announcements (new #1 score, level 20/30/40… clears) |
 | `TZ` | *(container default)* | Time zone for the weekly (Monday reset) and daily leaderboards; Unraid sets it for you |
@@ -94,7 +94,16 @@ To turn it on:
 
 You don't need to add a bot or tick any scopes in the portal; the game requests `identify` itself.
 
+**Keeping the client secret safe.** The secret only ever goes to `https://discord.com` (the address is fixed in the server, and requests carrying it refuse redirects). It is never logged, never sent to browsers, never stored in the database, and is removed from the process environment as soon as it's read. It's masked in the Unraid template. Anyone who can run `docker inspect` on the host can still read a container variable, so if other people have access to your server, put the secret in a file readable only by you and point `DISCORD_CLIENT_SECRET_FILE` at it instead (the same works for `DISCORD_WEBHOOK_URL_FILE`). If a secret ever leaks, use **Reset Secret** on the Discord OAuth2 page and update the container. Set `PUBLIC_URL` whenever logins are on; without it the login redirect is built from the request's Host header.
+
 ## Connection safety
+
+Everything a player sends is treated as untrusted: names and lobby names are Unicode-normalised with control, invisible and direction-changing characters removed, every game message is type- and range-checked (bad ones are ignored, and an error in one message or one maze can't take the server down), and the page only ever shows player text as text. On top of that:
+
+- Pages carry a strict Content-Security-Policy (no inline or third-party scripts, no framing), plus `nosniff`, `no-referrer` and HSTS when served over HTTPS.
+- Every POST must be JSON from the game's own site, with a small body. Sessions use HttpOnly, SameSite cookies, stored only as hashes; the database file is readable only by the game's user.
+- Per-address limits: 240 API requests and 20 login attempts a minute, 15 new mazes per 10 minutes, wrong lobby passwords, and about 60 game messages a second.
+- The container drops root as soon as it has fixed the data folder's owner, and refuses to keep running as root if it can't. Never set `TEST_HOOKS` on a real server: it exists only for the automated tests.
 
 - Only the game's own page can open game connections. Browsers on other websites are refused unless listed in `ALLOWED_ORIGINS`.
 - Each address can hold `MAX_CONNECTIONS_PER_IP` connections, and the server holds `MAX_CONNECTIONS` in total. Players who disconnect free their slot straight away; dead connections are dropped after 45 seconds of silence.

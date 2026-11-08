@@ -20,7 +20,7 @@
   <DonateLink/>
   <Requires/>
   <Config Name="Web UI port" Target="8080" Default="8080" Mode="tcp" Description="Port players open in their browser." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
-  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/munch-maze" Mode="rw" Description="Holds the high-score table (scores.json)." Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/munch-maze</Config>
+  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/munch-maze" Mode="rw" Description="Holds the database (munch-maze.db): accounts, sessions and scores. Only the game’s user can read it." Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/munch-maze</Config>
   <Config Name="Server name" Target="SERVER_NAME" Default="Munch Maze" Mode="" Description="Shown in the browser tab." Type="Variable" Display="always" Required="false" Mask="false">Munch Maze</Config>
   <Config Name="Max players per maze" Target="MAX_PLAYERS_PER_MAZE" Default="0" Mode="" Description="0 means unlimited." Type="Variable" Display="always" Required="false" Mask="false">0</Config>
   <Config Name="Show running mazes" Target="SHOW_LOBBY" Default="true" Mode="" Description="List active seeds on the start screen (true/false). Turn off for private games." Type="Variable" Display="always" Required="false" Mask="false">true</Config>

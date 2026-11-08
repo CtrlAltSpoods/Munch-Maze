@@ -79,7 +79,7 @@ const dayKey = (d = new Date()) => d.getFullYear() + '-' + String(d.getMonth() +
 
 (async () => {
   srv = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'index.js')], {
-    env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, DISCORD_CLIENT_ID: '424242', DISCORD_CLIENT_SECRET: 'app-secret',
+    env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, DISCORD_CLIENT_ID: '424242', DISCORD_CLIENT_SECRET: 'app-secret-0123456789abcdefXYZ',
       DISCORD_API: `http://127.0.0.1:${FAKE}`, DISCORD_AUTHORIZE: `http://127.0.0.1:${FAKE}/authorize`, TEST_HOOKS: '1' }, stdio: ['ignore', 'pipe', 'inherit'] });
   await new Promise(r => srv.stdout.on('data', d => { if (/listening/.test(d)) r(); }));
   const session = await login('alice');

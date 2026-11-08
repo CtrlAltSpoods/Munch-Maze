@@ -11,6 +11,22 @@ const DB = require('./db.js');
 /* ---------- configuration (environment variables) ---------- */
 const env = (k, d) => (process.env[k] === undefined || process.env[k] === '' ? d : process.env[k]);
 const bool = v => /^(1|true|yes|on)$/i.test(String(v));
+const TEST_HOOKS = process.env.TEST_HOOKS === '1';   // automated tests only: never set this on a real server
+/* Secrets (the Discord client secret, the webhook URL) come from an environment variable or,
+   better, a file (NAME_FILE, e.g. a Docker secret). Either way they're read once and then
+   removed from the environment, so nothing started later, and no crash dump, can see them. */
+function secret(name) {
+  let v = process.env[name] || '';
+  const file = process.env[name + '_FILE'];
+  if (file) {
+    try { v = fs.readFileSync(file, 'utf8').slice(0, 4096); }
+    catch (e) { console.warn(`[config] could not read ${name}_FILE: ${e.code || 'error'}`); v = ''; }
+  }
+  delete process.env[name]; delete process.env[name + '_FILE'];
+  return String(v).trim();
+}
+/* Log lines never carry anything a player typed raw: control characters (fake log lines) are stripped. */
+const logSafe = (v, n = 80) => String(v).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, '?').slice(0, n);
 const CFG = {
   port: parseInt(env('PORT', '8080'), 10),
   serverName: String(env('SERVER_NAME', 'Munch Maze')).slice(0, 40),
@@ -34,15 +50,23 @@ const CFG = {
   // Discord login (optional). Create an application at discord.com/developers, add the redirect
   // <PUBLIC_URL>/auth/discord/callback under OAuth2, and paste its client id and secret here.
   discordId: String(env('DISCORD_CLIENT_ID', '')).trim(),
-  discordSecret: String(env('DISCORD_CLIENT_SECRET', '')).trim(),
+  discordSecret: secret('DISCORD_CLIENT_SECRET'),
   publicUrl: String(env('PUBLIC_URL', '')).trim().replace(/\/+$/, ''),   // e.g. http://10.0.10.160:8080
-  discordApi: String(env('DISCORD_API', 'https://discord.com/api')).replace(/\/+$/, ''),   // tests point this at a fake
-  discordAuthorize: String(env('DISCORD_AUTHORIZE', 'https://discord.com/oauth2/authorize')),
+  // Where the client secret is sent. Always Discord itself; only the automated tests may point it at a fake.
+  discordApi: TEST_HOOKS ? String(env('DISCORD_API', 'https://discord.com/api')).replace(/\/+$/, '') : 'https://discord.com/api',
+  discordAuthorize: TEST_HOOKS ? String(env('DISCORD_AUTHORIZE', 'https://discord.com/oauth2/authorize')) : 'https://discord.com/oauth2/authorize',
   // Admin page (/admin.html): Discord user ids allowed in, comma-separated.
   adminIds: String(env('ADMIN_DISCORD_IDS', '')).split(',').map(s => s.trim()).filter(s => /^\d{5,25}$/.test(s)),
   // Discord webhook for announcements (new #1 score, level 20+ clears). Can also be set on the admin page.
-  webhookUrl: String(env('DISCORD_WEBHOOK_URL', '')).trim(),
+  webhookUrl: secret('DISCORD_WEBHOOK_URL'),
 };
+if ((process.env.DISCORD_API || process.env.DISCORD_AUTHORIZE) && !TEST_HOOKS) console.warn('[config] DISCORD_API / DISCORD_AUTHORIZE are for automated tests and are ignored');
+delete process.env.DISCORD_API; delete process.env.DISCORD_AUTHORIZE;
+// Discord application ids are numbers; secrets are 32ish URL-safe characters. Anything else is a paste mistake.
+if (CFG.discordId && !/^\d{5,25}$/.test(CFG.discordId)) { console.warn('[config] DISCORD_CLIENT_ID should be the numeric Client ID: Discord login is off'); CFG.discordId = ''; }
+if (CFG.discordSecret && !/^[A-Za-z0-9_-]{16,128}$/.test(CFG.discordSecret)) { console.warn('[config] DISCORD_CLIENT_SECRET doesn’t look like a Discord client secret: Discord login is off'); CFG.discordSecret = ''; }
+if (CFG.discordId && !CFG.discordSecret) console.warn('[config] DISCORD_CLIENT_ID is set without a usable DISCORD_CLIENT_SECRET: Discord login is off');
+if (CFG.publicUrl && !/^https?:\/\/[^\s/?#@]+$/i.test(CFG.publicUrl)) { console.warn('[config] PUBLIC_URL should look like http://10.0.10.160:8080 or https://maze.example.com: ignored'); CFG.publicUrl = ''; }
 const discordOn = () => !!(CFG.discordId && CFG.discordSecret);
 
 const ROOT = path.join(__dirname, '..');
@@ -59,15 +83,18 @@ function prepareDataDir() {
       fs.chownSync(CFG.dataDir, CFG.puid, CFG.pgid);
       for (const f of [SCORES_FILE, DB_FILE, DB_FILE + '-wal', DB_FILE + '-shm']) if (fs.existsSync(f)) fs.chownSync(f, CFG.puid, CFG.pgid);
     } catch (e) { console.warn('[data] could not chown', CFG.dataDir, e.message); }
-    try { process.setgid(CFG.pgid); process.setuid(CFG.puid); console.log(`[boot] running as ${CFG.puid}:${CFG.pgid}`); }
-    catch (e) { console.warn('[boot] could not drop privileges:', e.message); }
-  }
+    if (CFG.puid === 0) { console.warn('[boot] PUID=0: running as root. Use your normal user id (Unraid: 99) instead.'); return; }
+    try {
+      if (process.setgroups) process.setgroups([CFG.pgid]);   // drop root's extra groups too
+      process.setgid(CFG.pgid); process.setuid(CFG.puid); console.log(`[boot] running as ${CFG.puid}:${CFG.pgid}`);
+    } catch (e) { console.error('[boot] could not drop root privileges (' + e.message + '): refusing to run as root. Check PUID/PGID.'); process.exit(1); }
+  } else if (isRoot) console.warn('[boot] running as root: set PUID and PGID to run as a normal user');
 }
 
 /* ---------- storage: accounts, sessions and high scores in data/munch-maze.db ---------- */
 let db = null;
 function openDb() {
-  try { db = DB.open(DB_FILE); }
+  try { db = DB.open(DB_FILE); for (const f of [DB_FILE, DB_FILE + '-wal', DB_FILE + '-shm']) try { fs.chmodSync(f, 0o600); } catch (e) { /* not there yet */ } }
   catch (e) { console.warn('[db] could not open', DB_FILE, '-', e.message, '- keeping everything in memory'); db = DB.open(':memory:'); }
   // bring over the old scores.json once
   try {
@@ -95,8 +122,8 @@ function applySettings() {
 }
 
 /* ---------- Discord webhook: announce big moments in a channel ---------- */
-const validWebhook = u => /^https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[\w-]+$/.test(u)
-  || (process.env.TEST_HOOKS === '1' && /^http:\/\/127\.0\.0\.1:\d+\/api\/webhooks\/\d+\/[\w-]+$/.test(u));   // tests use a local fake
+const validWebhook = u => /^https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d{5,25}\/[\w-]{20,128}$/.test(u)
+  || (TEST_HOOKS && /^http:\/\/127\.0\.0\.1:\d+\/api\/webhooks\/\d+\/[\w-]+$/.test(u));   // tests use a local fake
 const mdSafe = s => String(s).replace(/[\\*_`~|>#\[\]()@]/g, m => (m === '@' ? '@\u200b' : '\\' + m));
 const hookQueue = []; let hookBusy = false;
 function announce(text) {
@@ -109,8 +136,8 @@ function announce(text) {
       const content = hookQueue.shift();
       try {
         await fetch(CFG.webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: CFG.serverName || 'Munch Maze', content, allowed_mentions: { parse: [] } }), signal: AbortSignal.timeout(8000) });
-      } catch (e) { console.warn('[webhook]', e.message); }
+          body: JSON.stringify({ username: CFG.serverName || 'Munch Maze', content, allowed_mentions: { parse: [] } }), redirect: 'error', signal: AbortSignal.timeout(8000) });
+      } catch (e) { console.warn('[webhook] post failed:', logSafe(e.message)); }
       await new Promise(r => setTimeout(r, 2000));   // stay well under Discord's rate limits
     }
     hookBusy = false;
@@ -189,7 +216,7 @@ function newKey() { // 12 chars of a-z0-9 from a CSPRNG (~62 bits)
     share a seed and "Start maze" always makes a fresh game rather than resuming an old one. */
 function createGame(seed, key) {
   if (games.size >= CFG.maxMazes) return null;
-  const g = new Game(seed, key, { onScore: addScore, testHooks: process.env.TEST_HOOKS === '1',
+  const g = new Game(seed, key, { onScore: addScore, testHooks: TEST_HOOKS,
     onAchieve: (uid, id) => { try { return db.award(uid, id); } catch (e) { return false; } },
     onCleared: (uid, L) => { try { db.setProgress(uid, L, L + 1); } catch (e) { /* ignore */ } },
     onStats,
@@ -211,13 +238,24 @@ setInterval(() => {
   const sendState = tickCount % 2 === 0; // state goes out at half the tick rate
   for (const [gid, g] of games) {
     if (!g.players.size && g.emptySince && now - g.emptySince > EMPTY_TTL) { games.delete(gid); if (g.key) byKey.delete(g.key); if (byLink.get(g.link) === g) byLink.delete(g.link); continue; }
-    g.tick(dt, sendState);
+    try { g.tick(dt, sendState); }
+    catch (e) {   // a bug in one maze shouldn't freeze every other maze: log it once and close that maze
+      console.error('[game] maze', gid, 'crashed:', logSafe(e.stack || e.message, 600));
+      for (const pl of g.players.values()) try { pl.ws.send(JSON.stringify({ t: 'error', code: 'closed', msg: 'Something went wrong with this maze, sorry. Start a new one.' })); pl.ws.close(); } catch (e2) { /* ignore */ }
+      games.delete(gid); if (g.key) byKey.delete(g.key); if (byLink.get(g.link) === g) byLink.delete(g.link);
+    }
   }
 }, 1000 / CFG.tickRate);
 
 /* ---------- players / sockets ---------- */
 let nextId = 1;
-const stripCtl = s => String(s || '').replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁠-⁯]/g, '').replace(/\s+/g, ' ').trim();
+/* Text players type (names, lobby names): Unicode-normalised (so look-alike full-width letters count as
+   the same name), with control, format and invisible characters removed, at most two accents stacked
+   on a letter, and runs of spaces collapsed. Everything is shown as text, never as HTML. */
+const stripCtl = s => String(s || '').slice(0, 200).normalize('NFKC')
+  .replace(/[\p{C}\u115f\u1160\u3164\uffa0\u2800\u034f]/gu, '')
+  .replace(/(\p{M}{2})\p{M}+/gu, '$1')
+  .replace(/\s+/g, ' ').trim();
 const cleanName = s => stripCtl(s).slice(0, 16) || 'Player';
 const cleanTitle = s => stripCtl(s).slice(0, 32);
 // games: gid -> Game. Public mazes are listed by name with that opaque id, so the list never shows seeds.
@@ -258,6 +296,15 @@ function pwBlocked(ip) { const f = pwFails.get(ip); if (!f) return false; if (Da
 function pwFailed(ip) { const f = pwFails.get(ip); if (!f || Date.now() - f.since > PW_WINDOW) pwFails.set(ip, { n: 1, since: Date.now() }); else f.n++; }
 setInterval(() => { const now = Date.now(); for (const [ip, f] of pwFails) if (now - f.since > PW_WINDOW) pwFails.delete(ip); }, 60000).unref();
 
+/* Opening mazes costs memory until they time out: each address may open a few per 10 minutes. */
+const MAZES_PER_IP = 15, MAZE_WINDOW = 10 * 60 * 1000, opened = new Map();   // ip -> [times]
+function mayOpenMaze(ip) {
+  const now = Date.now(), list = (opened.get(ip) || []).filter(t => now - t < MAZE_WINDOW);
+  if (list.length >= MAZES_PER_IP) { opened.set(ip, list); return false; }
+  list.push(now); opened.set(ip, list); return true;
+}
+setInterval(() => { const now = Date.now(); for (const [ip, l] of opened) if (!l.some(t => now - t < MAZE_WINDOW)) opened.delete(ip); }, 60000).unref();
+
 function onSocket(ws, ip = '?', account = null) {
   let p = null, game = null, budget = 60, lastRefill = Date.now();
   ws.on('message', text => {
@@ -265,7 +312,10 @@ function onSocket(ws, ip = '?', account = null) {
     budget = Math.min(60, budget + (now - lastRefill) * 0.06); lastRefill = now; // ~60 msgs/s
     if (budget < 1) return; budget--;
     let m; try { m = JSON.parse(text); } catch (e) { return; }
-    if (!m || typeof m !== 'object') return;
+    if (!m || typeof m !== 'object' || Array.isArray(m) || typeof m.t !== 'string') return;
+    try { handle(m); } catch (e) { console.warn('[ws] message', logSafe(m.t, 12), 'failed:', logSafe(e.message)); }   // one bad message never takes the server down
+  });
+  function handle(m) {
     if (m.t === 'join') {
       if (game) return;
       // Which game? (1) by id: from the lobby list, or reconnecting to the game you were in;
@@ -281,6 +331,7 @@ function onSocket(ws, ip = '?', account = null) {
       } else if (typeof m.key === 'string' && KEY_RE.test(m.key) && byKey.has(m.key)) {
         g = byKey.get(m.key);
       } else {
+        if (!mayOpenMaze(ip)) { ws.send(JSON.stringify({ t: 'error', msg: 'You’ve opened a lot of mazes in a short time. Join a running one, or try again in a few minutes.' })); return; }
         const daily = m.daily === true ? dayKey() : '';   // the daily maze: same layouts for everyone today
         const seed = daily ? 'daily-' + daily : M.slug(m.seed) || CFG.defaultSeed || M.randomSeed();
         g = createGame(seed, m.vis === 'private' ? newKey() : '');   // "Invite only" mints a fresh key
@@ -323,7 +374,7 @@ function onSocket(ws, ip = '?', account = null) {
     }
     if (m.t === 'bye') { if (game && p) game.remove(p); game = null; return; }   // left on purpose: no grace period
     if (game && p) game.onMessage(p, m);
-  });
+  }
   ws.on('close', () => { if (game && p && p.ws === ws) game.disconnect(p); game = null; });
 }
 
@@ -367,7 +418,7 @@ function setCookie(res, req, name, value, maxAge, cookiePath = '/') {
 }
 function baseUrl(req) {
   if (CFG.publicUrl) return CFG.publicUrl;
-  return (isHttps(req) ? 'https://' : 'http://') + requestHost(req);
+  return (isHttps(req) ? 'https://' : 'http://') + (requestHost(req) || 'localhost');
 }
 const redirectUri = req => baseUrl(req) + '/auth/discord/callback';
 function redirect(res, to) { res.writeHead(302, { Location: to, 'Cache-Control': 'no-store' }); res.end(); }
@@ -388,21 +439,22 @@ async function discordCallback(req, res, url) {
   try {
     const tok = await fetch(CFG.discordApi + '/oauth2/token', {
       method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ client_id: CFG.discordId, client_secret: CFG.discordSecret, grant_type: 'authorization_code', code, redirect_uri: redirectUri(req) }),
-      signal: AbortSignal.timeout(8000)
+      body: new URLSearchParams({ client_id: CFG.discordId, client_secret: CFG.discordSecret, grant_type: 'authorization_code', code: code.slice(0, 200), redirect_uri: redirectUri(req) }),
+      redirect: 'error', signal: AbortSignal.timeout(8000)
     }).then(r => r.ok ? r.json() : Promise.reject(new Error('token ' + r.status)));
-    const me = await fetch(CFG.discordApi + '/users/@me', { headers: { Authorization: 'Bearer ' + tok.access_token }, signal: AbortSignal.timeout(8000) })
+    if (!tok || typeof tok.access_token !== 'string' || tok.access_token.length > 512) throw new Error('no token');
+    const me = await fetch(CFG.discordApi + '/users/@me', { headers: { Authorization: 'Bearer ' + tok.access_token }, redirect: 'error', signal: AbortSignal.timeout(8000) })
       .then(r => r.ok ? r.json() : Promise.reject(new Error('user ' + r.status)));
     // we only needed the id: hand the token straight back
     fetch(CFG.discordApi + '/oauth2/token/revoke', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ client_id: CFG.discordId, client_secret: CFG.discordSecret, token: tok.access_token }), signal: AbortSignal.timeout(8000) }).catch(() => {});
+      body: new URLSearchParams({ client_id: CFG.discordId, client_secret: CFG.discordSecret, token: tok.access_token }), redirect: 'error', signal: AbortSignal.timeout(8000) }).catch(() => {});
     if (!/^\d{5,25}$/.test(String(me.id || ''))) throw new Error('no user id');
     const acct = db.loginDiscord(String(me.id), cleanName(me.global_name || me.username));
     setCookie(res, req, 'mm_session', db.newSession(acct.uid), db.SESSION_DAYS * 86400);
     console.log(`[auth] ${acct.created ? 'new account' : 'login'} uid ${acct.uid}`);
     return redirect(res, '/?login=' + (acct.created ? 'new' : 'ok'));
   } catch (e) {
-    console.warn('[auth] discord login failed:', e.message);
+    console.warn('[auth] discord login failed:', logSafe(e.message));
     return redirect(res, '/?login=failed');
   }
 }
@@ -492,12 +544,43 @@ function json(res, obj, code = 200) {
   res.end(JSON.stringify(obj));
 }
 
-const server = http.createServer((req, res) => {
+/* Browser security headers. The page loads its own scripts only (no inline code), fonts from
+   Google Fonts, and talks to this server only; it can't be framed by other sites. */
+const CSP = ["default-src 'self'", "script-src 'self'", "style-src 'self' https://fonts.googleapis.com", "font-src 'self' https://fonts.gstatic.com",
+  "img-src 'self' data: blob:", "media-src 'self' blob:", "connect-src 'self'", "worker-src 'self'", "manifest-src 'self'",
+  "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'"].join('; ');
+function securityHeaders(req, res) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Content-Security-Policy', CSP);
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
+  if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+}
+/* Per-address request budgets for the API and the Discord login (the page and its files are free). */
+const httpHits = new Map();   // 'kind|ip' -> { n, since }
+function overBudget(kind, ip, max, windowMs = 60000) {
+  const k = kind + '|' + ip, now = Date.now(); let h = httpHits.get(k);
+  if (!h || now - h.since > windowMs) { h = { n: 0, since: now }; httpHits.set(k, h); }
+  return ++h.n > max;
+}
+setInterval(() => { const now = Date.now(); for (const [k, h] of httpHits) if (now - h.since > 120000) httpHits.delete(k); }, 60000).unref();
+const isJson = req => /^application\/json\s*(;|$)/i.test(String(req.headers['content-type'] || ''));
+
+const server = http.createServer((req, res) => {
+  securityHeaders(req, res);
   let url;
   try { url = new URL(req.url, 'http://x'); } catch (e) { res.writeHead(400); res.end(); return; }
   const p = url.pathname;
+  if (p.length > 512) { res.writeHead(414); res.end(); return; }
+  const ip = clientIp(req);
+  if ((p.startsWith('/api/') && overBudget('api', ip, 240)) || (p.startsWith('/auth/') && overBudget('auth', ip, 20))) {
+    res.writeHead(429, { 'Retry-After': '60', 'Content-Type': 'text/plain' }); res.end('Too many requests. Wait a minute.'); return;
+  }
+  // POSTs carry JSON (except logging out), so another site's plain form can't send them
+  if (req.method === 'POST' && p !== '/auth/logout' && !isJson(req)) return json(res, { error: 'Expected JSON.' }, 415);
   if (req.method === 'POST' && p.startsWith('/api/admin/')) {
     if (!originAllowed(req)) return json(res, { error: 'forbidden' }, 403);
     handleAdmin(req, res, p).catch(e => { console.warn('[admin]', e.message); json(res, { error: 'failed' }, 500); }); return;
@@ -541,6 +624,7 @@ const server = http.createServer((req, res) => {
   try { rel = p === '/' ? 'index.html' : decodeURIComponent(p).replace(/^\/+/, ''); }
   catch (e) { res.writeHead(400); res.end(); return; }          // malformed %-escape
   if (rel.includes('\0')) { res.writeHead(400); res.end(); return; }
+  if (rel.split(/[\\/]/).some(seg => seg.startsWith('.'))) { res.writeHead(404); res.end(); return; }   // no dotfiles, no ../
   const file = path.normalize(path.join(PUBLIC, rel));
   if (!file.startsWith(PUBLIC + path.sep)) { res.writeHead(403); res.end(); return; }
   sendFile(res, file);
@@ -552,7 +636,11 @@ function clientIp(req) {
   const ip = (CFG.trustProxy && firstHeader(req.headers['x-forwarded-for'])) || req.socket.remoteAddress || '?';
   return ip.replace(/^::ffff:/, '');
 }
+const HOST_RE = /^(?:[a-z0-9.-]{1,253}|\[[0-9a-f:.]{2,45}\])(?::\d{1,5})?$/i;
 function requestHost(req) {
+  const h = rawHost(req); return HOST_RE.test(h) ? h : '';
+}
+function rawHost(req) {
   return ((CFG.trustProxy && firstHeader(req.headers['x-forwarded-host'])) || String(req.headers.host || '')).toLowerCase();
 }
 /* Browsers always send Origin on WebSocket requests. Same-origin pages (the game itself)
@@ -568,7 +656,7 @@ function originAllowed(req) {
 }
 const perIp = new Map(); // ip -> open game connections
 function admit(req) {
-  if (!originAllowed(req)) { console.warn('[ws] refused origin', String(req.headers.origin).slice(0, 100)); return [403, 'Forbidden']; }
+  if (!originAllowed(req)) { console.warn('[ws] refused origin', logSafe(req.headers.origin, 100)); return [403, 'Forbidden']; }
   if (CFG.maxConnections && sockets.size >= CFG.maxConnections) return [503, 'Service Unavailable'];
   const ip = clientIp(req);
   if (CFG.maxConnectionsPerIp && (perIp.get(ip) || 0) >= CFG.maxConnectionsPerIp) return [429, 'Too Many Requests'];
@@ -601,6 +689,11 @@ if (CFG.maxConnections) server.maxConnections = CFG.maxConnections + 256; // roo
 prepareDataDir();
 openDb();
 server.listen(CFG.port, () => console.log(`[boot] ${CFG.serverName} listening on :${CFG.port} (tick ${CFG.tickRate}/s, lobby ${CFG.showLobby ? 'on' : 'off'}${CFG.testMode ? ', TEST MODE' : ''})`));
+
+if (TEST_HOOKS) console.warn('[boot] TEST_HOOKS=1: test cheats are ON. This is for automated tests only; never set it on a real server.');
+if (discordOn() && !CFG.publicUrl) console.warn('[boot] Discord login is on but PUBLIC_URL is not set: set it to the address players use, so the login redirect can’t be steered by a forged Host header.');
+if (discordOn()) console.log(`[boot] Discord login on (client id ${CFG.discordId}; secret loaded, ${CFG.discordSecret.length} characters)`);
+process.on('unhandledRejection', e => console.error('[error] unhandled rejection:', logSafe((e && (e.stack || e.message)) || e, 600)));
 
 function shutdown() {
   console.log('[boot] shutting down');

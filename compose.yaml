@@ -22,10 +22,18 @@ services:
       # Discord login (optional): see README "Discord accounts"
       PUBLIC_URL: ""                # e.g. http://10.0.10.160:8080
       DISCORD_CLIENT_ID: ""
-      DISCORD_CLIENT_SECRET: ""
+      DISCORD_CLIENT_SECRET: ""     # or keep it out of the container config: see the secrets example below
       ADMIN_DISCORD_IDS: ""        # your Discord user id(s), for /admin.html
       DISCORD_WEBHOOK_URL: ""      # optional: announce new #1 scores and level 20+ clears
       TZ: "Australia/Adelaide"      # weekly/daily leaderboards follow this
       PUID: "1000"
       PGID: "1000"
     restart: unless-stopped
+    # Safer for the Discord client secret: a file only you can read, mounted as a Docker secret.
+    # Uncomment these and the top-level "secrets:" block, and leave DISCORD_CLIENT_SECRET empty.
+    # environment:
+    #   DISCORD_CLIENT_SECRET_FILE: /run/secrets/discord_client_secret
+    # secrets: [discord_client_secret]
+# secrets:
+#   discord_client_secret:
+#     file: ./discord_client_secret.txt

@@ -4,7 +4,8 @@
    share one entry; the entry shows the name as typed for the best score. */
 
 const LIMIT = 25;
-const nameKey = n => String(n || '').trim().replace(/\s+/g, ' ').toLowerCase();
+// NFKC: full-width and other look-alike forms of the same letters count as the same name
+const nameKey = n => String(n || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 
 function clean(e) {
   return { n: String(e.n || 'Player').slice(0, 16), sc: Math.max(0, e.sc | 0), lv: Math.max(0, e.lv | 0), seed: String(e.seed || '').slice(0, 40), at: e.at || new Date().toISOString() };

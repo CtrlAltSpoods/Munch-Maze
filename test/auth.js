@@ -48,7 +48,7 @@ async function login(code) {
 (async () => {
   fs.writeFileSync(path.join(DATA, 'scores.json'), JSON.stringify([{ n: 'Oldtimer', sc: 1234, lv: 4 }, { n: 'oldtimer', sc: 50, lv: 1 }]));
   srv = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'index.js')], {
-    env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, DISCORD_CLIENT_ID: '424242', DISCORD_CLIENT_SECRET: 'app-secret',
+    env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, DISCORD_CLIENT_ID: '424242', DISCORD_CLIENT_SECRET: 'app-secret-0123456789abcdefXYZ',
       DISCORD_API: `http://127.0.0.1:${FAKE}`, DISCORD_AUTHORIZE: `http://127.0.0.1:${FAKE}/authorize`, ADMIN_DISCORD_IDS: USERS.alice.id, TEST_HOOKS: '1' }, stdio: ['ignore', 'pipe', 'inherit'] });
   await new Promise(r => srv.stdout.on('data', d => { if (/listening/.test(d)) r(); }));
 
@@ -75,7 +75,7 @@ async function login(code) {
   const al = await login('alice');
   if (!/login=new/.test(al.cb.headers.get('location')) || !al.session) fail('first login should create an account and a session');
   if (!al.cb.headers.getSetCookie().some(c => /mm_session=.*HttpOnly.*SameSite=Lax/.test(c))) fail('session cookie must be HttpOnly + SameSite');
-  if (tokenForm.get('client_secret') !== 'app-secret' || tokenForm.get('grant_type') !== 'authorization_code') fail('token exchange');
+  if (tokenForm.get('client_secret') !== 'app-secret-0123456789abcdefXYZ' || tokenForm.get('grant_type') !== 'authorization_code') fail('token exchange');
   await new Promise(r => setTimeout(r, 100));
   if (revoked < 1) fail('the Discord token should be revoked straight after use');
   const me = await (await get('/api/me', al.session)).json();

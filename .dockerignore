@@ -6,3 +6,6 @@ unraid
 *.md
 ca_profile.xml
 compose.yaml
+data
+*secret*
+.env

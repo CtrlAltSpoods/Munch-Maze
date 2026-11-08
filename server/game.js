@@ -261,11 +261,14 @@ class Game {
       case 'ready':   // host starts the next level
         if (p.id !== this.hostId) return;
         if (this.ph === 2) this.startLevel(this.L + 1, true);
-        else if (this.ph === 3) this.startLevel(this.L);   // whichever level the host picked in the lobby
+        else if (this.ph === 3) { const lv = this.lvWant || this.L; this.lvWant = 0; this.startLevel(lv); }   // whichever level the host picked in the lobby
         return;
       case 'startlv': {   // host picks the starting level in the lobby
         const lv = m.lv | 0;
         if (this.ph !== 3 || p.id !== this.hostId || lv < 1 || lv > MAX_START_LEVEL || lv === this.L || this.daily) return;   // the daily maze always starts at 1
+        // each pick rebuilds the maze for everyone: at most 4 a second (a quick run of picks lands on the last one)
+        if (Date.now() - (this.lvPickAt || 0) < 250) { this.lvWant = lv; return; }
+        this.lvPickAt = Date.now(); this.lvWant = 0;
         this.startLevel(lv, false, true);   // regenerate that maze for everyone, still in the lobby
         return;
       }
@@ -315,7 +318,7 @@ class Game {
         { const c = { id: ++this.crateSeq, x: Math.round(p.x), y: Math.round(p.y) }; this.crates.push(c); this.broadcast({ t: 'crate', id: c.id, x: c.x, y: c.y }); }
         return;
       case 'setup': {   // host: challenge modifiers (lobby only, not on the daily maze) and co-op roles
-        if (p.id !== this.hostId) return;
+        if (p.id !== this.hostId || this.tooSoon(p, 'setup', 150)) return;
         if (m.mods !== undefined && this.ph === 3 && !this.daily) this.mods = (m.mods | 0) & M.MODS_ALL;
         if (m.roles !== undefined && (this.ph === 3 || this.ph === 2) && this.mode !== 'versus') this.roles = !!m.roles;
         this.broadcast({ t: 'setup', mods: this.mods, roles: this.roles ? 1 : 0 });
@@ -323,7 +326,7 @@ class Game {
       }
       case 'role': {   // pick a co-op role, before a level starts
         const r = m.r | 0;
-        if (!this.roles || this.mode === 'versus' || (this.ph !== 3 && this.ph !== 2) || r < 0 || r >= M.ROLES.length) return;
+        if (!this.roles || this.mode === 'versus' || (this.ph !== 3 && this.ph !== 2) || r < 0 || r >= M.ROLES.length || this.tooSoon(p, 'role', 250)) return;
         p.role = r; this.broadcast({ t: 'role', id: p.id, r });
         return;
       }
@@ -395,6 +398,8 @@ class Game {
     for (const g of this.ghosts) if (g.st === 1 || g.st === 2) { g.st = 2; g.rev = true; }
   }
 
+  /** Rate limit for messages that make the server tell everyone something. */
+  tooSoon(p, what, ms) { const k = 'at_' + what, now = Date.now(); if (now - (p[k] || 0) < ms) return true; p[k] = now; return false; }
   /** Adds points, boosted by the challenge modifiers. Returns what was added. */
   points(p, v) { const n = Math.round(v * M.modMult(this.mods)); p.sc += n; return n; }
   ghostBase() { return M.ghostSpeed(this.L) * (this.mods & 2 ? M.FAST_GHOSTS : 1); }
@@ -721,6 +726,7 @@ class Game {
         this.finishLevel(true);   // level passed: on to the usual celebration
       }
     } else if (this.ph === 2 || this.ph === 3) {   // waiting for the host
+      if (this.ph === 3 && this.lvWant && now - this.lvPickAt >= 250) { const lv = this.lvWant; this.lvWant = 0; this.lvPickAt = now; if (lv !== this.L) this.startLevel(lv, false, true); }
       if (!this.players.has(this.hostId)) { const next = this.players.values().next().value; this.hostId = next ? next.id : 0; }
     } else {
       if (this.fr > 0) { this.fr -= dt; if (this.fr <= 0) { this.fr = 0; for (const g of this.ghosts) if (g.st === 2) g.st = 1; } }
