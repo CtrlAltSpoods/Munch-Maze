@@ -736,3 +736,45 @@ input[type=range]{accent-color:var(--pink)}
 .vbtn.chosen.rev{background:#b44dff;color:#12051f}
 .vote-tally .vr{color:#c98bff;font-weight:600}
 @media (max-width:520px){ #voteOv.three .vote-btns{grid-template-columns:1fr} }
+
+/* ---------- player level, trails and exit effects ---------- */
+.prog{display:flex;flex-direction:column;gap:12px;margin-top:4px;padding-top:14px;border-top:1px solid var(--line)}
+.plevel{display:grid;grid-template-columns:44px minmax(0,1fr);gap:12px;align-items:center}
+.lvbadge{display:grid;place-items:center;width:44px;height:44px;font-family:var(--arcade);font-weight:900;font-size:17px;color:#04140b;
+  background:linear-gradient(135deg,#3dffa0,var(--cyan));clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%);text-shadow:none}
+.lvbadge.guest{background:var(--line);color:var(--muted)}
+.xpwrap{display:flex;flex-direction:column;gap:6px;min-width:0}
+.xprow{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.xprow b{font-family:var(--display);font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:12px}
+.xprow .hint{margin:0;font-size:11px}
+.xpbar{height:7px;background:rgba(7,6,15,.8);border:1px solid var(--line);overflow:hidden}
+.xpbar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#3dffa0,var(--cyan));box-shadow:0 0 10px rgba(61,255,160,.5);transition:width .5s}
+.cosm{display:flex;flex-wrap:wrap;gap:6px}
+.cos{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;background:rgba(7,6,15,.75);border:1px solid var(--line);color:var(--fg);
+  font-family:var(--display);font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  clip-path:polygon(5px 0,100% 0,calc(100% - 5px) 100%,0 100%)}
+.cos:hover:not(.locked){border-color:var(--cyan);color:var(--cyan)}
+.cos.on{border-color:#3dffa0;color:#3dffa0;background:rgba(61,255,160,.1);box-shadow:inset 0 -2px 0 #3dffa0}
+.cos.locked{color:var(--muted);border-style:dashed;cursor:not-allowed;opacity:.7}
+.cos small{font-family:var(--arcade);font-size:9px;letter-spacing:0;color:var(--muted)}
+.cos.nope{animation:nope .35s}
+.field .k small{text-transform:none;letter-spacing:0}
+.plv{font-family:var(--arcade);font-size:9px;font-weight:700;color:#3dffa0;letter-spacing:0;vertical-align:middle}
+.lobby-players li{display:flex!important;flex-wrap:wrap}
+.lobby-players li .nm{flex:1;min-width:0}
+
+/* ---------- challenges tab ---------- */
+.chal-pane{gap:16px}
+.chal-group{display:flex;flex-direction:column;gap:8px}
+.chal-group .col-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.chal-group .col-head .hint{margin:0;font-size:11px}
+.chals{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.chal{display:flex;flex-direction:column;gap:6px;padding:9px 12px;background:rgba(7,6,15,.55);border-left:3px solid var(--line)}
+.chal-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.chal-top b{font-size:13px;font-weight:600}
+.chal-xp{font-family:var(--arcade);font-size:11px;font-weight:700;color:var(--accent);white-space:nowrap}
+.chal .hint{margin:0;font-size:11px}
+.chal.done{border-left-color:#3dffa0}
+.chal.done .chal-xp{color:#3dffa0}
+.chal.done .xpbar i{background:#3dffa0}
+@media (prefers-reduced-motion:reduce){ .xpbar i{transition:none} .cos.nope{animation:none} }

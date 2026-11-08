@@ -63,11 +63,17 @@ function open(file) {
     CREATE TABLE IF NOT EXISTS reserved (name_key TEXT PRIMARY KEY, name TEXT NOT NULL, at INTEGER NOT NULL);
     -- settings changed from the admin page (override the container's environment)
     CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL);
+    -- daily / weekly challenge progress: period = 'day:2026-11-08' or 'week:2026-W45'
+    CREATE TABLE IF NOT EXISTS progress (
+      uid INTEGER NOT NULL REFERENCES accounts(uid) ON DELETE CASCADE,
+      period TEXT NOT NULL, cid TEXT NOT NULL, value INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (uid, period, cid)
+    );
   `);
   // profile columns, added to databases made by earlier versions
   const cols = new Set(db.prepare('PRAGMA table_info(accounts)').all().map(c => c.name));
   for (const [c, def] of [['games', 'INTEGER NOT NULL DEFAULT 0'], ['best_score', 'INTEGER NOT NULL DEFAULT 0'], ['best_level', 'INTEGER NOT NULL DEFAULT 0'],
-    ['cleared', 'INTEGER NOT NULL DEFAULT 0'], ['models', "TEXT NOT NULL DEFAULT '{}'"]]) if (!cols.has(c)) db.exec(`ALTER TABLE accounts ADD COLUMN ${c} ${def}`);
+    ['cleared', 'INTEGER NOT NULL DEFAULT 0'], ['models', "TEXT NOT NULL DEFAULT '{}'"], ['xp', 'INTEGER NOT NULL DEFAULT 0']]) if (!cols.has(c)) db.exec(`ALTER TABLE accounts ADD COLUMN ${c} ${def}`);
 
   const q = {
     best: db.prepare('SELECT score FROM scores WHERE pkey = ?'),
@@ -105,7 +111,13 @@ function open(file) {
     setGet: db.prepare('SELECT v FROM settings WHERE k = ?'),
     setPut: db.prepare('INSERT OR REPLACE INTO settings (k, v) VALUES (?, ?)'),
     setDel: db.prepare('DELETE FROM settings WHERE k = ?'),
-    accounts: db.prepare('SELECT uid, name, games, best_score AS best, last_login AS lastLogin, created FROM accounts ORDER BY last_login DESC LIMIT ?')
+    accounts: db.prepare('SELECT uid, name, games, best_score AS best, last_login AS lastLogin, created, xp FROM accounts ORDER BY last_login DESC LIMIT ?'),
+    xpGet: db.prepare('SELECT xp FROM accounts WHERE uid = ?'),
+    xpAdd: db.prepare('UPDATE accounts SET xp = MIN(xp + ?, 2000000000) WHERE uid = ?'),
+    progGet: db.prepare('SELECT value, done FROM progress WHERE uid = ? AND period = ? AND cid = ?'),
+    progPut: db.prepare('INSERT OR REPLACE INTO progress (uid, period, cid, value, done) VALUES (?, ?, ?, ?, ?)'),
+    progAll: db.prepare('SELECT cid, value, done FROM progress WHERE uid = ? AND period = ?'),
+    progPurge: db.prepare('DELETE FROM progress WHERE period NOT IN (?, ?)')
   };
 
   /** Record a finished run; keeps only each player's best. Returns true if it was a new best. */
@@ -144,8 +156,29 @@ function open(file) {
     let m = {}; try { m = JSON.parse(a.models) || {}; } catch (e) { /* ignore */ }
     const fav = Object.entries(m).sort((x, y) => y[1] - x[1])[0];
     return { uid: a.uid, name: a.name, since: a.created, games: a.games, best: a.best_score, bestLevel: a.best_level, cleared: a.cleared,
-      fav: fav ? fav[0] : '', achievements: q.achs.all(uid).map(r => ({ id: r.aid, at: r.at })) };
+      xp: getXp(uid), fav: fav ? fav[0] : '', achievements: q.achs.all(uid).map(r => ({ id: r.aid, at: r.at })) };
   }
+  /* ---------- XP and challenges ---------- */
+  const getXp = uid => { const r = q.xpGet.get(uid); return r ? r.xp : 0; };
+  /** Adds XP; returns { before, after } totals. */
+  function addXp(uid, n) {
+    const before = getXp(uid); n = Math.max(0, Math.round(n) || 0);
+    if (n) q.xpAdd.run(n, uid);
+    return { before, after: getXp(uid) };
+  }
+  /** Moves a challenge on: kind 'sum' adds n, 'max' keeps the best. Returns true the moment it's completed. */
+  function bumpChallenge(uid, period, cid, kind, n, goal) {
+    const cur = q.progGet.get(uid, period, cid) || { value: 0, done: 0 };
+    if (cur.done) return false;
+    const value = Math.min(1e9, kind === 'max' ? Math.max(cur.value, n | 0) : cur.value + (n | 0));
+    if (value === cur.value) return false;
+    const done = value >= goal ? 1 : 0;
+    q.progPut.run(uid, period, cid, value, done);
+    return !!done;
+  }
+  const challengeProgress = (uid, period) => q.progAll.all(uid, period);
+  /** Old periods' progress isn't needed once the day and week have moved on. */
+  const purgeProgress = (day, week) => q.progPurge.run(day, week);
 
   /* ---------- admin helpers ---------- */
   const reserveName = name => q.resIns.run(nameKey(name), String(name).slice(0, 16), Date.now());
@@ -202,7 +235,7 @@ function open(file) {
   const endSession = token => { if (token) q.endSession.run(sha(token)); };
   const purgeSessions = () => q.purge.run(Date.now());
 
-  return { addScore, topScores, topScore, recordGame, setProgress, award, profile, reserveName, unreserveName, isReserved, reservedNames, getSetting, putSetting, listAccounts, resetScores, importLegacy, nameOwner, loginDiscord, rename, account, newSession, sessionUser, endSession, purgeSessions, SESSION_DAYS, close: () => db.close() };
+  return { getXp, addXp, bumpChallenge, challengeProgress, purgeProgress, addScore, topScores, topScore, recordGame, setProgress, award, profile, reserveName, unreserveName, isReserved, reservedNames, getSetting, putSetting, listAccounts, resetScores, importLegacy, nameOwner, loginDiscord, rename, account, newSession, sessionUser, endSession, purgeSessions, SESSION_DAYS, close: () => db.close() };
 }
 
 module.exports = { open, nameKey };

@@ -52,6 +52,11 @@ const S = {
   S.model = look.mdl; S.ci = look.ci; S.color = look.col; S.paint = look.paint;
 }
 
+/** A roster row from the server: [id, name, colour, character, colour index, registered, uid, team, trail, death effect, player level, role]. */
+function addRoster(r) {
+  S.roster.set(r[0], { nm: String(r[1]), col: String(r[2]), mdl: r[3] | 0, paint: M.pickModel(r[3], r[4]).paint, reg: r[5] === 1, uid: r[6] | 0, team: r[7] | 0,
+    trail: r[8] | 0, dfx: r[9] | 0, plv: r[10] | 0, role: r[11] | 0 });
+}
 function respawn() { const lv = S.lvl; S.me = { tx: lv.sx, ty: lv.sy, d: -1, t: 0, want: -1, face: 2 }; S.inv = 2; S.camX = null; }
 function loadLevel(L, b64, ph = 0) {
   S.L = L; S.lvl = M.genLevel(S.seed, L);
@@ -72,7 +77,7 @@ function connect() {
   url.hash = ''; url.search = '';
   const ws = new WebSocket(url.href);
   S.ws = ws;
-  ws.onopen = () => send({ t: 'join', nm: S.name, seed: S.seed, mdl: S.model, ci: S.ci, tok: token, vis: S.vis, key: S.key || S.inviteKey, room: S.room || undefined, link: S.linkJoin || undefined, lname: S.lname, setpw: S.setpw || undefined, pw: S.pw || undefined, mode: S.wantMode || 'coop', daily: S.dailyJoin ? true : undefined });
+  ws.onopen = () => send({ t: 'join', nm: S.name, seed: S.seed, mdl: S.model, ci: S.ci, tok: token, vis: S.vis, key: S.key || S.inviteKey, room: S.room || undefined, link: S.linkJoin || undefined, lname: S.lname, setpw: S.setpw || undefined, pw: S.pw || undefined, mode: S.wantMode || 'coop', daily: S.dailyJoin ? true : undefined, trail: S.trail, dfx: S.dfx });
   ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } onMsg(m); };
   ws.onclose = () => {
     if (S.ws !== ws) return;
@@ -84,7 +89,7 @@ function onMsg(m) {
   switch (m.t) {
     case 'welcome': {
       S.id = m.id; S.seed = m.seed;
-      S.roster.clear(); for (const r of m.roster || []) S.roster.set(r[0], { nm: String(r[1]), col: String(r[2]), mdl: r[3] | 0, paint: M.pickModel(r[3], r[4]).paint, reg: r[5] === 1, uid: r[6] | 0, team: r[7] | 0 });
+      S.roster.clear(); for (const r of m.roster || []) addRoster(r);
       S.sc = m.sc | 0; S.li = m.li | 0; S.over = !!m.over;
       loadLevel(m.lv | 0, m.b, m.ph | 0);
       S.inGame = true;
@@ -119,7 +124,22 @@ function onMsg(m) {
       if (S.ph === 0) recordLevel(S.L);
       if (m.adv && !S.over) A.sfx('life');
       break;
-    case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col), mdl: m.mdl | 0, paint: M.pickModel(m.mdl, m.ci).paint, reg: m.reg === 1, uid: m.uid | 0, team: m.team | 0 }); A.sfx('join'); updateLobby(); break;
+    case 'join': if (Array.isArray(m.r)) addRoster(m.r); A.sfx('join'); updateLobby(); break;
+    case 'plv': { const r = S.roster.get(m.id | 0); if (r) r.plv = m.lv | 0; break; }
+    case 'died': {   // someone else was caught: play their exit effect where they fell
+      const r = S.roster.get(m.id | 0); if (!r || !S.lvl) break;
+      const o = S.ov.get(m.id | 0), x = o ? o.x : +m.x, y = o ? o.y : +m.y;
+      deathFx(m.fx | 0, x, y, MazeModels.colorAt(r.paint || r.col, S.time), false);
+      break;
+    }
+    case 'xp': if (ME.user) { ME.user.xp = m.xp | 0; showLevel(); } break;
+    case 'lvlup': {
+      const lv = m.lv | 0, un = [...M.TRAILS, ...M.DEATHFX].filter(c => c.at === lv).map(c => c.name);
+      MazeFX.bigText('PLAYER LEVEL ' + lv, un.length ? 'Unlocked: ' + un.join(', ') : 'Keep going!', '#3dffa0', 2.2); A.sfx('levelup');
+      toast('Level up!', 'You’re now player level ' + lv + (un.length ? '. New: ' + un.join(', ') : ''), 'ach');
+      break;
+    }
+    case 'chal': toast(m.w ? 'Weekly challenge done' : 'Daily challenge done', String(m.text || '') + ' · +' + (m.xp | 0) + ' XP', 'ach'); A.sfx('jackpot'); break;
     case 'leave': S.roster.delete(m.id); S.ov.delete(m.id); updateLobby(); break;
     case 'pw': {   // a big pellet was eaten; we already played our own
       if ((m.id | 0) === S.id || !S.lvl) break;
@@ -399,7 +419,25 @@ function checkHighFives() {
 }
 function die(px, py) {
   S.alive = false; S.deadT = 1.4; send({ t: 'die' }); A.sfx('die');
-  MazeFX.sparks(px, py, S.color, 40, 9, 0.9); MazeFX.ring(px, py, '#ff4d5e', 3, 0.6); MazeFX.flash('#ff4d5e', 0.35); MazeFX.shake(12); endStreak(true);
+  deathFx(S.dfx, px, py, MazeModels.colorAt(S.paint, S.time), true);
+  MazeFX.flash('#ff4d5e', 0.35); MazeFX.shake(12); endStreak(true);
+}
+/** Exit effects, unlocked by player level. mine: louder for your own. */
+function deathFx(kind, x, y, col, mine) {
+  const id = (M.DEATHFX[kind | 0] || M.DEATHFX[0]).id, n = mine ? 1 : 0.6;
+  switch (id) {
+    case 'shatter': MazeFX.burst(x, y, { colors: [col, shade(col, 0.4), shade(col, -0.3)], n: 46 * n, speed: 7, life: 0.9, size: 0.09, shape: 'sq', g: 14, drag: 1 }); break;
+    case 'confetti': MazeFX.burst(x, y, { colors: ['#ffcc33', '#ff4d5e', '#41e0f0', '#7ee081', '#ff9ad5', '#b48cff'], n: 60 * n, speed: 9, life: 1.2, size: 0.08, shape: 'sq', g: 10, drag: 2.2, up: 6 }); if (mine) A.sfx('clap'); break;
+    case 'blackhole': MazeFX.swirl(x, y, [col, '#b44dff', '#ffffff'], 60 * n, 2.6, 1); MazeFX.ring(x, y, '#b44dff', 1.2, 0.9); break;
+    case 'firework':
+      MazeFX.burst(x, y, { colors: ['#ffffff'], n: 10 * n, speed: 3, life: 0.35, size: 0.06, dir: -Math.PI / 2, spread: 0.4 });
+      setTimeout(() => { MazeFX.burst(x, y - 1.2, { colors: [col, '#ffcc33', '#ffffff'], n: 70 * n, speed: 8, life: 1.1, size: 0.07, shape: 'star', g: 3, drag: 2 }); MazeFX.ring(x, y - 1.2, col, 2.6, 0.5); if (mine) A.sfx('bomb'); }, 300);
+      break;
+    case 'glitch': MazeFX.burst(x, y, { colors: ['#00f0ff', '#ff2bd6', '#fcee0a'], n: 26 * n, speed: 10, life: 0.5, size: 0.1, shape: 'bar', drag: 6, spread: 0.3 });
+      MazeFX.burst(x, y, { colors: ['#00f0ff', '#ff2bd6'], n: 26 * n, speed: 10, life: 0.5, size: 0.1, shape: 'bar', drag: 6, dir: Math.PI, spread: 0.3 }); if (mine) A.sfx('hacker'); break;
+    case 'ghostly': MazeFX.burst(x, y, { colors: ['#e8ecff'], n: 1, speed: 0.2, life: 1.6, size: 0.2, shape: 'soul', g: -1.5, drag: 0.5, up: 0.5 }); MazeFX.sparks(x, y, '#e8ecff', 14 * n, 4, 0.6); break;
+    default: MazeFX.sparks(x, y, col, 40 * n, 9, 0.9); MazeFX.ring(x, y, '#ff4d5e', 3, 0.6);
+  }
 }
 function checkGhosts() {
   const [px, py] = M.entPos(S.me);
@@ -540,7 +578,7 @@ async function openProfile(uid) {
   const g = $('pfAv').getContext('2d'); g.clearRect(0, 0, 160, 160);
   MazeModels.draw(g, looksOf(pr.name, favIdx), 80, 84, 52, M.MODELS[favIdx].colors[0], 0, 0.45, 0);
   const st = $('pfStats'); st.textContent = '';
-  for (const [k, v] of [['Best score', (pr.best | 0).toLocaleString()], ['Highest level', pr.bestLevel || '–'], ['Levels cleared', pr.cleared || 0], ['Games', pr.games || 0],
+  for (const [k, v] of [['Player level', M.playerLevel(pr.xp | 0) + ' · ' + (pr.xp | 0).toLocaleString() + ' XP'], ['Best score', (pr.best | 0).toLocaleString()], ['Highest level', pr.bestLevel || '–'], ['Levels cleared', pr.cleared || 0], ['Games', pr.games || 0],
     ['Favourite', pr.fav ? (M.MODELS[favIdx] || {}).name : '–']]) {
     const d = document.createElement('div'); const b = document.createElement('b'); b.textContent = v; const s = document.createElement('span'); s.className = 'k'; s.textContent = k; d.append(b, s); st.appendChild(d);
   }
@@ -607,6 +645,68 @@ function toast(title, text, kind = '') {
   setTimeout(() => t.classList.add('out'), 4200); setTimeout(() => t.remove(), 4800);
 }
 
+/* ---------- player level, trails and exit effects ----------
+   XP is earned by accounts (logged in with Discord); the server checks unlocks when you join. */
+const PROG = { discord: false };
+const myLevel = () => (ME.user ? M.playerLevel(ME.user.xp | 0) : 0);
+S.trail = Math.max(0, parseInt(store.get('mm.trail'), 10) || 0); S.dfx = Math.max(0, parseInt(store.get('mm.dfx'), 10) || 0);
+function showLevel() {
+  $('progBox').hidden = !PROG.discord;
+  if (!PROG.discord) return;
+  const lv = myLevel(), xp = ME.user ? ME.user.xp | 0 : 0;
+  setTxt('plvBadge', lv || '–'); $('plvBadge').classList.toggle('guest', !ME.user);
+  if (!ME.user) { setTxt('plvName', 'Guest'); setTxt('xpTxt', ''); $('xpFill').style.width = '0%'; }
+  else if (lv >= M.MAX_PLEVEL) { setTxt('plvName', 'Player level ' + lv); setTxt('xpTxt', xp.toLocaleString() + ' XP · max level'); $('xpFill').style.width = '100%'; }
+  else {
+    const a = M.xpFor(lv), b = M.xpFor(lv + 1), k = (xp - a) / (b - a);
+    setTxt('plvName', 'Player level ' + lv); setTxt('xpTxt', (xp - a).toLocaleString() + ' / ' + (b - a).toLocaleString() + ' XP');
+    $('xpFill').style.width = (k * 100).toFixed(1) + '%'; $('xpBar').setAttribute('aria-valuenow', String(Math.round(k * 100)));
+  }
+  const next = [...M.TRAILS, ...M.DEATHFX].filter(c => c.at > lv).sort((x, y) => x.at - y.at)[0];
+  setTxt('progHint', !ME.user ? 'Log in with Discord to earn XP from every game, level up and unlock trails and exit effects.'
+    : next ? 'Next unlock at level ' + next.at + ': ' + next.name + '. Achievements and challenges give big XP boosts.' : 'Everything unlocked. Show it off.');
+  if (buildCosmetics.lv !== lv) buildCosmetics();
+}
+function buildCosmetics() {
+  const lv = myLevel(); buildCosmetics.lv = lv;
+  for (const [box, list, key, store_] of [['trailPick', M.TRAILS, 'trail', 'mm.trail'], ['dfxPick', M.DEATHFX, 'dfx', 'mm.dfx']]) {
+    if (!ME.user && S[key]) S[key] = 0;
+    if (ME.user && list[S[key]] && list[S[key]].at > lv) S[key] = 0;
+    const el = $(box); el.textContent = '';
+    list.forEach((c, i) => {
+      const open = c.at <= Math.max(1, lv), b = document.createElement('button'); b.type = 'button';
+      b.className = 'cos' + (i === S[key] ? ' on' : '') + (open ? '' : ' locked'); b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(i === S[key]));
+      b.textContent = c.name; b.title = open ? c.name : 'Reach player level ' + c.at + ' to unlock';
+      if (!open) { const l = document.createElement('small'); l.textContent = 'Lv ' + c.at; b.appendChild(l); }
+      b.addEventListener('click', () => {
+        if (!open) { flashLock(b); return; }
+        S[key] = i; store.set(store_, String(i)); buildCosmetics(); A.unlock(); A.sfx('eat');
+      });
+      el.appendChild(b);
+    });
+  }
+}
+/* ---------- daily and weekly challenges (title screen tab) ---------- */
+function untilText(ms) { const h = Math.max(0, ms) / 36e5; return h >= 48 ? Math.floor(h / 24) + ' days' : h >= 1 ? Math.floor(h) + ' h ' + Math.floor((h % 1) * 60) + ' min' : Math.ceil(h * 60) + ' min'; }
+async function loadChallenges() {
+  let st; try { st = await getJSON('api/challenges'); } catch (e) { return; }
+  for (const [list, el, ends, label, xp] of [[st.day, 'chalDay', 'chalDayEnds', 'New ones in ', st.xp.daily], [st.week, 'chalWeek', 'chalWeekEnds', 'Resets in ', st.xp.weekly]]) {
+    setTxt(ends, label + untilText(list.ends - Date.now()));
+    const ul = $(el); ul.textContent = '';
+    for (const c of list.list) {
+      const li = document.createElement('li'); li.className = 'chal' + (c.done ? ' done' : '');
+      const top = document.createElement('div'); top.className = 'chal-top';
+      const t = document.createElement('b'); t.textContent = c.text; const r = document.createElement('span'); r.className = 'chal-xp'; r.textContent = c.done ? 'Done ✓' : '+' + xp + ' XP';
+      top.append(t, r);
+      const bar = document.createElement('div'); bar.className = 'xpbar'; const fill = document.createElement('i'); fill.style.width = Math.min(100, c.value * 100 / c.goal).toFixed(1) + '%'; bar.appendChild(fill);
+      const n = document.createElement('small'); n.className = 'hint'; n.textContent = st.loggedIn ? c.value.toLocaleString() + ' / ' + c.goal.toLocaleString() : '';
+      li.append(top, bar, n); ul.appendChild(li);
+    }
+  }
+  setTxt('chalHint', st.loggedIn ? 'Everyone on this server gets the same challenges. Finish one for bonus XP.' : 'Log in with Discord to track your progress and earn XP. Everyone gets the same challenges.');
+}
+setInterval(() => { if (!S.inGame && !$('paneChal').hidden) loadChallenges(); }, 15000);
+
 /** Blue verified tick for names claimed by a Discord account. */
 const BADGE_PATH = (() => {   // a 12-point scalloped rosette
   let d = ''; for (let i = 0; i < 24; i++) { const a = (i / 24) * Math.PI * 2 - Math.PI / 2, r = i % 2 ? 9.2 : 11.6; d += (i ? 'L' : 'M') + (12 + Math.cos(a) * r).toFixed(2) + ' ' + (12 + Math.sin(a) * r).toFixed(2); }
@@ -635,6 +735,7 @@ function showAccount(me) {
     if (clearedLevel > (ME.user.cleared | 0) || bestLevel > (ME.user.best | 0))
       fetch('api/me/progress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cleared: clearedLevel, best: bestLevel }) }).catch(() => {});
   } else $('nameIn').title = '';
+  PROG.discord = !!(me && me.discord); showLevel(); buildCosmetics();
 }
 async function saveAccountName() {
   if (!ME.user) return;
@@ -685,12 +786,13 @@ const isDisco = nm => String(nm || '').trim().toLowerCase() === 'disco';
 const looksOf = (nm, mdl) => eggOf(nm) || mdl;
 /* Title screen tabs: Join a game / New maze / Top scores */
 function setTab(name) {
-  for (const [id, pane] of [['tabJoin', 'paneJoin'], ['tabNew', 'paneNew'], ['tabScores', 'paneScores']]) {
+  for (const [id, pane] of [['tabJoin', 'paneJoin'], ['tabNew', 'paneNew'], ['tabScores', 'paneScores'], ['tabChal', 'paneChal']]) {
     const on = id === 'tab' + name[0].toUpperCase() + name.slice(1);
     $(id).classList.toggle('on', on); $(id).setAttribute('aria-selected', on ? 'true' : 'false'); $(pane).hidden = !on;
   }
+  if (name === 'chal') loadChallenges();
 }
-for (const [id, name] of [['tabJoin', 'join'], ['tabNew', 'new'], ['tabScores', 'scores']]) $(id).addEventListener('click', () => { S.tabPicked = true; setTab(name); });
+for (const [id, name] of [['tabJoin', 'join'], ['tabNew', 'new'], ['tabScores', 'scores'], ['tabChal', 'chal']]) $(id).addEventListener('click', () => { S.tabPicked = true; setTab(name); });
 $('toNewBtn').addEventListener('click', () => { S.tabPicked = true; setTab('new'); });
 $('paneNew').addEventListener('focusin', () => { S.tabPicked = true; });
 /* Big animated portrait of the chosen character on the title screen. */
@@ -886,7 +988,66 @@ function drawGhost(x, y, T, col, st, d, flash, scale = 1) {
   }
 }
 
-const trail = [];
+const trail = [], TRAIL_KEEP = 0.5;
+/* Trails (unlocked by player level). pts: [{ x, y, t }] newest last, in tiles. */
+function drawTrail(pts, kind, col, T, strength) {
+  if (!pts.length) return;
+  const id = (M.TRAILS[kind | 0] || M.TRAILS[0]).id, now = S.time, X = q => (q.x + .5) * T, Y = q => (q.y + .5) * T;
+  const age = (q, life) => 1 - (now - q.t) / life;
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const line = (life, width, colorOf) => {   // segments that thin out and fade with age
+    for (let i = 1; i < pts.length; i++) {
+      const a = age(pts[i], life); if (a <= 0) continue;
+      const p0 = pts[i - 1], p1 = pts[i]; if (Math.abs(p1.x - p0.x) + Math.abs(p1.y - p0.y) > 2) continue;   // wrapped through a tunnel
+      ctx.globalAlpha = a * strength * 1.4; ctx.strokeStyle = colorOf(i, a); ctx.lineWidth = Math.max(1, T * width * a);
+      ctx.beginPath(); ctx.moveTo(X(p0), Y(p0)); ctx.lineTo(X(p1), Y(p1)); ctx.stroke();
+    }
+  };
+  switch (id) {
+    case 'sparks':
+      for (const q of pts) { const a = age(q, 0.35); if (a <= 0) continue; const j = (q.t * 997) % 1, k = (q.t * 557) % 1;
+        ctx.globalAlpha = a * strength * 1.8; ctx.fillStyle = j < 0.5 ? '#fff3b0' : col; ctx.beginPath(); ctx.arc(X(q) + (j - 0.5) * T * 0.7 * (1 - a), Y(q) + (k - 0.5) * T * 0.7 * (1 - a), Math.max(1, T * 0.06), 0, 7); ctx.fill(); }
+      break;
+    case 'ribbon': line(0.4, 0.42, () => col); break;
+    case 'rainbow': line(0.5, 0.36, (i) => hsl((i * 14 + now * 240) % 360, 95, 60)); break;
+    case 'bubbles':
+      ctx.globalCompositeOperation = 'source-over';
+      for (let i = 0; i < pts.length; i += 3) { const q = pts[i], a = age(q, 0.5); if (a <= 0) continue;
+        ctx.globalAlpha = a * strength * 1.6; ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, T * 0.04);
+        ctx.beginPath(); ctx.arc(X(q) + Math.sin(q.t * 40) * T * 0.15, Y(q) - (1 - a) * T * 0.5, T * (0.08 + 0.12 * ((q.t * 13) % 1)), 0, 7); ctx.stroke(); }
+      break;
+    case 'pixels':
+      for (const q of pts) { const a = age(q, 0.45); if (a <= 0) continue; const g = T * 0.2, px = Math.round(X(q) / g) * g, py = Math.round(Y(q) / g) * g;
+        ctx.globalAlpha = a * strength * 1.4; ctx.fillStyle = (q.t * 31 | 0) % 3 ? col : '#ffffff'; ctx.fillRect(px - g / 2, py - g / 2, g * 0.85, g * 0.85); }
+      break;
+    case 'comet':
+      line(0.5, 0.75, () => col);
+      { const h = pts[pts.length - 1]; ctx.globalAlpha = strength; blit(glowSprite(col, T * 0.25, T * 0.7), X(h), Y(h)); }
+      break;
+    case 'stardust':
+      ctx.lineWidth = Math.max(1, T * 0.04);
+      for (let i = 0; i < pts.length; i += 2) { const q = pts[i], a = age(q, 0.5); if (a <= 0) continue; const tw = 0.5 + 0.5 * Math.sin(now * 20 + q.t * 50), r = T * 0.16 * tw;
+        const x = X(q) + Math.sin(q.t * 70) * T * 0.25, y = Y(q) + Math.cos(q.t * 53) * T * 0.25;
+        ctx.globalAlpha = a * strength * 1.8; ctx.strokeStyle = i % 4 ? '#ffffff' : col;
+        ctx.beginPath(); ctx.moveTo(x - r, y); ctx.lineTo(x + r, y); ctx.moveTo(x, y - r); ctx.lineTo(x, y + r); ctx.stroke(); }
+      break;
+    case 'lightning': {
+      const seg = pts.filter(q => age(q, 0.3) > 0); if (seg.length < 2) break;
+      for (const [w, c, al] of [[0.22, col, 0.5], [0.07, '#ffffff', 1]]) {
+        ctx.globalAlpha = strength * 1.6 * al; ctx.strokeStyle = c; ctx.lineWidth = Math.max(1, T * w);
+        ctx.beginPath(); let first = true, prev = null;
+        for (let i = 0; i < seg.length; i += 2) { const q = seg[i]; if (prev && Math.abs(q.x - prev.x) + Math.abs(q.y - prev.y) > 2) first = true;
+          const j = (Math.floor(now * 30) * 7 + i * 13) % 11 / 11 - 0.5, x = X(q) + j * T * 0.4, y = Y(q) - j * T * 0.4;
+          first ? ctx.moveTo(x, y) : ctx.lineTo(x, y); first = false; prev = q; }
+        ctx.stroke();
+      }
+      break;
+    }
+    default:   // the classic soft glow
+      for (const q of pts) { const a = age(q, 0.22); if (a <= 0) continue; ctx.globalAlpha = a * strength; blit(glowSprite(col, T * 0.18, T * 0.3), X(q), Y(q), 0.6 + a * 0.5); }
+  }
+  ctx.restore();
+}
 function render(dt) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   const lv = S.lvl; if (!lv) return;
@@ -962,10 +1123,8 @@ function render(dt) {
       const pc = MazeModels.colorAt(p.paint, S.time), moved = !o.lx || Math.hypot(o.x - o.lx, o.y - o.ly) > 0.01;
       o.lx = o.x; o.ly = o.y; o.trail = o.trail || [];
       if (moved && S.ph === 0) o.trail.push({ x: o.x, y: o.y, t: S.time });
-      while (o.trail.length && S.time - o.trail[0].t > 0.22) o.trail.shift();
-      ctx.globalCompositeOperation = 'lighter';
-      for (const q of o.trail) { const a = 1 - (S.time - q.t) / 0.22; ctx.globalAlpha = a * 0.4; blit(glowSprite(pc, T * 0.18, T * 0.3), (q.x + .5) * T, (q.y + .5) * T, 0.6 + a * 0.5); }
-      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      while (o.trail.length && S.time - o.trail[0].t > TRAIL_KEEP) o.trail.shift();
+      drawTrail(o.trail, (S.roster.get(p.id) || {}).trail | 0, pc, T, 0.4);
       drawPac(o.x, o.y, T, p.paint, p.f, .06 + .22 * Math.abs(Math.sin(S.time * 12 + p.id)), true, looksOf(p.nm, p.mdl));
       ctx.strokeStyle = pc; ctx.globalAlpha = .3 + beat * .25; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc((o.x + .5) * T, (o.y + .5) * T, T * (.62 + beat * .08), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
       ctx.font = '600 ' + Math.max(10, Math.round(T * .42)) + 'px "IBM Plex Mono", ui-monospace, monospace';
@@ -975,12 +1134,10 @@ function render(dt) {
     const [px, py] = M.entPos(S.me);
     // motion trail
     if (S.alive && S.me.d >= 0 && S.ph === 0) trail.push({ x: px, y: py, t: S.time }); 
-    while (trail.length && S.time - trail[0].t > 0.22) trail.shift();
+    while (trail.length && S.time - trail[0].t > TRAIL_KEEP) trail.shift();
     if (!S.over && S.alive) {
-      ctx.globalCompositeOperation = 'lighter';
-      const myCol = MazeModels.colorAt(S.paint, S.time), tcol = S.streakTier >= 3 ? '#ff7a1a' : myCol;
-      for (const p of trail) { const a = 1 - (S.time - p.t) / 0.22; ctx.globalAlpha = a * (S.streakTier >= 2 ? 0.7 : 0.4); blit(glowSprite(tcol, T * 0.18, T * 0.3), (p.x + .5) * T, (p.y + .5) * T, 0.6 + a * 0.5); }
-      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      const myCol = MazeModels.colorAt(S.paint, S.time), tcol = S.streakTier >= 3 && !S.trail ? '#ff7a1a' : myCol;
+      drawTrail(trail, S.trail, tcol, T, S.streakTier >= 2 ? 0.7 : 0.45);
     }
     if (!S.over) {
       if (!S.alive) { const prog = 1 - Math.max(0, S.deadT) / 1.4; if (prog < .95) drawPac(px, py, T, S.paint, S.me.face, .3, true, looksOf(S.name, S.model), prog); }
@@ -1110,8 +1267,9 @@ function hud(dt, now) {
   }
   const regOf = id => !!(S.roster.get(id) || {}).reg;
   const uidOf = id => (S.roster.get(id) || {}).uid | 0;
-  const rows = [{ nm: (S.roster.get(S.id) || {}).nm || S.name, col: S.color, sc: S.sc, al: S.alive && !S.over, me: true, host: S.host === S.id, reg: regOf(S.id), uid: uidOf(S.id) }];
-  for (const p of S.players) rows.push({ nm: p.nm, col: p.col, sc: p.sc, al: p.al && !p.over, me: false, host: p.id === S.host, reg: regOf(p.id), uid: uidOf(p.id) });
+  const plvOf = id => (S.roster.get(id) || {}).plv | 0;
+  const rows = [{ nm: (S.roster.get(S.id) || {}).nm || S.name, col: S.color, sc: S.sc, al: S.alive && !S.over, me: true, host: S.host === S.id, reg: regOf(S.id), uid: uidOf(S.id), plv: plvOf(S.id) }];
+  for (const p of S.players) rows.push({ nm: p.nm, col: p.col, sc: p.sc, al: p.al && !p.over, me: false, host: p.id === S.host, reg: regOf(p.id), uid: uidOf(p.id), plv: plvOf(p.id) });
   rows.sort((a, b) => b.sc - a.sc);
   setTxt('pCount', rows.length);
   const ol = $('board'); ol.textContent = '';
@@ -1120,6 +1278,7 @@ function hud(dt, now) {
     const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = r.col;
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.nm;
     if (r.reg) { nm.appendChild(verifiedBadge()); if (r.uid) { nm.dataset.uid = r.uid; nm.classList.add('linky'); } }
+    if (r.plv) { const lv = document.createElement('span'); lv.className = 'plv'; lv.textContent = 'Lv ' + r.plv; lv.title = 'Player level ' + r.plv; nm.append(' ', lv); }
     if (r.me || r.host) { const sm = document.createElement('small'); sm.textContent = [r.host ? 'host' : '', r.me ? 'you' : ''].filter(Boolean).join(' · '); nm.appendChild(sm); }
     const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = r.sc.toLocaleString();
     li.append(sw, nm, sc); ol.appendChild(li);
@@ -1625,7 +1784,7 @@ function renderLobbyPlayers() {
     MazeModels.draw(cv.getContext('2d'), looksOf(r.nm, id === S.id ? S.model : r.mdl | 0), 32, 34, 22, paint, 0, 0.45, 0);
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.nm;
     if (r.reg) { nm.appendChild(verifiedBadge()); if (r.uid) { nm.dataset.uid = r.uid; nm.classList.add('linky'); } }
-    const tags = [id === S.host ? 'Host' : '', id === S.id ? 'You' : ''].filter(Boolean);
+    const tags = [r.plv ? 'Lv ' + r.plv : '', id === S.host ? 'Host' : '', id === S.id ? 'You' : ''].filter(Boolean);
     li.append(cv, nm);
     for (const t of tags) { const c = document.createElement('span'); c.className = 'tag' + (t === 'Host' ? ' host' : ''); c.textContent = t; li.appendChild(c); }
     ul.appendChild(li);

@@ -247,8 +247,69 @@
     { id: 'boss',      name: 'Boss Slayer',  desc: 'Help defeat a boss ghost' },
     { id: 'fruit',     name: 'Fruit Picker', desc: 'Grab a bonus fruit' },
     { id: 'daily',     name: 'Daily Driver', desc: 'Set a score on the daily maze' },
-    { id: 'versus',    name: 'Champion',     desc: 'Win a versus level' }
+    { id: 'versus',    name: 'Champion',     desc: 'Win a versus level' },
+    { id: 'chal',      name: 'Challenger',   desc: 'Complete a daily challenge' },
+    { id: 'chalw',     name: 'Week Warrior', desc: 'Complete a weekly challenge' },
+    { id: 'plevel10',  name: 'Rising Star',  desc: 'Reach player level 10' },
+    { id: 'plevel25',  name: 'Veteran',      desc: 'Reach player level 25' }
   ];
-  return { FRUITS, fruitFor, FRUIT_TIME, isBossLevel, BOSS_HP, ACHIEVEMENTS, DIRS, POWERUPS, POWERUP_FROM_LEVEL, VOTE_TIME, SPEED_STEP, PU_SPIN, PU_HOLD, NUKE_WARN, NUKE_TIME, rollPowerup, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, ghostMult, speedStep, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
+  /* ---------- player levels (Discord accounts) ----------
+     XP comes from playing; reaching level n takes 50·n·(n-1) XP in total (level 2 at 100,
+     level 10 at 4,500, level 50 at 122,500). Achievements and challenges pay big chunks. */
+  const XP = { pellet: 1, ghost: 25, boss: 100, fruit: 50, crate: 20, highfive: 10, revive: 60, clear: L => 100 + 10 * L, ach: 250, daily: 150, weekly: 500 };
+  const MAX_PLEVEL = 100;
+  const xpFor = n => 50 * n * (n - 1);   // total XP needed to reach player level n
+  function playerLevel(xp) { let n = 1; while (n < MAX_PLEVEL && xp >= xpFor(n + 1)) n++; return n; }
+  /* Cosmetics unlocked by player level: a trail behind you and how you go when you're caught. */
+  const TRAILS = [
+    { id: 'glow',      name: 'Glow',         at: 1 },
+    { id: 'sparks',    name: 'Sparks',       at: 2 },
+    { id: 'ribbon',    name: 'Neon ribbon',  at: 5 },
+    { id: 'rainbow',   name: 'Rainbow wake', at: 10 },
+    { id: 'bubbles',   name: 'Bubbles',      at: 15 },
+    { id: 'pixels',    name: 'Pixel stream', at: 20 },
+    { id: 'comet',     name: 'Comet',        at: 30 },
+    { id: 'stardust',  name: 'Stardust',     at: 40 },
+    { id: 'lightning', name: 'Lightning',    at: 50 }
+  ];
+  const DEATHFX = [
+    { id: 'pop',       name: 'Pop',            at: 1 },
+    { id: 'shatter',   name: 'Pixel shatter',  at: 3 },
+    { id: 'confetti',  name: 'Confetti',       at: 8 },
+    { id: 'blackhole', name: 'Black hole',     at: 12 },
+    { id: 'firework',  name: 'Firework',       at: 18 },
+    { id: 'glitch',    name: 'Glitch',         at: 25 },
+    { id: 'ghostly',   name: 'Ghostly rise',   at: 35 }
+  ];
+  /** Index of a cosmetic the player may use at this level (0 if locked or unknown). */
+  const pickCosmetic = (list, i, plevel) => ((i | 0) > 0 && (i | 0) < list.length && list[i | 0].at <= (plevel | 0) ? i | 0 : 0);
+  /* Daily and weekly challenges: three of each, the same for everyone, picked from the period's key.
+     sum: add up over the period; max: best single value. d / w: the goal for a daily / weekly (0 = not used). */
+  const CHALLENGES = [
+    { id: 'pellets',  stat: 'pellets',  kind: 'sum', d: 1500, w: 10000, text: n => 'Eat ' + n.toLocaleString('en') + ' pellets' },
+    { id: 'ghosts',   stat: 'ghosts',   kind: 'sum', d: 15,   w: 100,   text: n => 'Eat ' + n + ' ghosts' },
+    { id: 'clears',   stat: 'clears',   kind: 'sum', d: 5,    w: 30,    text: n => 'Clear ' + n + ' levels' },
+    { id: 'deep',     stat: 'deep',     kind: 'max', d: 6,    w: 12,    text: n => 'Clear level ' + n + ' or higher' },
+    { id: 'fruit',    stat: 'fruit',    kind: 'sum', d: 3,    w: 15,    text: n => 'Grab ' + n + ' bonus fruits' },
+    { id: 'crates',   stat: 'crates',   kind: 'sum', d: 3,    w: 20,    text: n => 'Find ' + n + ' loot crates' },
+    { id: 'highfive', stat: 'highfive', kind: 'sum', d: 5,    w: 25,    text: n => 'High five other players ' + n + ' times' },
+    { id: 'streak',   stat: 'streak',   kind: 'max', d: 60,   w: 150,   text: n => 'Hit a ×' + n + ' pellet streak' },
+    { id: 'revive',   stat: 'revive',   kind: 'sum', d: 0,    w: 8,     text: n => 'Revive teammates ' + n + ' times' },
+    { id: 'boss',     stat: 'boss',     kind: 'sum', d: 0,    w: 6,     text: n => 'Land ' + n + ' hits on boss ghosts' },
+    { id: 'versus',   stat: 'versus',   kind: 'sum', d: 0,    w: 10,    text: n => 'Win ' + n + ' versus levels' },
+    { id: 'dailyrun', stat: 'dailyrun', kind: 'sum', d: 1,    w: 4,     text: n => n === 1 ? 'Set a score on the daily maze' : 'Set a score on the daily maze on ' + n + ' days' }
+  ];
+  /** The challenges for a period key ('day:2026-11-08' or 'week:2026-W45'): [{ id, stat, kind, goal, text }]. */
+  function challengesFor(period, n = 3) {
+    const weekly = String(period).startsWith('week:'), rnd = mulberry32(xmur3('chal|' + period)());
+    const pool = CHALLENGES.filter(c => (weekly ? c.w : c.d) > 0).slice(), out = [];
+    while (out.length < n && pool.length) {
+      const c = pool.splice(rnd() * pool.length | 0, 1)[0], goal = weekly ? c.w : c.d;
+      out.push({ id: c.id, stat: c.stat, kind: c.kind, goal, text: c.text(goal) });
+    }
+    return out;
+  }
+
+  return { XP, MAX_PLEVEL, xpFor, playerLevel, TRAILS, DEATHFX, pickCosmetic, CHALLENGES, challengesFor, FRUITS, fruitFor, FRUIT_TIME, isBossLevel, BOSS_HP, ACHIEVEMENTS, DIRS, POWERUPS, POWERUP_FROM_LEVEL, VOTE_TIME, SPEED_STEP, PU_SPIN, PU_HOLD, NUKE_WARN, NUKE_TIME, rollPowerup, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, ghostMult, speedStep, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
     genLevel, wrapX, canGo, entPos, getBit, setBit, toB64, fromB64 };
 });

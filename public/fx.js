@@ -38,6 +38,19 @@ function coins(x, y, n = 6, speed = 7) {
     world.push({ k: 'coin', x, y, vx: Math.cos(a) * speed * rnd(0.4, 1), vy: Math.sin(a) * speed * rnd(0.6, 1.1), g: 18, life: 0, max: rnd(0.8, 1.2), size: rnd(0.2, 0.28), spin: rnd(0, 6), spinV: rnd(8, 16), drag: 0.6 });
   }
 }
+/** General particles for exit effects. shape: 'sq' | 'star' | 'dot' | 'bar' | 'soul'. colors: one or a list. */
+function burst(x, y, { colors = ['#ffffff'], n = 20, speed = 6, life = 0.7, size = 0.12, shape = 'dot', g = 0, drag = 2.5, up = 0, spread = Math.PI * 2, dir = 0 } = {}) {
+  const cl = [].concat(colors);
+  for (let i = 0; i < cap(n) && room(); i++) {
+    const a = dir + (Math.random() - 0.5) * spread, s = speed * rnd(0.35, 1);
+    world.push({ k: 'p', shape, x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - up, g, drag, life: 0, max: life * rnd(0.7, 1.2), size: size * rnd(0.7, 1.3), color: pick(cl), spin: rnd(0, 6), spinV: rnd(-8, 8) });
+  }
+}
+/** Particles that spiral into (x, y): a black hole. */
+function swirl(x, y, colors, n = 40, radius = 2.4, life = 0.9) {
+  const cl = [].concat(colors);
+  for (let i = 0; i < cap(n) && room(); i++) world.push({ k: 'orb', cx: x, cy: y, a: rnd(0, Math.PI * 2), r: radius * rnd(0.5, 1), r0: 0, x, y, life: 0, max: life * rnd(0.7, 1.1), size: rnd(0.05, 0.11), color: pick(cl) });
+}
 function ring(x, y, color, radius = 2.5, life = 0.45) { if (room()) world.push({ k: 'ring', x, y, life: 0, max: life, r: radius, color }); }
 function text(x, y, str, color = '#ffffff', size = 0.7) { texts.push({ x, y, str, color, size, life: 0, max: 1.1 }); }
 
@@ -308,6 +321,7 @@ function update(dt) {
     const p = world[i]; p.life += dt;
     if (p.life >= p.max) { world.splice(i, 1); continue; }
     if (p.k === 'ring') continue;
+    if (p.k === 'orb') { const k = p.life / p.max; p.a += dt * (4 + 10 * k); const r = p.r * (1 - k); p.x = p.cx + Math.cos(p.a) * r; p.y = p.cy + Math.sin(p.a) * r; continue; }
     const d = Math.exp(-(p.drag || 0) * dt); p.vx *= d; p.vy *= d;
     if (p.g) p.vy += p.g * dt;
     p.x += p.vx * dt; p.y += p.vy * dt;
@@ -354,6 +368,24 @@ function drawWorld(ctx, T) {
       ctx.globalAlpha = k; ctx.fillStyle = p.color;
       const r = Math.max(1, p.size * T * (0.6 + k * 0.6));
       ctx.beginPath(); ctx.arc((p.x + 0.5) * T, (p.y + 0.5) * T, r, 0, Math.PI * 2); ctx.fill();
+    } else if (p.k === 'orb') {
+      ctx.globalAlpha = Math.min(1, (1 - k) * 2); ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc((p.x + 0.5) * T, (p.y + 0.5) * T, Math.max(1, p.size * T), 0, Math.PI * 2); ctx.fill();
+    } else if (p.k === 'p') {
+      const X = (p.x + 0.5) * T, Y = (p.y + 0.5) * T, r = Math.max(1, p.size * T);
+      ctx.globalAlpha = Math.min(1, k * 1.6); ctx.fillStyle = p.color; ctx.strokeStyle = p.color;
+      if (p.shape === 'sq') ctx.fillRect(X - r, Y - r, r * 2, r * 2);
+      else if (p.shape === 'bar') ctx.fillRect(X - r * 4, Y - r * 0.5, r * 8, r);
+      else if (p.shape === 'star') { ctx.lineWidth = Math.max(1, r * 0.5); ctx.beginPath(); ctx.moveTo(X - r * 1.6, Y); ctx.lineTo(X + r * 1.6, Y); ctx.moveTo(X, Y - r * 1.6); ctx.lineTo(X, Y + r * 1.6); ctx.stroke(); }
+      else if (p.shape === 'soul') {
+        ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = Math.min(0.8, k);
+        const w = r * 2.4, wob = Math.sin(p.life * 9) * r * 0.4;
+        ctx.beginPath(); ctx.arc(X + wob, Y, w, Math.PI, 0); ctx.lineTo(X + wob + w, Y + w * 1.2);
+        for (let q = 0; q < 3; q++) { const x0 = X + wob + w - q * (2 * w / 3); ctx.lineTo(x0 - w / 3, Y + w * 0.9); ctx.lineTo(x0 - 2 * w / 3, Y + w * 1.2); }
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#0a0c1c'; ctx.beginPath(); ctx.arc(X + wob - w * 0.35, Y - w * 0.1, w * 0.18, 0, 7); ctx.arc(X + wob + w * 0.35, Y - w * 0.1, w * 0.18, 0, 7); ctx.fill();
+        ctx.globalCompositeOperation = 'lighter';
+      } else { ctx.beginPath(); ctx.arc(X, Y, r, 0, Math.PI * 2); ctx.fill(); }
     } else if (p.k === 'ring') {
       const e = 1 - Math.pow(k, 3);
       ctx.globalAlpha = k * 0.9; ctx.strokeStyle = p.color; ctx.lineWidth = Math.max(1.5, T * 0.18 * k);
@@ -471,7 +503,7 @@ function clear() { rumble = 0; pslot = null; world.length = 0; texts.length = 0;
 
 window.MazeFX = {
   icon, fruit, powerSlot, get slotActive() { return !!pslot; },
-  sparks, coins, ring, text, shake, setRumble, flash, bigText, confetti, reels, update, drawWorld, drawScreen, clear,
+  sparks, coins, ring, text, burst, swirl, shake, setRumble, flash, bigText, confetti, reels, update, drawWorld, drawScreen, clear,
   get shakeX() { return shakeX; }, get shakeY() { return shakeY; }, get reelActive() { return !!reel; }, reduced
 };
 })();

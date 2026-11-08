@@ -76,7 +76,7 @@ function openDb() {
     fs.renameSync(SCORES_FILE, SCORES_FILE + '.imported');
     console.log(`[db] imported ${n} scores from scores.json`);
   } catch (e) { /* no old file */ }
-  setInterval(() => { try { db.purgeSessions(); } catch (e) { /* ignore */ } }, 3600e3).unref();
+  setInterval(() => { try { db.purgeSessions(); db.purgeProgress('day:' + dayKey(), 'week:' + weekKey()); } catch (e) { /* ignore */ } }, 3600e3).unref();
   applySettings();
 }
 /* Settings saved from the admin page override the container's environment, live. */
@@ -132,8 +132,49 @@ function addScore(e) {
     if (e.daily) boards.push('day:' + e.daily);
     db.addScore({ ...e, boards });
     if (e.uid && e.model !== undefined) db.recordGame(e.uid, { sc: e.sc, lv: e.lv, model: e.model });
-    if (e.uid && e.daily && e.sc > 0) db.award(e.uid, 'daily');
+    if (e.uid && e.daily && e.sc > 0) {
+      db.award(e.uid, 'daily');
+      // counts once per day towards "play the daily maze" challenges
+      if (db.bumpChallenge(e.uid, 'day:' + dayKey(), '_dailyrun', 'max', 1, 1)) onStats(e.uid, { dailyrun: 1 });
+    }
   } catch (err) { console.warn('[db] score not saved:', err.message); }
+}
+/* ---------- XP, player levels and challenges ----------
+   The game batches what each logged-in player did (pellets, ghosts, clears...) and hands it
+   over every few seconds. Returns messages for that player: XP, level ups, challenges done. */
+const sumXp = st => ['pellet', 'ghost', 'boss', 'fruit', 'crate', 'highfive', 'revive'].reduce((n, k) => n + (st[k === 'pellet' ? 'pellets' : k === 'ghost' ? 'ghosts' : k === 'crate' ? 'crates' : k] | 0) * M.XP[k], 0)
+  + (st.clearXp | 0) + (st.ach | 0) * M.XP.ach;
+function onStats(uid, st) {
+  const out = []; let xp = sumXp(st);
+  const now = new Date();
+  for (const [period, weekly] of [['day:' + dayKey(now), false], ['week:' + weekKey(now), true]]) {
+    for (const c of M.challengesFor(period)) {
+      const v = st[c.stat] | 0; if (!v) continue;
+      if (!db.bumpChallenge(uid, period, c.id, c.kind, v, c.goal)) continue;
+      const bonus = weekly ? M.XP.weekly : M.XP.daily; xp += bonus;
+      out.push({ t: 'chal', w: weekly ? 1 : 0, text: c.text, xp: bonus });
+      const aid = weekly ? 'chalw' : 'chal';
+      if (db.award(uid, aid)) { xp += M.XP.ach; out.push({ t: 'ach', id: aid }); }
+    }
+  }
+  let { before, after } = db.addXp(uid, xp);
+  const l0 = M.playerLevel(before), l1 = M.playerLevel(after);
+  if (l1 > l0) {
+    for (const [n, aid] of [[10, 'plevel10'], [25, 'plevel25']]) if (l1 >= n && db.award(uid, aid)) { after = db.addXp(uid, M.XP.ach).after; xp += M.XP.ach; out.push({ t: 'ach', id: aid }); }
+    out.push({ t: 'lvlup', lv: M.playerLevel(after) });
+  }
+  out.push({ t: 'xp', xp: after, gain: xp });
+  return out;
+}
+/** Today's and this week's challenges, with the player's progress if they're logged in. */
+function challengeState(uid) {
+  const now = new Date(), tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7 - ((now.getDay() + 6) % 7));
+  const one = (period, ends) => {
+    const got = uid ? new Map(db.challengeProgress(uid, period).map(r => [r.cid, r])) : new Map();
+    return { ends: ends.getTime(), list: M.challengesFor(period).map(c => { const r = got.get(c.id); return { id: c.id, text: c.text, goal: c.goal, value: r ? Math.min(r.value, c.goal) : 0, done: !!(r && r.done) }; }) };
+  };
+  return { day: one('day:' + dayKey(now), tomorrow), week: one('week:' + weekKey(now), monday), xp: { daily: M.XP.daily, weekly: M.XP.weekly } };
 }
 
 /* ---------- games ---------- */
@@ -151,6 +192,7 @@ function createGame(seed, key) {
   const g = new Game(seed, key, { onScore: addScore, testHooks: process.env.TEST_HOOKS === '1',
     onAchieve: (uid, id) => { try { return db.award(uid, id); } catch (e) { return false; } },
     onCleared: (uid, L) => { try { db.setProgress(uid, L, L + 1); } catch (e) { /* ignore */ } },
+    onStats,
     onLevelClear: game => {   // level 20, then every 10th: tell the Discord channel
       if (game.L >= 20 && game.L % 10 === 0) announce(`🎉 **${mdSafe(game.title || 'A maze')}** just cleared **level ${game.L}**! Players: ${[...game.players.values()].filter(p => !p.over).map(p => mdSafe(p.nm)).join(', ') || 'nobody left standing'}.`);
     },
@@ -270,7 +312,10 @@ function onSocket(ws, ip = '?', account = null) {
         g.link = linkName(g);
       }
       const look = M.pickModel(m.mdl, m.ci);   // validated character + colour
-      p = { id: nextId++, ws, uid: account ? account.uid : 0, nm, col: look.col, mdl: look.mdl, ci: look.ci, x: 0, y: 0, f: 2, al: true, sc: 0, li: 3, over: false, spawnAt: Date.now(), fid: -1, combo: 0 };
+      // trail and death effect: only what the account's player level has unlocked
+      const plv = account ? M.playerLevel(db.getXp(account.uid)) : 0;
+      p = { id: nextId++, ws, uid: account ? account.uid : 0, nm, col: look.col, mdl: look.mdl, ci: look.ci, x: 0, y: 0, f: 2, al: true, sc: 0, li: 3, over: false, spawnAt: Date.now(), fid: -1, combo: 0,
+        plv, trail: M.pickCosmetic(M.TRAILS, m.trail, plv), dfx: M.pickCosmetic(M.DEATHFX, m.dfx, plv) };
       game = g;
       g.add(p, tok);
       return;
@@ -457,7 +502,8 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'POST' && (p === '/auth/logout' || p === '/api/me/name' || p === '/api/me/progress')) { handleApiPost(req, res, p).catch(() => json(res, { error: 'failed' }, 500)); return; }
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
-  if (p === '/api/me') { const me = sessionOf(req), pr = me ? db.profile(me.uid) : null; return json(res, { discord: discordOn(), user: me ? { uid: me.uid, name: me.name, cleared: pr ? pr.cleared : 0, best: pr ? pr.bestLevel : 0 } : null }); }
+  if (p === '/api/me') { const me = sessionOf(req), pr = me ? db.profile(me.uid) : null; return json(res, { discord: discordOn(), user: me ? { uid: me.uid, name: me.name, cleared: pr ? pr.cleared : 0, best: pr ? pr.bestLevel : 0, xp: pr ? pr.xp : 0 } : null }); }
+  if (p === '/api/challenges') { const me = sessionOf(req); let st = null; try { st = challengeState(me ? me.uid : 0); } catch (e) { /* ignore */ } return st ? json(res, Object.assign(st, { loggedIn: !!me })) : json(res, { error: 'failed' }, 500); }
   if (p === '/auth/discord') {
     if (!discordOn()) { res.writeHead(404); res.end(); return; }
     const state = crypto.randomBytes(16).toString('base64url');

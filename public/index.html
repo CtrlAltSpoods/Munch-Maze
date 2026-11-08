@@ -78,12 +78,25 @@
               <div class="models" id="modelGrid" role="radiogroup" aria-labelledby="charLabel"></div>
               <div class="swatches" id="swatches" role="radiogroup" aria-label="Colour"></div>
               <p class="hint" id="unlockHint"></p>
+              <div class="prog" id="progBox" hidden>
+                <div class="plevel">
+                  <span class="lvbadge" id="plvBadge" aria-hidden="true">1</span>
+                  <div class="xpwrap">
+                    <div class="xprow"><b id="plvName">Player level 1</b><span class="hint" id="xpTxt"></span></div>
+                    <div class="xpbar" role="progressbar" aria-labelledby="plvName" id="xpBar"><i id="xpFill"></i></div>
+                  </div>
+                </div>
+                <div class="field"><span class="k" id="trailLabel">Trail</span><div class="cosm" id="trailPick" role="radiogroup" aria-labelledby="trailLabel"></div></div>
+                <div class="field"><span class="k" id="dfxLabel">Exit effect <small>(when a ghost gets you)</small></span><div class="cosm" id="dfxPick" role="radiogroup" aria-labelledby="dfxLabel"></div></div>
+                <p class="hint" id="progHint"></p>
+              </div>
             </section>
             <section class="panel play-panel" id="lobbyBox">
               <div class="tabs" role="tablist" aria-label="Play">
                 <button type="button" class="tab on" role="tab" id="tabJoin" aria-selected="true" aria-controls="paneJoin">Join a game <span class="count" id="gameCount">0</span></button>
                 <button type="button" class="tab" role="tab" id="tabNew" aria-selected="false" aria-controls="paneNew">New maze</button>
                 <button type="button" class="tab" role="tab" id="tabScores" aria-selected="false" aria-controls="paneScores">Top scores</button>
+                <button type="button" class="tab" role="tab" id="tabChal" aria-selected="false" aria-controls="paneChal">Challenges</button>
               </div>
               <div class="pane" id="paneJoin" role="tabpanel" aria-labelledby="tabJoin">
                 <div class="col-head"><h2 id="joinTitle">Open games</h2><span class="live"><i></i>Live</span></div>
@@ -154,6 +167,17 @@
                 </div>
                 <ol class="scores" id="scores"><li class="empty">No scores yet.</li></ol>
                 <p class="hint" id="boardHint">Best run per player, ever.</p>
+              </div>
+              <div class="pane chal-pane" id="paneChal" role="tabpanel" aria-labelledby="tabChal" hidden>
+                <div class="chal-group">
+                  <div class="col-head"><h2>Today</h2><span class="hint" id="chalDayEnds"></span></div>
+                  <ul class="chals" id="chalDay"></ul>
+                </div>
+                <div class="chal-group">
+                  <div class="col-head"><h2>This week</h2><span class="hint" id="chalWeekEnds"></span></div>
+                  <ul class="chals" id="chalWeek"></ul>
+                </div>
+                <p class="hint" id="chalHint">Everyone on this server gets the same challenges. Finish one for bonus XP.</p>
               </div>
             </section>
           </div>
