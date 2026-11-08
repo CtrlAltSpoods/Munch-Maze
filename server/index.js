@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const M = require('../shared/maze.js');
 const { handleUpgrade } = require('./ws.js');
 const { Game } = require('./game.js');
-const Scores = require('./scores.js');
+const DB = require('./db.js');
 
 /* ---------- configuration (environment variables) ---------- */
 const env = (k, d) => (process.env[k] === undefined || process.env[k] === '' ? d : process.env[k]);
@@ -31,11 +31,20 @@ const CFG = {
   // Behind a reverse proxy, read the client address and host from X-Forwarded-* headers.
   trustProxy: bool(env('TRUST_PROXY', 'false')),
   testMode: bool(env('TEST_MODE', 'false')),   // hosts get a menu to fire any power-up on demand
+  // Discord login (optional). Create an application at discord.com/developers, add the redirect
+  // <PUBLIC_URL>/auth/discord/callback under OAuth2, and paste its client id and secret here.
+  discordId: String(env('DISCORD_CLIENT_ID', '')).trim(),
+  discordSecret: String(env('DISCORD_CLIENT_SECRET', '')).trim(),
+  publicUrl: String(env('PUBLIC_URL', '')).trim().replace(/\/+$/, ''),   // e.g. http://10.0.10.160:8080
+  discordApi: String(env('DISCORD_API', 'https://discord.com/api')).replace(/\/+$/, ''),   // tests point this at a fake
+  discordAuthorize: String(env('DISCORD_AUTHORIZE', 'https://discord.com/oauth2/authorize')),
 };
+const discordOn = () => !!(CFG.discordId && CFG.discordSecret);
 
 const ROOT = path.join(__dirname, '..');
 const PUBLIC = path.join(ROOT, 'public');
-const SCORES_FILE = path.join(CFG.dataDir, 'scores.json');
+const SCORES_FILE = path.join(CFG.dataDir, 'scores.json');   // older versions; imported once into the database
+const DB_FILE = path.join(CFG.dataDir, 'munch-maze.db');
 
 /* ---------- data dir + privilege drop (Unraid PUID/PGID) ---------- */
 function prepareDataDir() {
@@ -44,34 +53,28 @@ function prepareDataDir() {
   if (isRoot && Number.isInteger(CFG.puid) && Number.isInteger(CFG.pgid)) {
     try {
       fs.chownSync(CFG.dataDir, CFG.puid, CFG.pgid);
-      if (fs.existsSync(SCORES_FILE)) fs.chownSync(SCORES_FILE, CFG.puid, CFG.pgid);
+      for (const f of [SCORES_FILE, DB_FILE, DB_FILE + '-wal', DB_FILE + '-shm']) if (fs.existsSync(f)) fs.chownSync(f, CFG.puid, CFG.pgid);
     } catch (e) { console.warn('[data] could not chown', CFG.dataDir, e.message); }
     try { process.setgid(CFG.pgid); process.setuid(CFG.puid); console.log(`[boot] running as ${CFG.puid}:${CFG.pgid}`); }
     catch (e) { console.warn('[boot] could not drop privileges:', e.message); }
   }
 }
 
-/* ---------- high scores (persisted in /data) ---------- */
-let scores = [];
-let scoresDirty = false;
-function loadScores() {
-  let raw = [];
-  try { raw = JSON.parse(fs.readFileSync(SCORES_FILE, 'utf8')); } catch (e) { raw = []; }
-  scores = Scores.dedupe(raw);
-  // merge duplicates left by older versions and save the cleaned table
-  if (Array.isArray(raw) && raw.length !== scores.length) { scoresDirty = true; console.log(`[scores] merged ${raw.length} entries into ${scores.length} (one per name)`); }
+/* ---------- storage: accounts, sessions and high scores in data/munch-maze.db ---------- */
+let db = null;
+function openDb() {
+  try { db = DB.open(DB_FILE); }
+  catch (e) { console.warn('[db] could not open', DB_FILE, '-', e.message, '- keeping everything in memory'); db = DB.open(':memory:'); }
+  // bring over the old scores.json once
+  try {
+    const raw = JSON.parse(fs.readFileSync(SCORES_FILE, 'utf8'));
+    const n = db.importLegacy(raw);
+    fs.renameSync(SCORES_FILE, SCORES_FILE + '.imported');
+    console.log(`[db] imported ${n} scores from scores.json`);
+  } catch (e) { /* no old file */ }
+  setInterval(() => { try { db.purgeSessions(); } catch (e) { /* ignore */ } }, 3600e3).unref();
 }
-function addScore(e) {
-  const next = Scores.add(scores, e);
-  if (next) { scores = next; scoresDirty = true; }
-}
-setInterval(() => {
-  if (!scoresDirty) return; scoresDirty = false;
-  fs.writeFile(SCORES_FILE + '.tmp', JSON.stringify(scores, null, 1), err => {
-    if (err) { console.warn('[scores] save failed:', err.message); return; }
-    fs.rename(SCORES_FILE + '.tmp', SCORES_FILE, () => {});
-  });
-}, 5000).unref();
+function addScore(e) { try { db.addScore(e); } catch (err) { console.warn('[db] score not saved:', err.message); } }
 
 /* ---------- games ---------- */
 const games = new Map(); // room id ("seed" or "seed~key") -> Game
@@ -147,7 +150,7 @@ function pwBlocked(ip) { const f = pwFails.get(ip); if (!f) return false; if (Da
 function pwFailed(ip) { const f = pwFails.get(ip); if (!f || Date.now() - f.since > PW_WINDOW) pwFails.set(ip, { n: 1, since: Date.now() }); else f.n++; }
 setInterval(() => { const now = Date.now(); for (const [ip, f] of pwFails) if (now - f.since > PW_WINDOW) pwFails.delete(ip); }, 60000).unref();
 
-function onSocket(ws, ip = '?') {
+function onSocket(ws, ip = '?', account = null) {
   let p = null, game = null, budget = 60, lastRefill = Date.now();
   ws.on('message', text => {
     const now = Date.now();
@@ -175,6 +178,14 @@ function onSocket(ws, ip = '?') {
         if (!g) { ws.send(JSON.stringify({ t: 'error', msg: 'This server is at its maze limit. Join one of the running mazes instead.' })); return; }
         opening = true;
       }
+      // Names: logged-in players always play as their account name; guests can't use a name an account owns.
+      let nm = cleanName(m.nm);
+      if (account) { const a = db.account(account.uid); if (a) nm = a.name; }
+      else if (db.nameOwner(nm)) {
+        if (opening) { games.delete(g.gid); if (g.key) byKey.delete(g.key); }
+        ws.send(JSON.stringify({ t: 'error', code: 'name_reserved', msg: '“' + nm + '” belongs to a registered player. Pick another name, or log in with Discord if it’s yours.' }));
+        return;
+      }
       if (CFG.maxPlayersPerMaze && g.players.size >= CFG.maxPlayersPerMaze) { ws.send(JSON.stringify({ t: 'error', msg: 'That maze is full. Try another one.' })); return; }
       const tok = typeof m.tok === 'string' ? m.tok.slice(0, 64) : '';
       const returning = tok && (tok === g.creatorToken || g.resume.has(tok));   // already let in once: no password again on reconnect
@@ -184,13 +195,13 @@ function onSocket(ws, ip = '?') {
         if (!checkPassword(g.pass, m.pw)) { if (m.pw) pwFailed(ip); return err(m.pw ? 'pw_wrong' : 'pw_needed'); }
       }
       if (opening) {
-        g.title = cleanTitle(m.lname) || cleanName(m.nm) + '’s maze';   // whoever opens a public maze names it
+        g.title = cleanTitle(m.lname) || nm + '’s maze';   // whoever opens a public maze names it
         const pw = typeof m.setpw === 'string' && !g.isPrivate ? m.setpw.slice(0, 64) : '';
         g.pass = pw ? hashPassword(pw) : null;
         g.link = linkName(g);
       }
       const look = M.pickModel(m.mdl, m.ci);   // validated character + colour
-      p = { id: nextId++, ws, nm: cleanName(m.nm), col: look.col, mdl: look.mdl, ci: look.ci, x: 0, y: 0, f: 2, al: true, sc: 0, li: 3, over: false, spawnAt: Date.now(), fid: -1, combo: 0 };
+      p = { id: nextId++, ws, uid: account ? account.uid : 0, nm, col: look.col, mdl: look.mdl, ci: look.ci, x: 0, y: 0, f: 2, al: true, sc: 0, li: 3, over: false, spawnAt: Date.now(), fid: -1, combo: 0 };
       game = g;
       g.add(p, tok);
       return;
@@ -222,6 +233,86 @@ function sendFile(res, file) {
     res.end(buf);
   });
 }
+/* ---------- Discord login ----------
+   Standard OAuth2 code flow with the "identify" scope only: we learn the Discord user id
+   (and their display name to suggest a starting name), then forget Discord's token. */
+function cookies(req) {
+  const out = {};
+  for (const part of String(req.headers.cookie || '').split(';')) {
+    const i = part.indexOf('='); if (i < 0) continue;
+    const k = part.slice(0, i).trim(); if (k) out[k] = decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return out;
+}
+const isHttps = req => (CFG.publicUrl ? CFG.publicUrl.startsWith('https:') : CFG.trustProxy && /^https$/i.test(String(req.headers['x-forwarded-proto'] || '')));
+function setCookie(res, req, name, value, maxAge, cookiePath = '/') {
+  const prev = res.getHeader('Set-Cookie') || [];
+  res.setHeader('Set-Cookie', [].concat(prev, `${name}=${encodeURIComponent(value)}; Path=${cookiePath}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${isHttps(req) ? '; Secure' : ''}`));
+}
+function baseUrl(req) {
+  if (CFG.publicUrl) return CFG.publicUrl;
+  return (isHttps(req) ? 'https://' : 'http://') + requestHost(req);
+}
+const redirectUri = req => baseUrl(req) + '/auth/discord/callback';
+function redirect(res, to) { res.writeHead(302, { Location: to, 'Cache-Control': 'no-store' }); res.end(); }
+function readBody(req, limit = 2048) {
+  return new Promise((resolve, reject) => {
+    let size = 0; const parts = [];
+    req.on('data', c => { size += c.length; if (size > limit) { reject(new Error('too big')); req.destroy(); } else parts.push(c); });
+    req.on('end', () => resolve(Buffer.concat(parts).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+const sessionOf = req => { try { return db.sessionUser(cookies(req).mm_session); } catch (e) { return null; } };
+async function discordCallback(req, res, url) {
+  const c = cookies(req), state = url.searchParams.get('state') || '', code = url.searchParams.get('code') || '';
+  setCookie(res, req, 'mm_oauth', '', 0, '/auth');
+  const ok = c.mm_oauth && state && c.mm_oauth.length === state.length && crypto.timingSafeEqual(Buffer.from(c.mm_oauth), Buffer.from(state));
+  if (!ok || !code) return redirect(res, '/?login=' + (url.searchParams.get('error') === 'access_denied' ? 'cancelled' : 'failed'));
+  try {
+    const tok = await fetch(CFG.discordApi + '/oauth2/token', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: CFG.discordId, client_secret: CFG.discordSecret, grant_type: 'authorization_code', code, redirect_uri: redirectUri(req) }),
+      signal: AbortSignal.timeout(8000)
+    }).then(r => r.ok ? r.json() : Promise.reject(new Error('token ' + r.status)));
+    const me = await fetch(CFG.discordApi + '/users/@me', { headers: { Authorization: 'Bearer ' + tok.access_token }, signal: AbortSignal.timeout(8000) })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error('user ' + r.status)));
+    // we only needed the id: hand the token straight back
+    fetch(CFG.discordApi + '/oauth2/token/revoke', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: CFG.discordId, client_secret: CFG.discordSecret, token: tok.access_token }), signal: AbortSignal.timeout(8000) }).catch(() => {});
+    if (!/^\d{5,25}$/.test(String(me.id || ''))) throw new Error('no user id');
+    const acct = db.loginDiscord(String(me.id), cleanName(me.global_name || me.username));
+    setCookie(res, req, 'mm_session', db.newSession(acct.uid), db.SESSION_DAYS * 86400);
+    console.log(`[auth] ${acct.created ? 'new account' : 'login'} uid ${acct.uid}`);
+    return redirect(res, '/?login=' + (acct.created ? 'new' : 'ok'));
+  } catch (e) {
+    console.warn('[auth] discord login failed:', e.message);
+    return redirect(res, '/?login=failed');
+  }
+}
+const renameAt = new Map();   // uid -> last rename time
+async function handleApiPost(req, res, p) {
+  if (!originAllowed(req)) return json(res, { error: 'forbidden' }, 403);
+  if (p === '/auth/logout') {
+    try { db.endSession(cookies(req).mm_session); } catch (e) { /* ignore */ }
+    setCookie(res, req, 'mm_session', '', 0);
+    return json(res, { ok: true });
+  }
+  if (p === '/api/me/name') {
+    const me = sessionOf(req); if (!me) return json(res, { error: 'Log in first.' }, 401);
+    if (Date.now() - (renameAt.get(me.uid) || 0) < 3000) return json(res, { error: 'Slow down a moment.' }, 429);
+    let body; try { body = JSON.parse(await readBody(req)); } catch (e) { return json(res, { error: 'Bad request.' }, 400); }
+    const name = stripCtl(body && body.name).slice(0, 16);
+    if (!name) return json(res, { error: 'Pick a name.' }, 400);
+    const r = db.rename(me.uid, name);
+    if (!r.ok) return json(res, { error: 'Someone already has that name.' }, 409);
+    renameAt.set(me.uid, Date.now());
+    for (const g of games.values()) for (const pl of g.players.values()) if (pl.uid === me.uid) pl.nm = name;   // live games pick it up
+    return json(res, { ok: true, name });
+  }
+  return json(res, { error: 'not found' }, 404);
+}
+
 function json(res, obj, code = 200) {
   res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(obj));
@@ -233,7 +324,20 @@ const server = http.createServer((req, res) => {
   let url;
   try { url = new URL(req.url, 'http://x'); } catch (e) { res.writeHead(400); res.end(); return; }
   const p = url.pathname;
+  if (req.method === 'POST' && (p === '/auth/logout' || p === '/api/me/name')) { handleApiPost(req, res, p).catch(() => json(res, { error: 'failed' }, 500)); return; }
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
+  if (p === '/api/me') { const me = sessionOf(req); return json(res, { discord: discordOn(), user: me ? { uid: me.uid, name: me.name } : null }); }
+  if (p === '/auth/discord') {
+    if (!discordOn()) { res.writeHead(404); res.end(); return; }
+    const state = crypto.randomBytes(16).toString('base64url');
+    setCookie(res, req, 'mm_oauth', state, 600, '/auth');
+    const q = new URLSearchParams({ client_id: CFG.discordId, response_type: 'code', redirect_uri: redirectUri(req), scope: 'identify', state, prompt: 'none' });
+    return redirect(res, CFG.discordAuthorize + '?' + q);
+  }
+  if (p === '/auth/discord/callback') {
+    if (!discordOn()) { res.writeHead(404); res.end(); return; }
+    discordCallback(req, res, url); return;
+  }
   if (p === '/healthz') return json(res, { ok: true, mazes: games.size, players: [...games.values()].reduce((n, g) => n + g.players.size, 0) });
   if (p === '/api/info') return json(res, { name: CFG.serverName, lobby: CFG.showLobby, defaultSeed: CFG.defaultSeed, maxPlayersPerMaze: CFG.maxPlayersPerMaze });
   if (p === '/api/games') {
@@ -242,7 +346,7 @@ const server = http.createServer((req, res) => {
       .sort((a, b) => b.players - a.players).slice(0, 20);
     return json(res, list);
   }
-  if (p === '/api/scores') return json(res, scores.slice(0, 10));
+  if (p === '/api/scores') { let top = []; try { top = db.topScores(10); } catch (e) { /* ignore */ } return json(res, top); }
   if (p === '/maze.js') return sendFile(res, path.join(ROOT, 'shared', 'maze.js'));
   // Optional sound files the server owner drops into the data folder (kept out of the image)
   if (p === '/custom/peanut.mp3') return sendFile(res, path.join(CFG.dataDir, 'peanut.mp3'));
@@ -298,7 +402,7 @@ server.on('upgrade', (req, sock) => {
       const n = (perIp.get(ip) || 1) - 1;
       if (n > 0) perIp.set(ip, n); else perIp.delete(ip);
     });
-    onSocket(ws, ip);
+    onSocket(ws, ip, sessionOf(req));   // logged in with Discord? (session cookie on the upgrade)
   });
 });
 
@@ -308,12 +412,12 @@ server.requestTimeout = 20000;
 if (CFG.maxConnections) server.maxConnections = CFG.maxConnections + 256; // room for page loads
 
 prepareDataDir();
-loadScores();
+openDb();
 server.listen(CFG.port, () => console.log(`[boot] ${CFG.serverName} listening on :${CFG.port} (tick ${CFG.tickRate}/s, lobby ${CFG.showLobby ? 'on' : 'off'}${CFG.testMode ? ', TEST MODE' : ''})`));
 
 function shutdown() {
   console.log('[boot] shutting down');
-  try { fs.writeFileSync(SCORES_FILE, JSON.stringify(scores, null, 1)); } catch (e) { /* ignore */ }
+  try { db.close(); } catch (e) { /* ignore */ }
   process.exit(0);
 }
 process.on('SIGTERM', shutdown);

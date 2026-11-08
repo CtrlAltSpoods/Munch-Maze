@@ -178,6 +178,7 @@ function onMsg(m) {
       S.wantGame = false;
       $('joinErr').textContent = String(m.msg || 'Could not join.'); $('joinErr').hidden = false;
       if (m.code === 'pw_needed' || m.code === 'pw_wrong') askPassword(S.room, m.name || '');
+      if (m.code === 'name_reserved') { $('nameIn').focus(); $('nameIn').select(); }
       if (m.code === 'closed') { S.linkJoin = ''; clearInvite(); try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ } }
       $('playBtn').disabled = false; $('playBtn').textContent = S.inviteKey ? 'Join maze' : 'Start maze';
       if (S.ws) S.ws.close();
@@ -412,11 +413,57 @@ async function refreshLobby() {
     for (const s of sc) {
       const li = document.createElement('li');
       const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = s.n + ' ';
+      if (s.reg) { const b = document.createElement('span'); b.className = 'regd'; b.title = 'Registered player'; b.textContent = '✓'; nm.appendChild(b); nm.append(' '); }
       const sm = document.createElement('small'); sm.textContent = 'level ' + s.lv; nm.appendChild(sm);
       const v = document.createElement('span'); v.className = 'sc'; v.textContent = (s.sc | 0).toLocaleString();
       li.append(nm, v); ol.appendChild(li);
     }
   } catch (e) { /* ignore */ }
+}
+/* ---------- Discord accounts ----------
+   Logged in, your name box edits your account name (saved when you leave the box or
+   press Enter) and your scores follow you whatever you're called. */
+const ME = { user: null, saved: '' };
+function acctMsg(text, bad) { const el = $('acctMsg'); el.hidden = !text; el.textContent = text || ''; el.classList.toggle('bad', !!bad); }
+function showAccount(me) {
+  ME.user = me && me.user ? me.user : null;
+  $('acctBox').hidden = !(me && me.discord);
+  $('acctOut').hidden = !!ME.user; $('acctIn').hidden = !ME.user;
+  if (ME.user) {
+    $('acctId').textContent = '#' + ME.user.uid;
+    $('nameIn').value = ME.saved = ME.user.name; store.set('mm.name', ME.user.name);
+    $('nameIn').title = 'Your account name. Change it here; your scores stay with you.';
+  } else $('nameIn').title = '';
+}
+async function saveAccountName() {
+  if (!ME.user) return;
+  const want = $('nameIn').value.trim();
+  if (!want || want === ME.saved) { if (!want) $('nameIn').value = ME.saved; return; }
+  try {
+    const r = await fetch('api/me/name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: want }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { acctMsg(j.error || 'Couldn’t change your name.', true); return; }
+    ME.saved = ME.user.name = j.name; $('nameIn').value = j.name; store.set('mm.name', j.name);
+    acctMsg('Name saved. Your scores now show as ' + j.name + '.');
+    refreshLobby();
+  } catch (e) { acctMsg('Couldn’t reach the server.', true); }
+}
+$('nameIn').addEventListener('change', saveAccountName);
+$('nameIn').addEventListener('keydown', e => { if (e.key === 'Enter' && ME.user && $('nameIn').value.trim() !== ME.saved) { e.preventDefault(); saveAccountName(); } });
+$('loginBtn').addEventListener('click', () => { try { sessionStorage.setItem('mm.afterLogin', location.hash); } catch (e) { /* ignore */ } });
+$('logoutBtn').addEventListener('click', async () => {
+  try { await fetch('auth/logout', { method: 'POST' }); } catch (e) { /* ignore */ }
+  showAccount({ discord: true, user: null }); acctMsg('Logged out. You’re playing as a guest.');
+});
+getJSON('api/me').then(showAccount).catch(() => {});
+{ // back from Discord: say how it went, tidy the address bar, and restore any invite link
+  const q = new URLSearchParams(location.search), how = q.get('login');
+  if (how) {
+    let back = ''; try { back = sessionStorage.getItem('mm.afterLogin') || ''; sessionStorage.removeItem('mm.afterLogin'); } catch (e) { /* ignore */ }
+    try { history.replaceState(null, '', location.pathname + back); } catch (e) { /* ignore */ }
+    const msgs = { ok: 'Logged in with Discord.', new: 'Account created. Pick your name above: it’s yours now.', cancelled: 'Discord login cancelled.', failed: 'Discord login didn’t work. Try again?' };
+    setTimeout(() => acctMsg(msgs[how] || '', how === 'failed'), 50);
+  }
 }
 getJSON('api/info').then(info => {
   lobbyOn = !!info.lobby;

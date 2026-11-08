@@ -85,8 +85,8 @@ class Game {
       if (this.players.size && this.votes.size >= this.players.size) this.endVote(); else this.sendTally();
     }
     // keep the run for a while so a reconnect resumes it; record the score once it expires
-    if (p.token) this.resume.set(p.token, { sc: p.sc, li: p.li, over: p.over, nm: p.nm, lv: this.L, at: Date.now() });
-    else if (p.sc > 0 && !p.over) this.opts.onScore({ n: p.nm, sc: p.sc, lv: this.L, seed: this.seed });
+    if (p.token) this.resume.set(p.token, { sc: p.sc, li: p.li, over: p.over, nm: p.nm, uid: p.uid || 0, lv: this.L, at: Date.now() });
+    else if (p.sc > 0 && !p.over) this.opts.onScore({ uid: p.uid || 0, n: p.nm, sc: p.sc, lv: this.L, seed: this.seed });
     this.broadcast({ t: 'leave', id: p.id });
     if (!this.players.size) this.emptySince = Date.now();
   }
@@ -129,7 +129,7 @@ class Game {
       case 'die':
         if (!p.al || p.over || Date.now() - p.spawnAt < 1500) return;
         p.al = false; p.li = Math.max(0, p.li - 1);
-        if (p.li === 0) { p.over = true; if (p.sc > 0) this.opts.onScore({ n: p.nm, sc: p.sc, lv: this.L, seed: this.seed }); }
+        if (p.li === 0) { p.over = true; if (p.sc > 0) this.opts.onScore({ uid: p.uid || 0, n: p.nm, sc: p.sc, lv: this.L, seed: this.seed }); }
         if (this.nukeIn > 0) {   // everyone had to survive: one death and the strike is called off
           this.nukeIn = 0;
           this.broadcast({ t: 'nukecancel', by: p.id, nm: p.nm });
@@ -438,7 +438,7 @@ class Game {
     const now = Date.now();
     if (this.tickNo % 30 === 0) for (const [k, r] of this.resume) if (now - r.at > RESUME_MS) {
       this.resume.delete(k);
-      if (r.sc > 0 && !r.over) this.opts.onScore({ n: r.nm, sc: r.sc, lv: r.lv, seed: this.seed });
+      if (r.sc > 0 && !r.over) this.opts.onScore({ uid: r.uid || 0, n: r.nm, sc: r.sc, lv: r.lv, seed: this.seed });
     }
     if (!this.players.size) return;
     this.clock += dt;

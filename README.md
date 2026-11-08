@@ -16,7 +16,7 @@ Start a maze and anyone can join it from the lobby list or a shared link. Player
 - Neon arcade presentation: glowing mazes that pulse with the music, softly chasing marquee lights, a warp-speed starfield (with the rare planet drifting past) that speeds up with the game and with your streak, sparks, coin showers and confetti. Eat pellets back to back to build a **streak** (NICE → SWEET → ON FIRE → JACKPOT → MEGA JACKPOT); from a 100 streak the screen rumbles gently until the streak ends, and clearing a level spins slot reels to reveal the next maze. These are visual and sound rewards only; scores come from the server. Players with *reduce motion* turned on get no screen shake, softer flashes and fewer particles. Fonts load from Google Fonts, falling back to system fonts offline.
 - When anyone eats a big pellet the music cuts to an electro **boss fight** (faster, distorted, with an alarm lead) until the ghosts recover, and everyone hears the power-up, panned towards whoever ate it. Other players' pellet munching plays as a quieter, higher pip that fades with distance.
 - An original electro soundtrack and arcade sound effects, generated live in the browser. Music and effects have their own volume sliders (10% and 40% by default, remembered per browser); press **M** to mute.
-- High scores are kept in `/data/scores.json`, with one entry per player name (their best score; names match ignoring capitals and extra spaces).
+- High scores are kept in a SQLite database, `/data/munch-maze.db`, with one entry per player (their best run). Guests are matched by name, ignoring case and extra spaces; players logged in with Discord are matched by account, so their scores stay theirs when they change name. An old `scores.json` is imported automatically the first time and renamed to `scores.json.imported`.
 
 ## Run it
 
@@ -49,12 +49,27 @@ npm test         # end-to-end smoke test
 | `ALLOWED_ORIGINS` | *(empty)* | Other websites allowed to open game connections, comma-separated (`https://site.example`), or `*` for any |
 | `TRUST_PROXY` | `false` | Set `true` behind a reverse proxy so per-IP limits and Origin checks use `X-Forwarded-For` / `X-Forwarded-Host` |
 | `TEST_MODE` | `false` | Set `true` to give each maze's host an effects menu beside the map. Picking one pauses the game, the slot lands on that effect (no randomness) and it activates. Crates still spawn as normal. Off: no menu, everything stays random |
-| `DATA_DIR` | `/data` | Where `scores.json` lives |
+| `PUBLIC_URL` | *(empty)* | The address players use, e.g. `http://10.0.10.160:8080`. Used to build the Discord redirect address |
+| `DISCORD_CLIENT_ID` | *(empty)* | Discord application client ID. Set this and the secret to turn on Discord login |
+| `DISCORD_CLIENT_SECRET` | *(empty)* | Discord application client secret (stays on the server) |
+| `DATA_DIR` | `/data` | Where `munch-maze.db` (scores and accounts) lives |
 | `PUID` / `PGID` | `1000` / `1000` | Owner of the data folder. Unraid's template uses `99` / `100` |
 
 The container starts as root only to `chown` the data folder, then switches to `PUID:PGID`.
 
-### Connection safety
+### Discord accounts (optional)
+
+Players can log in with Discord to get an account. An account claims its name (no guest or other player can use it), and all its scores stay linked to it when the player changes name in the name box. Guests can still play without logging in. Accounts can only be created through Discord, and no passwords are stored: the game asks Discord for the **identify** permission only (the user's id and display name), keeps the Discord user id, and hands Discord's access token straight back. Logged-in browsers get a random session cookie (HttpOnly, 30 days); the database keeps only a hash of it.
+
+To turn it on:
+1. Go to <https://discord.com/developers/applications>, choose **New Application** and give it a name.
+2. Open **OAuth2**. Under **Redirects**, add `<your PUBLIC_URL>/auth/discord/callback`, for example `http://10.0.10.160:8080/auth/discord/callback`. It has to match exactly.
+3. Copy the **Client ID** and **Client Secret** (Reset Secret if needed).
+4. Set `PUBLIC_URL`, `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET` on the container and restart it. A **Log in with Discord** button appears on the title screen.
+
+You don't need to add a bot or tick any scopes in the portal; the game requests `identify` itself.
+
+## Connection safety
 
 - Only the game's own page can open game connections. Browsers on other websites are refused unless listed in `ALLOWED_ORIGINS`.
 - Each address can hold `MAX_CONNECTIONS_PER_IP` connections, and the server holds `MAX_CONNECTIONS` in total. Players who disconnect free their slot straight away; dead connections are dropped after 45 seconds of silence.

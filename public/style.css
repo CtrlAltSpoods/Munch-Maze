@@ -637,3 +637,18 @@ input[type=range]{accent-color:var(--pink)}
 .start-head p{max-width:72ch}
 .pane.create{border-top:0;padding-top:0}
 @media (min-width:861px) and (max-height:800px){ .start-head .biglogo .logo-mark{height:92px} .start-head .biglogo{font-size:34px} .title{gap:16px} #startOv{padding-top:16px} }
+
+/* Discord account box on the title screen */
+.acct{display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:rgba(88,101,242,.08);border:1px solid rgba(88,101,242,.35);
+  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px)}
+.acct-out,.acct-in{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.acct-out .hint{margin:0;flex:1;min-width:160px}
+.discord-btn{display:inline-flex;align-items:center;gap:8px;padding:9px 14px;background:#5865f2;color:#fff;text-decoration:none;
+  font-family:var(--display);font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:12px;
+  clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,8px 100%,0 calc(100% - 8px));transition:background .12s}
+.discord-btn:hover{background:#7983f5}
+.acct-who{font-size:12px;color:#c9cdfb;flex:1}
+.acct-id{font-family:var(--arcade);font-size:11px;color:var(--muted)}
+.acct-msg{margin:0;color:#3dffa0}
+.acct-msg.bad{color:#ff8fa6}
+.scores .regd{display:inline-grid;place-items:center;width:14px;height:14px;font-size:9px;background:#5865f2;color:#fff;border-radius:50%;margin-left:4px;vertical-align:1px}

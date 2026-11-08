@@ -19,6 +19,10 @@ services:
       ALLOWED_ORIGINS: ""           # other sites allowed to connect, comma-separated
       TRUST_PROXY: "false"          # true when behind a reverse proxy
       TEST_MODE: "false"            # true gives hosts a menu to fire any power-up
+      # Discord login (optional): see README "Discord accounts"
+      PUBLIC_URL: ""                # e.g. http://10.0.10.160:8080
+      DISCORD_CLIENT_ID: ""
+      DISCORD_CLIENT_SECRET: ""
       PUID: "1000"
       PGID: "1000"
     restart: unless-stopped

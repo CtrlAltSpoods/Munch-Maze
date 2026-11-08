@@ -64,6 +64,17 @@
                   <div class="charname"><span class="k" id="charLabel">Character</span><b id="charName">Shark</b></div>
                 </div>
               </div>
+              <div class="acct" id="acctBox" hidden>
+                <div class="acct-out" id="acctOut">
+                  <a class="discord-btn" href="auth/discord" id="loginBtn">Log in with Discord</a>
+                  <span class="hint">Claims your name and keeps your scores. Guests can still play.</span>
+                </div>
+                <div class="acct-in" id="acctIn" hidden>
+                  <span class="acct-who">Logged in · Discord account <span class="acct-id" id="acctId"></span></span>
+                  <button class="linkbtn" type="button" id="logoutBtn">Log out</button>
+                </div>
+                <p class="hint acct-msg" id="acctMsg" hidden></p>
+              </div>
               <div class="models" id="modelGrid" role="radiogroup" aria-labelledby="charLabel"></div>
               <div class="swatches" id="swatches" role="radiogroup" aria-label="Colour"></div>
               <p class="hint" id="unlockHint"></p>
