@@ -108,7 +108,7 @@ async function trigger(r, id) {
   let zap = null;
   for (let k = 0; k < 60 && !zap; k++) { send(lz.a, { t: 'p', x: lv.sx, y: lv.sy, f: k % 4 }); await wait(140); zap = lz.b.msgs.find(m => m.t === 'zap'); }
   if (!zap) fail('a laser should zap a ghost on the beam');
-  if (!lastS(lz.b).g.some(g => g[3] === 3)) fail('a zapped ghost goes home as eyes');
+  await until(lz.b, m => m.t === 's' && m.g.some(g => g[3] === 3), 1500);   // a zapped ghost goes home as eyes
   console.log('ok  Laser Beamz: zaps ghosts on the beam (sent home as eyes)');
 
   // nuke: stays paused, then the level is passed
