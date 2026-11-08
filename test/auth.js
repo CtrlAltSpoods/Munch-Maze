@@ -18,11 +18,12 @@ setTimeout(() => fail('timed out'), 30000);
 
 // a stand-in for discord.com: code "alice" logs in as Alice, "bob" as Bob
 const USERS = { alice: { id: '100000000000000001', username: 'alice_d', global_name: 'Alice' }, bob: { id: '100000000000000002', username: 'bob', global_name: 'Bob' } };
-let revoked = 0, tokenForm = null;
+let revoked = 0, tokenForm = null; const hooks = [];
 fake = http.createServer((req, res) => {
   let body = ''; req.on('data', c => body += c); req.on('end', () => {
     if (req.url === '/oauth2/token') { tokenForm = new URLSearchParams(body); res.end(JSON.stringify({ access_token: 'tok-' + tokenForm.get('code'), token_type: 'Bearer' })); return; }
     if (req.url === '/oauth2/token/revoke') { revoked++; res.end('{}'); return; }
+    if (req.url.startsWith('/api/webhooks/')) { hooks.push(JSON.parse(body)); res.writeHead(204); res.end(); return; }
     if (req.url === '/users/@me') { const u = USERS[String(req.headers.authorization).replace('Bearer tok-', '')]; res.writeHead(u ? 200 : 401); res.end(JSON.stringify(u || {})); return; }
     res.writeHead(404); res.end();
   });
@@ -48,7 +49,7 @@ async function login(code) {
   fs.writeFileSync(path.join(DATA, 'scores.json'), JSON.stringify([{ n: 'Oldtimer', sc: 1234, lv: 4 }, { n: 'oldtimer', sc: 50, lv: 1 }]));
   srv = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'index.js')], {
     env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, DISCORD_CLIENT_ID: '424242', DISCORD_CLIENT_SECRET: 'app-secret',
-      DISCORD_API: `http://127.0.0.1:${FAKE}`, DISCORD_AUTHORIZE: `http://127.0.0.1:${FAKE}/authorize` }, stdio: ['ignore', 'pipe', 'inherit'] });
+      DISCORD_API: `http://127.0.0.1:${FAKE}`, DISCORD_AUTHORIZE: `http://127.0.0.1:${FAKE}/authorize`, ADMIN_DISCORD_IDS: USERS.alice.id, TEST_HOOKS: '1' }, stdio: ['ignore', 'pipe', 'inherit'] });
   await new Promise(r => srv.stdout.on('data', d => { if (/listening/.test(d)) r(); }));
 
   // old scores.json moved into the database
@@ -100,6 +101,38 @@ async function login(code) {
   const evil = await fetch(base + '/api/me/name', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: bob.session, Origin: 'https://evil.example' }, body: '{"name":"Pwned"}' });
   if (evil.status !== 403) fail('cross-site rename must be refused');
   console.log('ok  rename to Alicia; Bob can’t take it; old name freed; cross-site requests refused');
+
+  // admin page: only listed Discord ids
+  if ((await get('/api/admin/state', bob.session)).status !== 403) fail('non-admins get no admin state');
+  if ((await post('/api/admin/reset', bob.session, { which: 'all' })).status !== 403) fail('non-admins can’t reset scores');
+  const st = await (await get('/api/admin/state', al.session)).json();
+  if (!st.settings || !Array.isArray(st.accounts) || st.accounts.length !== 2) fail('admin state: ' + JSON.stringify(st).slice(0, 200));
+  let r2 = await post('/api/admin/settings', al.session, { serverName: 'Jake’s Arcade', showLobby: false, webhookUrl: 'https://evil.example/hook' });
+  if (r2.status !== 400) fail('only Discord webhook URLs are accepted');
+  r2 = await post('/api/admin/settings', al.session, { serverName: 'Jake’s Arcade', showLobby: false, webhookUrl: `http://127.0.0.1:${FAKE}/api/webhooks/1/abc` });
+  if (r2.status !== 200 || (await (await get('/api/info')).json()).name !== 'Jake’s Arcade') fail('settings apply live');
+  if ((await (await get('/api/games')).json()).length !== 0) fail('lobby list off when showLobby is off');
+  await post('/api/admin/settings', al.session, { showLobby: true, testWebhook: true });
+  await new Promise(r => setTimeout(r, 300));
+  if (!hooks.length || !/connected/.test(hooks[0].content) || hooks[0].allowed_mentions.parse.length) fail('test webhook post (no pings allowed): ' + JSON.stringify(hooks));
+  if ((await post('/api/admin/reserve', al.session, { name: 'Alicia' })).status !== 409) fail('can’t reserve a name a player owns');
+  await post('/api/admin/reserve', al.session, { name: 'Moderator' });
+  if ((await wsJoin('moderator')).code !== 'name_reserved') fail('reserved names are blocked for guests');
+  if ((await post('/api/me/name', bob.session, { name: 'MODERATOR' })).status !== 409) fail('reserved names are blocked for accounts');
+  const rn2 = await post('/api/admin/rename', al.session, { uid: (await (await get('/api/me', bob.session)).json()).user.uid, name: 'Bobby' });
+  if (rn2.status !== 200 || (await (await get('/api/me', bob.session)).json()).user.name !== 'Bobby') fail('admin can rename an account');
+  if ((await post('/api/admin/reset', al.session, { which: 'all' })).status !== 200 || (await (await get('/api/scores')).json()).length) fail('reset all scores');
+  // kick
+  const kws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`), kmsgs = [];
+  await new Promise(res => { kws.onopen = () => kws.send(JSON.stringify({ t: 'join', nm: 'Pest', tok: 'pest-token' })); kws.onmessage = e => { const m = JSON.parse(e.data); kmsgs.push(m); if (m.t === 'welcome') res(); }; });
+  const gid = kmsgs.find(m => m.t === 'welcome').gid;
+  const kst = await (await get('/api/admin/state', al.session)).json(), kg = kst.games.find(g => g.id === gid);
+  await post('/api/admin/kick', al.session, { game: gid, player: kg.players[0].id });
+  await new Promise(r => setTimeout(r, 200));
+  if (!kmsgs.some(m => m.t === 'kicked')) fail('kicked player is told');
+  const back = await new Promise(res => { const w = new WebSocket(`ws://127.0.0.1:${PORT}/ws`); w.onopen = () => w.send(JSON.stringify({ t: 'join', nm: 'Pest', tok: 'pest-token', room: gid })); w.onmessage = e => { res(JSON.parse(e.data)); w.close(); }; });
+  if (back.t !== 'error' || back.code !== 'kicked') fail('a kicked player can’t walk straight back in');
+  console.log('ok  admin: listed ids only; live settings; webhook (Discord URLs only, no pings); reserve; rename; reset; kick');
 
   // log out
   if ((await post('/auth/logout', al.session)).status !== 200) fail('logout');

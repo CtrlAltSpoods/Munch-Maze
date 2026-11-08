@@ -23,6 +23,9 @@ services:
       PUBLIC_URL: ""                # e.g. http://10.0.10.160:8080
       DISCORD_CLIENT_ID: ""
       DISCORD_CLIENT_SECRET: ""
+      ADMIN_DISCORD_IDS: ""        # your Discord user id(s), for /admin.html
+      DISCORD_WEBHOOK_URL: ""      # optional: announce new #1 scores and level 20+ clears
+      TZ: "Australia/Adelaide"      # weekly/daily leaderboards follow this
       PUID: "1000"
       PGID: "1000"
     restart: unless-stopped

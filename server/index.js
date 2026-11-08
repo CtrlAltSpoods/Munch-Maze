@@ -38,6 +38,10 @@ const CFG = {
   publicUrl: String(env('PUBLIC_URL', '')).trim().replace(/\/+$/, ''),   // e.g. http://10.0.10.160:8080
   discordApi: String(env('DISCORD_API', 'https://discord.com/api')).replace(/\/+$/, ''),   // tests point this at a fake
   discordAuthorize: String(env('DISCORD_AUTHORIZE', 'https://discord.com/oauth2/authorize')),
+  // Admin page (/admin.html): Discord user ids allowed in, comma-separated.
+  adminIds: String(env('ADMIN_DISCORD_IDS', '')).split(',').map(s => s.trim()).filter(s => /^\d{5,25}$/.test(s)),
+  // Discord webhook for announcements (new #1 score, level 20+ clears). Can also be set on the admin page.
+  webhookUrl: String(env('DISCORD_WEBHOOK_URL', '')).trim(),
 };
 const discordOn = () => !!(CFG.discordId && CFG.discordSecret);
 
@@ -73,6 +77,44 @@ function openDb() {
     console.log(`[db] imported ${n} scores from scores.json`);
   } catch (e) { /* no old file */ }
   setInterval(() => { try { db.purgeSessions(); } catch (e) { /* ignore */ } }, 3600e3).unref();
+  applySettings();
+}
+/* Settings saved from the admin page override the container's environment, live. */
+const LIVE_SETTINGS = {
+  serverName: v => String(v).slice(0, 40) || 'Munch Maze',
+  showLobby: v => v === true || v === 'true',
+  testMode: v => v === true || v === 'true',
+  maxPlayersPerMaze: v => Math.max(0, Math.min(500, parseInt(v, 10) || 0)),
+  webhookUrl: v => (validWebhook(String(v)) ? String(v) : '')
+};
+function applySettings() {
+  for (const k of Object.keys(LIVE_SETTINGS)) {
+    const v = db.getSetting(k);
+    if (v !== null) CFG[k] = LIVE_SETTINGS[k](v);
+  }
+}
+
+/* ---------- Discord webhook: announce big moments in a channel ---------- */
+const validWebhook = u => /^https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[\w-]+$/.test(u)
+  || (process.env.TEST_HOOKS === '1' && /^http:\/\/127\.0\.0\.1:\d+\/api\/webhooks\/\d+\/[\w-]+$/.test(u));   // tests use a local fake
+const mdSafe = s => String(s).replace(/[\\*_`~|>#\[\]()@]/g, m => (m === '@' ? '@\u200b' : '\\' + m));
+const hookQueue = []; let hookBusy = false;
+function announce(text) {
+  if (!CFG.webhookUrl || !validWebhook(CFG.webhookUrl)) return;
+  if (hookQueue.length < 20) hookQueue.push(text);
+  if (hookBusy) return;
+  hookBusy = true;
+  (async function drain() {
+    while (hookQueue.length) {
+      const content = hookQueue.shift();
+      try {
+        await fetch(CFG.webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: CFG.serverName || 'Munch Maze', content, allowed_mentions: { parse: [] } }), signal: AbortSignal.timeout(8000) });
+      } catch (e) { console.warn('[webhook]', e.message); }
+      await new Promise(r => setTimeout(r, 2000));   // stay well under Discord's rate limits
+    }
+    hookBusy = false;
+  })();
 }
 /* Leaderboard periods, in the server's local time (set TZ on the container): weeks start Monday. */
 function dayKey(d = new Date()) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
@@ -84,6 +126,8 @@ function weekKey(d = new Date()) {
 }
 function addScore(e) {
   try {
+    const before = db.topScore();
+    if (e.sc > before && before > 0) announce(`🏆 New high score on ${mdSafe(CFG.serverName)}! **${mdSafe(e.n)}** scored **${(e.sc | 0).toLocaleString('en')}** (level ${e.lv | 0}), beating ${before.toLocaleString('en')}.`);
     const boards = ['week:' + weekKey()];
     if (e.daily) boards.push('day:' + e.daily);
     db.addScore({ ...e, boards });
@@ -104,9 +148,13 @@ function newKey() { // 12 chars of a-z0-9 from a CSPRNG (~62 bits)
     share a seed and "Start maze" always makes a fresh game rather than resuming an old one. */
 function createGame(seed, key) {
   if (games.size >= CFG.maxMazes) return null;
-  const g = new Game(seed, key, { onScore: addScore, testHooks: process.env.TEST_HOOKS === '1', testMode: CFG.testMode,
+  const g = new Game(seed, key, { onScore: addScore, testHooks: process.env.TEST_HOOKS === '1',
     onAchieve: (uid, id) => { try { return db.award(uid, id); } catch (e) { return false; } },
-    onCleared: (uid, L) => { try { db.setProgress(uid, L, L + 1); } catch (e) { /* ignore */ } } });
+    onCleared: (uid, L) => { try { db.setProgress(uid, L, L + 1); } catch (e) { /* ignore */ } },
+    onLevelClear: game => {   // level 20, then every 10th: tell the Discord channel
+      if (game.L >= 20 && game.L % 10 === 0) announce(`🎉 **${mdSafe(game.title || 'A maze')}** just cleared **level ${game.L}**! Players: ${[...game.players.values()].filter(p => !p.over).map(p => mdSafe(p.nm)).join(', ') || 'nobody left standing'}.`);
+    },
+    get testMode() { return CFG.testMode; } });
   g.title = '';
   do { g.gid = crypto.randomBytes(6).toString('base64url'); } while (games.has(g.gid));
   if (key) byKey.set(key, g);
@@ -208,6 +256,7 @@ function onSocket(ws, ip = '?', account = null) {
       }
       if (CFG.maxPlayersPerMaze && g.players.size >= CFG.maxPlayersPerMaze) { ws.send(JSON.stringify({ t: 'error', msg: 'That maze is full. Try another one.' })); return; }
       const tok = typeof m.tok === 'string' ? m.tok.slice(0, 64) : '';
+      if (g.kicked && g.kicked.has(tok || ip)) { ws.send(JSON.stringify({ t: 'error', code: 'kicked', msg: 'The server admin removed you from that maze.' })); return; }
       const returning = tok && (tok === g.creatorToken || g.resume.has(tok));   // already let in once: no password again on reconnect
       if (g.pass && !opening && !returning) {
         const err = code => { ws.send(JSON.stringify({ t: 'error', code, name: g.title || '', msg: code === 'pw_limit' ? 'Too many wrong passwords. Try again in a few minutes.' : m.pw ? 'That password isn’t right.' : 'This lobby needs a password.' })); };
@@ -310,6 +359,58 @@ async function discordCallback(req, res, url) {
     return redirect(res, '/?login=failed');
   }
 }
+/* ---------- admin page API (Discord ids listed in ADMIN_DISCORD_IDS only) ---------- */
+function adminOf(req) { const me = sessionOf(req); return me && CFG.adminIds.includes(String(me.discordId)) ? me : null; }
+function adminState() {
+  return {
+    settings: { serverName: CFG.serverName, showLobby: CFG.showLobby, testMode: CFG.testMode, maxPlayersPerMaze: CFG.maxPlayersPerMaze, webhookUrl: CFG.webhookUrl ? CFG.webhookUrl.replace(/\/[\w-]+$/, '/••••••') : '', webhookSet: !!CFG.webhookUrl },
+    games: [...games.values()].map(g => ({ id: g.gid, name: g.title || '(opening)', seed: g.seed, level: g.L, mode: g.mode || 'coop', daily: !!g.daily, private: !!g.isPrivate, locked: !!g.pass, phase: g.ph,
+      players: [...g.players.values()].map(p => ({ id: p.id, name: p.nm, score: p.sc, lives: p.li, over: !!p.over, uid: p.uid || 0 })) })),
+    accounts: db.listAccounts(200), reserved: db.reservedNames()
+  };
+}
+async function handleAdmin(req, res, p) {
+  const me = adminOf(req); if (!me) return json(res, { error: 'Admins only.' }, 403);
+  let body = {}; try { body = JSON.parse((await readBody(req, 4096)) || '{}'); } catch (e) { return json(res, { error: 'Bad request.' }, 400); }
+  if (p === '/api/admin/kick') {
+    const g = games.get(String(body.game || '')), pl = g && g.players.get(body.player | 0);
+    if (!pl) return json(res, { error: 'No such player.' }, 404);
+    g.kicked = g.kicked || new Set(); g.kicked.add(pl.token || ''); 
+    try { pl.ws.send(JSON.stringify({ t: 'kicked' })); } catch (e) { /* ignore */ }
+    g.remove(pl); try { pl.ws.close(); } catch (e) { /* ignore */ }
+    console.log(`[admin] uid ${me.uid} kicked "${pl.nm}" from ${g.gid}`);
+    return json(res, { ok: true, state: adminState() });
+  }
+  if (p === '/api/admin/rename') {
+    const name = stripCtl(body.name).slice(0, 16), uid = body.uid | 0;
+    if (!name || !db.account(uid)) return json(res, { error: 'Pick a name.' }, 400);
+    const r = db.rename(uid, name); if (!r.ok) return json(res, { error: 'That name is taken or reserved.' }, 409);
+    for (const g of games.values()) for (const pl of g.players.values()) if (pl.uid === uid) pl.nm = name;
+    return json(res, { ok: true, state: adminState() });
+  }
+  if (p === '/api/admin/reserve') {
+    const name = stripCtl(body.name).slice(0, 16); if (!name) return json(res, { error: 'Pick a name.' }, 400);
+    if (body.on === false) db.unreserveName(name);
+    else { const owner = db.nameOwner(name); if (owner > 0) return json(res, { error: 'A player already owns that name. Rename them first.' }, 409); db.reserveName(name); }
+    return json(res, { ok: true, state: adminState() });
+  }
+  if (p === '/api/admin/reset') {
+    if (!['week', 'day', 'all'].includes(body.which)) return json(res, { error: 'Bad request.' }, 400);
+    db.resetScores(body.which); console.log(`[admin] uid ${me.uid} reset scores: ${body.which}`);
+    return json(res, { ok: true, state: adminState() });
+  }
+  if (p === '/api/admin/settings') {
+    for (const k of Object.keys(LIVE_SETTINGS)) {
+      if (!(k in body)) continue;
+      if (k === 'webhookUrl' && body[k] !== '' && !validWebhook(String(body[k]))) return json(res, { error: 'That doesn’t look like a Discord webhook URL.' }, 400);
+      db.putSetting(k, String(body[k])); CFG[k] = LIVE_SETTINGS[k](body[k]);
+    }
+    if (body.testWebhook && CFG.webhookUrl) announce(`👋 ${mdSafe(CFG.serverName)} is connected. Big moments will show up here.`);
+    return json(res, { ok: true, state: adminState() });
+  }
+  return json(res, { error: 'not found' }, 404);
+}
+
 const renameAt = new Map();   // uid -> last rename time
 async function handleApiPost(req, res, p) {
   if (!originAllowed(req)) return json(res, { error: 'forbidden' }, 403);
@@ -350,6 +451,10 @@ const server = http.createServer((req, res) => {
   let url;
   try { url = new URL(req.url, 'http://x'); } catch (e) { res.writeHead(400); res.end(); return; }
   const p = url.pathname;
+  if (req.method === 'POST' && p.startsWith('/api/admin/')) {
+    if (!originAllowed(req)) return json(res, { error: 'forbidden' }, 403);
+    handleAdmin(req, res, p).catch(e => { console.warn('[admin]', e.message); json(res, { error: 'failed' }, 500); }); return;
+  }
   if (req.method === 'POST' && (p === '/auth/logout' || p === '/api/me/name' || p === '/api/me/progress')) { handleApiPost(req, res, p).catch(() => json(res, { error: 'failed' }, 500)); return; }
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
   if (p === '/api/me') { const me = sessionOf(req), pr = me ? db.profile(me.uid) : null; return json(res, { discord: discordOn(), user: me ? { uid: me.uid, name: me.name, cleared: pr ? pr.cleared : 0, best: pr ? pr.bestLevel : 0 } : null }); }
@@ -376,6 +481,7 @@ const server = http.createServer((req, res) => {
     const which = url.searchParams.get('board'), board = which === 'week' ? 'week:' + weekKey() : which === 'day' ? 'day:' + dayKey() : '';
     let top = []; try { top = db.topScores(10, board); } catch (e) { /* ignore */ } return json(res, top);
   }
+  if (p === '/api/admin/state') { const me = adminOf(req); return me ? json(res, adminState()) : json(res, { error: 'Admins only.', loggedIn: !!sessionOf(req), discord: discordOn() }, 403); }
   if (p === '/api/profile') {
     let pr = null; try { pr = db.profile(parseInt(url.searchParams.get('uid'), 10) || 0); } catch (e) { /* ignore */ }
     return pr ? json(res, pr) : json(res, { error: 'not found' }, 404);

@@ -52,12 +52,29 @@ npm test         # end-to-end smoke test
 | `PUBLIC_URL` | *(empty)* | The address players use, e.g. `http://10.0.10.160:8080`. Used to build the Discord redirect address |
 | `DISCORD_CLIENT_ID` | *(empty)* | Discord application client ID. Set this and the secret to turn on Discord login |
 | `DISCORD_CLIENT_SECRET` | *(empty)* | Discord application client secret (stays on the server) |
+| `ADMIN_DISCORD_IDS` | *(empty)* | Discord user IDs allowed into `/admin.html` (comma-separated) |
+| `DISCORD_WEBHOOK_URL` | *(empty)* | Channel webhook for announcements (new #1 score, level 20/30/40… clears) |
+| `TZ` | *(container default)* | Time zone for the weekly (Monday reset) and daily leaderboards; Unraid sets it for you |
 | `DATA_DIR` | `/data` | Where `munch-maze.db` (scores and accounts) lives |
 | `PUID` / `PGID` | `1000` / `1000` | Owner of the data folder. Unraid's template uses `99` / `100` |
 
 The container starts as root only to `chown` the data folder, then switches to `PUID:PGID`.
 
-### Discord accounts (optional)
+### Playing
+
+- **Co-op** (default): everyone clears the maze together. A fallen teammate leaves a glowing marker for 8 seconds; touch it to bring them back (even from game over).
+- **Versus**: pick it under New maze > Mode. Red and blue teams race for pellets; run into an opponent you're facing to steal their streak.
+- **Daily maze**: "Play today's daily maze" gives everyone the same layouts for the day, with its own leaderboard.
+- **Boss levels**: every 10th level has a giant ghost that throws fireballs. Eat it while it's blue three times to beat it (+2000 for everyone).
+- **Bonus fruit** appears in the middle at 30% and 70% of pellets eaten.
+- **Emotes**: keys 1-4. When you're out of lives you keep watching and can cheer (keys 1-3).
+- **Achievements, profiles and the weekly board** need a Discord login. Click any name with a blue tick to see their profile.
+
+## Admin page
+
+Visit `/admin.html` while logged in with a Discord account listed in `ADMIN_DISCORD_IDS`. It shows live mazes (with a kick button), lets you rename accounts, reserve names nobody may use, reset the daily/weekly/all-time scores, and change the server name, lobby list, test mode, player cap and Discord webhook without restarting. Settings saved there are stored in the database and override the container variables.
+
+## Discord accounts (optional)
 
 Players can log in with Discord to get an account. An account claims its name (no guest or other player can use it), and all its scores stay linked to it when the player changes name in the name box. Guests can still play without logging in. Accounts can only be created through Discord, and no passwords are stored: the game asks Discord for the **identify** permission only (the user's id and display name), keeps the Discord user id, and hands Discord's access token straight back. Logged-in browsers get a random session cookie (HttpOnly, 30 days); the database keeps only a hash of it.
 

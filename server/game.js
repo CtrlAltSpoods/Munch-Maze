@@ -343,6 +343,7 @@ class Game {
   /** Level over: celebrate, and tell everyone who got what. */
   finishLevel(nuked) {
     this.ph = 1; this.ct = 3.9; this.nukeIn = 0;   // long enough for the slot reels to finish
+    if (this.opts.onLevelClear) try { this.opts.onLevelClear(this); } catch (e) { /* ignore */ }
     for (const p of this.players.values()) {
       if (p.over) continue;
       if (this.opts.onCleared && p.uid) this.opts.onCleared(p.uid, this.L);

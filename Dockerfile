@@ -17,7 +17,8 @@ COPY shared ./shared
 COPY server ./server
 COPY public ./public
 
-RUN mkdir -p /data
+# tzdata: the weekly and daily leaderboards follow the container's TZ (Unraid passes its own)
+RUN apk add --no-cache tzdata && mkdir -p /data
 VOLUME ["/data"]
 EXPOSE 8080
 

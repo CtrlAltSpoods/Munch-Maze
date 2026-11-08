@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#07060f">
+<meta name="robots" content="noindex">
+<title>Munch Maze Admin</title>
+<link rel="icon" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="admin.css">
+</head>
+<body class="admin">
+<main class="adm">
+  <header class="adm-head">
+    <a href="./" class="brand" data-logo aria-label="Back to the game"></a>
+    <h1>Server admin</h1>
+    <span class="hint" id="who"></span>
+  </header>
+
+  <section class="panel adm-gate" id="gate" hidden>
+    <h2>Admins only</h2>
+    <p id="gateMsg">Log in with a Discord account listed in <code>ADMIN_DISCORD_IDS</code>.</p>
+    <a class="discord-btn" href="auth/discord" id="gateLogin">Log in with Discord</a>
+  </section>
+
+  <div class="adm-grid" id="panels" hidden>
+   <div class="adm-col">
+    <section class="panel adm-games">
+      <div class="adm-h"><h2>Live mazes</h2><span class="hint" id="liveCount"></span></div>
+      <div id="games" class="adm-list"></div>
+    </section>
+    <section class="panel">
+      <div class="adm-h"><h2>Reserved names</h2></div>
+      <p class="hint">Nobody can play as these (guests or accounts).</p>
+      <form id="reserveForm" class="adm-row"><input id="reserveIn" maxlength="16" placeholder="Name to reserve"><button class="btn" type="submit">Reserve</button></form>
+      <div id="reserved" class="adm-chips"></div>
+      <div class="adm-h adm-danger"><h2>Scores</h2></div>
+      <div class="adm-row">
+        <button class="btn" type="button" data-reset="day">Reset today's daily board</button>
+        <button class="btn" type="button" data-reset="week">Reset this week</button>
+        <button class="btn danger" type="button" data-reset="all">Reset ALL scores</button>
+      </div>
+      <p class="hint adm-msg" id="resetMsg"></p>
+    </section>
+   </div>
+   <div class="adm-col">
+    <section class="panel">
+      <div class="adm-h"><h2>Settings</h2><span class="hint">Saved to the database; applied straight away, no restart.</span></div>
+      <form id="settings" class="adm-form" autocomplete="off">
+        <div class="field"><label class="k" for="sName">Server name</label><input id="sName" maxlength="40"></div>
+        <label class="adm-check"><input type="checkbox" id="sLobby"> List public mazes on the title screen</label>
+        <label class="adm-check"><input type="checkbox" id="sTest"> Test mode (hosts get the effects menu)</label>
+        <div class="field"><label class="k" for="sMax">Max players per maze (0 = unlimited)</label><input id="sMax" type="number" min="0" max="500"></div>
+        <div class="field"><label class="k" for="sHook">Discord webhook URL</label><input id="sHook" placeholder="https://discord.com/api/webhooks/…"><p class="hint" id="hookHint">Posts new #1 scores and clears of level 20, 30, 40… Leave blank to turn it off.</p></div>
+        <div class="adm-row"><button class="cta" type="submit">Save settings</button><button class="btn" type="button" id="testHook">Send a test post</button></div>
+        <p class="hint adm-msg" id="setMsg"></p>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="adm-h"><h2>Accounts</h2><span class="hint" id="acctCount"></span></div>
+      <div id="accounts" class="adm-list"></div>
+    </section>
+   </div>
+
+  </div>
+</main>
+<script src="logo.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>

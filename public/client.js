@@ -177,6 +177,7 @@ function onMsg(m) {
       break;
     }
     case 'lvstats': S.lvStats = m; renderStats(); break;
+    case 'kicked': leave(); $('joinErr').textContent = 'The server admin removed you from that maze.'; $('joinErr').hidden = false; break;
     case 'emo': S.emotes.set(m.id | 0, { e: m.e | 0, at: performance.now(), until: performance.now() + 2200 }); A.sfx('emote'); break;
     case 'cheer': S.cheers.push({ e: m.e | 0, nm: String(m.nm || ''), x: 0.1 + Math.random() * 0.8, at: performance.now() }); if (S.cheers.length > 40) S.cheers.shift(); A.sfx('emote'); break;
     case 'fruit': { const f = M.FRUITS[m.k | 0]; MazeFX.ring(+m.x, +m.y, '#3dffa0', 2.2, 0.5); A.sfx('coin'); toast('Bonus fruit!', (f ? f.name : 'Fruit') + ' in the middle for ' + (f ? f.pts : 0) + ' points'); break; }

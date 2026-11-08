@@ -84,7 +84,7 @@ function open(file) {
     touch: db.prepare('UPDATE accounts SET last_login = ? WHERE uid = ?'),
     rename: db.prepare('UPDATE accounts SET name = ?, name_key = ? WHERE uid = ?'),
     newSession: db.prepare('INSERT INTO sessions (token_hash, uid, expires) VALUES (?, ?, ?)'),
-    session: db.prepare('SELECT a.uid, a.name FROM sessions s JOIN accounts a ON a.uid = s.uid WHERE s.token_hash = ? AND s.expires > ?'),
+    session: db.prepare('SELECT a.uid, a.name, a.discord_id AS discordId FROM sessions s JOIN accounts a ON a.uid = s.uid WHERE s.token_hash = ? AND s.expires > ?'),
     endSession: db.prepare('DELETE FROM sessions WHERE token_hash = ?'),
     purge: db.prepare('DELETE FROM sessions WHERE expires <= ?'),
     boardBest: db.prepare('SELECT score FROM boards WHERE board = ? AND pkey = ?'),
@@ -105,7 +105,7 @@ function open(file) {
     setGet: db.prepare('SELECT v FROM settings WHERE k = ?'),
     setPut: db.prepare('INSERT OR REPLACE INTO settings (k, v) VALUES (?, ?)'),
     setDel: db.prepare('DELETE FROM settings WHERE k = ?'),
-    accounts: db.prepare('SELECT uid, name, games, best_score, last_login FROM accounts ORDER BY last_login DESC LIMIT ?')
+    accounts: db.prepare('SELECT uid, name, games, best_score AS best, last_login AS lastLogin, created FROM accounts ORDER BY last_login DESC LIMIT ?')
   };
 
   /** Record a finished run; keeps only each player's best. Returns true if it was a new best. */
