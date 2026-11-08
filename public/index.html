@@ -210,6 +210,18 @@
               </div>
             </div>
           </div>
+          <div class="lobby-setup">
+            <div class="field" id="modsField">
+              <span class="k" id="modsLabel">Challenge modifiers <b class="mult" id="modMult"></b></span>
+              <div class="modlist" id="modList" role="group" aria-labelledby="modsLabel"></div>
+              <p class="hint" id="modHint"></p>
+            </div>
+            <div class="field" id="rolesField">
+              <div class="roles-head"><span class="k" id="rolesLabel">Co-op roles</span><button type="button" class="toggle" id="rolesToggle" role="switch" aria-checked="false" aria-labelledby="rolesLabel"><i></i></button></div>
+              <div class="rolepick" id="rolePick" role="radiogroup" aria-label="Your role"></div>
+              <p class="hint" id="roleHint"></p>
+            </div>
+          </div>
           <div class="lobby-foot">
             <button class="cta" id="lobbyStart" type="button">Start game</button>
             <p class="hint" id="lobbyHint">Start when everyone’s in. Late arrivals can still join. Enter or Space also starts.</p>
@@ -227,6 +239,10 @@
               <tbody id="statsBody"></tbody>
             </table>
             <p class="statsfoot" id="statsFoot" hidden></p>
+          </div>
+          <div class="field ready-role" id="readyRoleField" hidden>
+            <span class="k">Your role for the next level</span>
+            <div class="rolepick" id="readyRolePick" role="radiogroup" aria-label="Your role"></div>
           </div>
           <button class="cta" id="readyBtn" type="button">Start level 2</button>
           <p class="hint" id="readyHint">You started this maze, so you choose when the next level begins. Press Enter or Space.</p>
@@ -278,6 +294,8 @@
           <div class="tbar"><i id="teamFill"></i></div>
           <div class="team blue"><b id="teamB">0</b><span>Blue</span></div>
         </div>
+        <div class="row" id="modRow" hidden><span class="k">Modifiers</span><span class="sc" id="modTxt"></span></div>
+        <div class="row" id="roleRow" hidden><span class="k">Your role</span><span class="sc" id="roleTxt"></span></div>
         <div class="row"><span class="k">Pellets left</span><span class="sc" id="pLeft">—</span></div>
         <div class="row"><span class="k">Ghosts</span><span class="sc" id="gCount">—</span></div>
         <div class="net" id="netState">Not in a maze yet.</div>

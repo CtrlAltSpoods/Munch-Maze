@@ -23,6 +23,8 @@ class Game {
     // If they leave, the longest-present player takes over; they get it back if they return.
     this.hostId = 0;
     this.creatorToken = '';
+    this.mods = 0;         // challenge modifiers (bit set, see M.MODS), picked by the host in the lobby
+    this.roles = false;    // co-op roles on/off (host)
     this.startLevel(1, false, true);   // pre-game lobby: players gather until the host starts
   }
 
@@ -49,6 +51,8 @@ class Game {
     for (const p of this.players.values()) {
       p.x = this.lv.sx; p.y = this.lv.sy; p.combo = 0; p.lvEat = 0; p.lvBest = 0;
       if (!p.over) { p.al = true; p.spawnAt = Date.now(); if (advance) p.li = Math.min(5, p.li + 1); }
+      if (this.mods & 1) p.li = Math.min(p.li, 1);   // ONE LIFE: no extra lives, ever
+      p.shieldUsed = false;
     }
     this.broadcast({ t: 'level', lv: L, ph: this.ph, adv: advance ? 1 : 0 });
   }
@@ -60,6 +64,7 @@ class Game {
     const r = token && this.resume.get(token);
     if (r) { p.sc = r.sc; p.li = r.li; p.over = r.over; this.resume.delete(token); }
     p.token = token;
+    if ((this.mods & 1) && this.ph !== 3) p.li = Math.min(p.li, 1);
     if (this.mode === 'versus') {   // even out the teams
       const r = r0 => [...this.players.values()].filter(q => q.team === r0).length;
       p.team = r(0) <= r(1) ? 0 : 1;
@@ -71,7 +76,7 @@ class Game {
       t: 'welcome', id: p.id, seed: this.seed, key: this.key, vis: this.isPrivate ? 'private' : 'public', gid: this.gid, title: this.title || '', testMode: this.opts.testMode ? 1 : 0, link: this.link || '', locked: !!this.pass,
       lv: this.L, b: M.toB64(this.bits),
       roster: [...this.players.values()].map(q => this.rosterRow(q)),
-      mode: this.mode || 'coop', daily: this.daily || '',
+      mode: this.mode || 'coop', daily: this.daily || '', mods: this.mods, roles: this.roles ? 1 : 0,
       sc: p.sc, li: p.li, over: p.over, host: this.hostId, ph: this.ph,
       stats: (this.ph === 1 || this.ph === 2) ? this.lvStats : null,
       pu: this.pending ? { kind: this.pending.kind, by: this.pending.by, x: this.pending.x, y: this.pending.y } : null
@@ -134,27 +139,28 @@ class Game {
         if (!g || g.ep !== (m.ep | 0) || g.st !== 2 || !p.al) return;
         const [gx, gy] = M.entPos(g);
         // allow for latency: faster levels put client and server further apart
-        if (Math.hypot(gx - p.x, gy - p.y) > 1.8 + M.ghostSpeed(this.L) * 0.15 + (g.boss ? 1 : 0)) return;
+        if (Math.hypot(gx - p.x, gy - p.y) > 1.8 + this.ghostBase() * 0.15 + (g.boss ? 1 : 0)) return;
         if (g.boss) { this.hitBoss(g, p); return; }
         g.st = 3; g.ep++;
         if (p.fid !== this.fid) { p.fid = this.fid; p.combo = 0; }
-        const pts = 200 * Math.pow(2, Math.min(p.combo, 3)); p.combo++;
+        const pts = this.points(p, 200 * Math.pow(2, Math.min(p.combo, 3))); p.combo++;
         if (p.combo >= 4) this.achieve(p, 'quad');
-        p.sc += pts; this.stat(p, 'ghosts');
+        this.stat(p, 'ghosts');
         this.send(p, { t: 'pts', v: pts, x: gx, y: gy });
         return;
       }
       case 'fruit': {   // grabbed the bonus fruit
         const f = this.fruit;
         if (!f || f.id !== (m.id | 0) || !p.al || this.ph !== 0 || Math.hypot(f.x - p.x, f.y - p.y) > 1.6) return;
-        const v = M.FRUITS[f.k].pts; p.sc += v; this.fruit = null;
+        const v = this.points(p, M.FRUITS[f.k].pts); this.fruit = null;
         this.broadcast({ t: 'fruitgot', id: p.id, nm: p.nm, v, x: f.x, y: f.y, k: f.k });
         this.achieve(p, 'fruit'); this.stat(p, 'fruit');
         return;
       }
       case 'revive': {   // touched a fallen teammate's marker
         const d = this.downs.get(m.id | 0), o = this.players.get(m.id | 0);
-        if (!d || !o || o === p || !p.al || Date.now() > d.until || Math.hypot(d.x - p.x, d.y - p.y) > 1.6) return;
+        const reach = this.roleOf(p) === 'medic' ? M.MEDIC_REACH + 0.6 : 1.6;   // MEDIC: from further away
+        if (!d || !o || o === p || !p.al || Date.now() > d.until || Math.hypot(d.x - p.x, d.y - p.y) > reach) return;
         if (this.mode === 'versus' && o.team !== p.team) return;
         this.downs.delete(o.id);
         if (o.over) { o.over = false; o.li = 1; } else o.li = Math.min(5, o.li + 1);
@@ -282,9 +288,27 @@ class Game {
         if (m.kind != null) this.opts.forcePowerup = m.kind | 0;
         { const c = { id: ++this.crateSeq, x: Math.round(p.x), y: Math.round(p.y) }; this.crates.push(c); this.broadcast({ t: 'crate', id: c.id, x: c.x, y: c.y }); }
         return;
+      case 'setup': {   // host: challenge modifiers (lobby only, not on the daily maze) and co-op roles
+        if (p.id !== this.hostId) return;
+        if (m.mods !== undefined && this.ph === 3 && !this.daily) this.mods = (m.mods | 0) & M.MODS_ALL;
+        if (m.roles !== undefined && (this.ph === 3 || this.ph === 2) && this.mode !== 'versus') this.roles = !!m.roles;
+        this.broadcast({ t: 'setup', mods: this.mods, roles: this.roles ? 1 : 0 });
+        return;
+      }
+      case 'role': {   // pick a co-op role, before a level starts
+        const r = m.r | 0;
+        if (!this.roles || this.mode === 'versus' || (this.ph !== 3 && this.ph !== 2) || r < 0 || r >= M.ROLES.length) return;
+        p.role = r; this.broadcast({ t: 'role', id: p.id, r });
+        return;
+      }
+      case 'shield':   // TANK: shrugged off a ghost (once a level); others see the shield pop
+        if (this.roleOf(p) !== 'tank' || p.shieldUsed || !p.al || this.ph !== 0) return;
+        p.shieldUsed = true; p.spawnAt = Date.now();   // a moment's grace
+        this.broadcast({ t: 'shield', id: p.id, x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100 });
+        return;
       case 'again':
         if (!p.over) return;
-        p.sc = 0; p.li = 3; p.over = false; p.al = true; p.spawnAt = Date.now();
+        p.sc = 0; p.li = this.mods & 1 ? 1 : 3; p.over = false; p.al = true; p.spawnAt = Date.now();
         return;
     }
   }
@@ -295,13 +319,14 @@ class Game {
     // the player has to be close to the pellet they claim
     const tx = i % lv.W, ty = (i / lv.W) | 0;
     let dx = Math.abs(Math.round(p.x) - tx); dx = Math.min(dx, lv.W - dx);
-    if (dx + Math.abs(Math.round(p.y) - ty) > 2 + M.playerSpeed(this.L) * 0.06 + (this.effect('magnet') ? 3 : 0) && !this.laserCanReach(p, tx, ty)) return;   // pellets eaten since the last update
+    if (dx + Math.abs(Math.round(p.y) - ty) > 2 + M.playerSpeed(this.L) * (this.roleOf(p) === 'scout' ? M.SCOUT_SPEED : 1) * 0.06 + (this.effect('magnet') ? 3 : 0) && !this.laserCanReach(p, tx, ty)) return;   // pellets eaten since the last update
     M.setBit(this.bits, i); this.left--; this.eatenSince.push(i);
     p.lvEat = (p.lvEat || 0) + 1; this.stat(p, 'pellets');
     if (this.mode === 'versus') this.teamEat[p.team | 0]++;
     this.checkFruit();
-    p.sc += lv.p[i] === 2 ? 50 : 10;
-    if (lv.p[i] === 2) { this.frighten(); this.broadcast({ t: 'pw', id: p.id, i }); }   // everyone hears who powered up
+    const big = lv.p[i] === 2 && !(this.mods & 4);   // NO BIG PELLETS: they're plain pellets
+    this.points(p, big ? 50 : 10);
+    if (big) { this.frighten(); this.broadcast({ t: 'pw', id: p.id, i }); }   // everyone hears who powered up
     if (this.left <= 0) this.finishLevel(false);
   }
 
@@ -320,14 +345,14 @@ class Game {
     g.hp--; g.ep++; this.stat(p, 'boss');
     if (g.hp <= 0) {
       g.st = 5;   // defeated: gone for the rest of the level
-      for (const q of this.players.values()) if (!q.over) { q.sc += 2000; this.achieve(q, 'boss'); }
+      for (const q of this.players.values()) if (!q.over) { this.points(q, 2000); this.achieve(q, 'boss'); }
       this.bullets = [];
       this.broadcast({ t: 'boss', down: 1, x: gx, y: gy, by: p.id });
       return;
     }
     g.st = 3;   // back to the box as eyes, and it splits off two more ghosts
     for (let k = 0; k < 2; k++) this.ghosts.push({ i: this.ghosts.length, tx: Math.round(gx), ty: Math.round(gy), d: -1, t: 0, st: 1, ep: 0, home: 0, rev: false, split: true });
-    p.sc += 1000;
+    this.points(p, 1000);
     this.broadcast({ t: 'boss', hp: g.hp, x: gx, y: gy, by: p.id });
   }
   /** A hacked ghost eats the pellet on its tile. Counts towards clearing the level; scores nothing. */
@@ -344,8 +369,13 @@ class Game {
     for (const g of this.ghosts) if (g.st === 1 || g.st === 2) { g.st = 2; g.rev = true; }
   }
 
+  /** Adds points, boosted by the challenge modifiers. Returns what was added. */
+  points(p, v) { const n = Math.round(v * M.modMult(this.mods)); p.sc += n; return n; }
+  ghostBase() { return M.ghostSpeed(this.L) * (this.mods & 2 ? M.FAST_GHOSTS : 1); }
+  /** A player's role id, if roles are on in this (co-op) maze. */
+  roleOf(p) { return this.roles && this.mode !== 'versus' ? (M.ROLES[p.role | 0] || M.ROLES[0]).id : 'none'; }
   /** A finished run goes on the scoreboards (and the player's profile). */
-  report(p) { this.opts.onScore({ uid: p.uid || 0, n: p.nm, sc: p.sc, lv: this.L, seed: this.seed, daily: this.daily || '', model: (M.MODELS[p.mdl] || {}).id || '' }); }
+  report(p) { this.opts.onScore({ uid: p.uid || 0, n: p.nm, sc: p.sc, lv: this.L, seed: this.seed, daily: this.daily || '', mods: this.mods, model: (M.MODELS[p.mdl] || {}).id || '' }); }
   /** Achievements only count for logged-in players; the server keeps track and says when one is new. */
   achieve(p, id) {
     if (!p || !p.uid || !this.opts.onAchieve) return;
@@ -480,8 +510,8 @@ class Game {
         const off = dx ? Math.abs(gy - py) : Math.abs(gx - px);
         if (off > 0.6 || along < -0.6 || along > reach + 0.5) continue;
         g.st = 3; g.ep++;
-        p.sc += 200; this.stat(p, 'ghosts');
-        this.send(p, { t: 'pts', v: 200, x: gx, y: gy });
+        const v = this.points(p, 200); this.stat(p, 'ghosts');
+        this.send(p, { t: 'pts', v, x: gx, y: gy });
         this.broadcast({ t: 'zap', x: gx, y: gy });
       }
     }
@@ -628,7 +658,7 @@ class Game {
     const now = Date.now();
     if (this.tickNo % 30 === 0) for (const [k, r] of this.resume) if (now - r.at > RESUME_MS) {
       this.resume.delete(k);
-      if (r.sc > 0 && !r.over) this.opts.onScore({ uid: r.uid || 0, n: r.nm, sc: r.sc, lv: r.lv, seed: this.seed, daily: this.daily || '' });
+      if (r.sc > 0 && !r.over) this.opts.onScore({ uid: r.uid || 0, n: r.nm, sc: r.sc, lv: r.lv, seed: this.seed, daily: this.daily || '', mods: this.mods });
     }
     if (!this.players.size) return;
     if (now - (this.flushAt || 0) > 5000) { this.flushAt = now; for (const p of this.players.values()) this.flushStats(p); }
@@ -679,7 +709,7 @@ class Game {
         if (sendState) this.sendState();
         return;
       }
-      const base = M.ghostSpeed(this.L), lv = this.lv;
+      const base = this.ghostBase(), lv = this.lv;
       this.tickPowerups(dt, players);
       const frozen = !!this.effect('freeze');
       for (const g of this.ghosts) {

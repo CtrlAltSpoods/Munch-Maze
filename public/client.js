@@ -66,7 +66,12 @@ function loadLevel(L, b64, ph = 0) {
   S.alive = true; respawn(); S.mazeKey = '';
   const n = M.ghostCount(L);
   endStreak(true);
-  if (ph === 0) MazeFX.bigText('LEVEL ' + L, S.lvl.W + ' × ' + S.lvl.H + ' maze · ' + n + (n > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(L), '#41e0f0', 1.9);
+  S.shieldUsed = false; S.theme = M.themeFor(L); themeParts.length = 0;
+  if (ph === 0) {
+    const th = S.theme, fresh = L > 1 && (L - 1) % 10 === 0;
+    if (fresh) MazeFX.bigText(th.name.toUpperCase(), 'Level ' + L + ' · ' + th.sub, '#' + hslHex(th.hue(L), th.sat, 62), 2.6);
+    else MazeFX.bigText('LEVEL ' + L, S.lvl.W + ' × ' + S.lvl.H + ' maze · ' + n + (n > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(L), '#41e0f0', 1.9);
+  }
 }
 
 /* ---------- networking ---------- */
@@ -104,7 +109,7 @@ function onMsg(m) {
       S.lvStats = m.stats || null; S.mode = m.mode === 'versus' ? 'versus' : 'coop'; S.daily = String(m.daily || ''); S.dailyJoin = false;
       $('teamBar').hidden = S.mode !== 'versus';
       S.host = m.host | 0; S.ph = m.ph | 0; updateReady();
-      S.testMode = !!m.testMode;
+      S.testMode = !!m.testMode; S.mods = m.mods | 0; S.rolesOn = !!m.roles; setupSig = '';
       $('seedBtn').textContent = S.seed;
       $('seedBtn').title = S.vis === 'private' ? 'Copy invite link (only people with it can join)' : 'Copy link to this maze';
       const chip = $('visChip'); chip.hidden = false; chip.textContent = S.vis === 'private' ? 'Invite only' : 'Public'; chip.classList.toggle('private', S.vis === 'private');
@@ -125,6 +130,18 @@ function onMsg(m) {
       if (m.adv && !S.over) A.sfx('life');
       break;
     case 'join': if (Array.isArray(m.r)) addRoster(m.r); A.sfx('join'); updateLobby(); break;
+    case 'setup': {
+      const was = S.mods; S.mods = m.mods | 0; S.rolesOn = !!m.roles; setupSig = ''; updateLobby(); updateReady();
+      if (S.mods !== was && S.host !== S.id) A.sfx('reel');
+      break;
+    }
+    case 'role': { const r = S.roster.get(m.id | 0); if (r) r.role = m.r | 0; setupSig = ''; lobbySig = ''; updateLobby(); updateReady(); break; }
+    case 'shield': {
+      if ((m.id | 0) === S.id) break;
+      const o = S.ov.get(m.id | 0), x = o ? o.x : +m.x, y = o ? o.y : +m.y;
+      MazeFX.ring(x, y, '#41e0f0', 2, 0.5); MazeFX.burst(x, y, { colors: ['#41e0f0', '#ffffff'], n: 24, speed: 6, life: 0.5, size: 0.08, shape: 'sq' }); A.sfx('bomb');
+      break;
+    }
     case 'plv': { const r = S.roster.get(m.id | 0); if (r) r.plv = m.lv | 0; break; }
     case 'died': {   // someone else was caught: play their exit effect where they fell
       const r = S.roster.get(m.id | 0); if (!r || !S.lvl) break;
@@ -349,7 +366,7 @@ function eatAt(x, y) {
   const lv = S.lvl, i = y * lv.W + x;
   if (!lv.p[i] || eaten(i)) return;
   M.setBit(S.myBits, i); S.eatQ.push(i); S.pend.set(i, performance.now());
-  if (lv.p[i] === 2) {
+  if (lv.p[i] === 2 && !(S.mods & 4)) {
     A.sfx('power');
     MazeFX.ring(x, y, '#ffcc33', 3.2, 0.5); MazeFX.ring(x, y, '#41e0f0', 5, 0.7);
     MazeFX.sparks(x, y, '#ffcc33', 26, 9, 0.6); MazeFX.flash('#2f45ff', 0.3); MazeFX.shake(4);
@@ -385,7 +402,7 @@ function playerStep(dt) {
   if (effectOn('unplugged')) { checkGhosts(); return; }   // controller died: you stand still
   if (S.inv > 0) S.inv -= dt;
   // move in small steps and check for ghosts after each, so fast levels can't skip past one
-  const dist = M.playerSpeed(S.L) * dt, steps = Math.max(1, Math.ceil(dist / 0.3));
+  const dist = M.playerSpeed(S.L) * (myRole() === 'scout' ? M.SCOUT_SPEED : 1) * dt, steps = Math.max(1, Math.ceil(dist / 0.3));
   for (let k = 0; k < steps && S.alive; k++) { movePlayer(S.me, dist / steps); checkGhosts(); }
   if (effectOn('laser')) laserEat();
 }
@@ -417,6 +434,16 @@ function checkHighFives() {
     MazeFX.text(mx, my - 0.6, 'HIGH FIVE!', '#fcee0a');
   }
 }
+/** Caught by a ghost or a fireball. TANK: the first hit each level only breaks your shield. */
+function caught(px, py) {
+  if (myRole() === 'tank' && !S.shieldUsed) {
+    S.shieldUsed = true; S.inv = 2; send({ t: 'shield' }); A.sfx('bomb');
+    MazeFX.ring(px, py, '#41e0f0', 2.4, 0.5); MazeFX.burst(px, py, { colors: ['#41e0f0', '#ffffff'], n: 30, speed: 7, life: 0.5, size: 0.08, shape: 'sq' });
+    MazeFX.flash('#41e0f0', 0.25); MazeFX.shake(6); MazeFX.text(px, py - 0.7, 'SHIELD!', '#41e0f0');
+    return;
+  }
+  die(px, py);
+}
 function die(px, py) {
   S.alive = false; S.deadT = 1.4; send({ t: 'die' }); A.sfx('die');
   deathFx(S.dfx, px, py, MazeModels.colorAt(S.paint, S.time), true);
@@ -447,13 +474,13 @@ function checkGhosts() {
   // a fallen teammate's marker: touch it to bring them back
   for (const [id, d] of S.downs) {
     if (performance.now() > d.until) { S.downs.delete(id); continue; }
-    if (d.tried > performance.now() - 800 || Math.hypot(d.x - px, d.y - py) > 0.8) continue;
+    if (d.tried > performance.now() - 800 || Math.hypot(d.x - px, d.y - py) > (myRole() === 'medic' ? M.MEDIC_REACH : 0.8)) continue;
     if (S.mode === 'versus' && (S.roster.get(id) || {}).team !== (S.roster.get(S.id) || {}).team) continue;
     d.tried = performance.now(); send({ t: 'revive', id });
   }
   // boss fireballs
   const tiny = effectOn('shrink');   // SHRINK: too small to catch: ghosts and fireballs pass right over you
-  if (S.inv <= 0 && !tiny) for (const b of S.bullets) if (Math.hypot(b[0] - px, b[1] - py) < 0.5) { die(px, py); return; }
+  if (S.inv <= 0 && !tiny) for (const b of S.bullets) if (Math.hypot(b[0] - px, b[1] - py) < 0.5) { caught(px, py); return; }
   const small = effectOn('shrink') ? 0.5 : 1, frozenNow = effectOn('freeze');
   for (const g of S.gv) {
     if (g.st !== 1 && g.st !== 2) continue;
@@ -465,7 +492,7 @@ function checkGhosts() {
       g.st = 3; send({ t: 'ghost', i: g.i, ep: g.ep }); A.sfx('ghost');
       MazeFX.ring(g.x, g.y, '#41e0f0', 3, 0.45); MazeFX.sparks(g.x, g.y, GCOL[g.i % GCOL.length], 22, 10, 0.55); MazeFX.coins(g.x, g.y, 5); MazeFX.shake(7); A.sfx('coin');
     } else if (S.inv <= 0 && !effectOn('autopilot') && !effectOn('hacker')) {   // autopilot never gets caught; hacked ghosts are harmless
-      die(px, py); break;
+      caught(px, py); break;
     }
   }
 }
@@ -553,6 +580,7 @@ async function loadScores() {
       const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = s.n + ' ';
       if (s.reg) { nm.appendChild(verifiedBadge()); nm.append(' '); nm.dataset.uid = s.uid; nm.classList.add('linky'); }
       const sm = document.createElement('small'); sm.textContent = 'level ' + s.lv; nm.appendChild(sm);
+      if (s.mods) { const md = document.createElement('span'); md.className = 'modb'; md.textContent = '×' + M.modMult(s.mods).toFixed(2); md.title = 'Modifiers: ' + M.MODS.filter(m => s.mods & m.bit).map(m => m.name).join(', '); nm.append(' ', md); }
       const v = document.createElement('span'); v.className = 'sc'; v.textContent = (s.sc | 0).toLocaleString();
       li.append(nm, v); ol.appendChild(li);
     }
@@ -866,6 +894,33 @@ function glowSprite(color, core, glow, coreColor) {
 }
 function hexA(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; }
 function hsl(h, s, l) { return `hsl(${h} ${s}% ${l}%)`; }
+function hslHex(h, s, l) {   // 'rrggbb'
+  s /= 100; l /= 100; const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = n => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1))))).toString(16).padStart(2, '0');
+  return f(0) + f(8) + f(4);
+}
+/* Theme scenery behind the maze: snow, embers, bubbles or drifting stars (screen space). */
+const themeParts = [];
+function drawThemeFx(dt, th) {
+  if (!th || th.fx === 'none' || MazeFX.reduced()) return;
+  const want = Math.round(Math.min(90, CW * CH / 14000));
+  while (themeParts.length < want) themeParts.push({ x: Math.random() * CW, y: Math.random() * CH, s: Math.random(), w: Math.random() * 6.28 });
+  ctx.save();
+  for (const p of themeParts) {
+    p.w += dt * (1 + p.s);
+    if (th.fx === 'snow') { p.y += dt * (18 + p.s * 30); p.x += Math.sin(p.w) * dt * 12; }
+    else if (th.fx === 'embers') { p.y -= dt * (20 + p.s * 40); p.x += Math.sin(p.w * 1.5) * dt * 16; }
+    else if (th.fx === 'bubbles') { p.y -= dt * (14 + p.s * 26); p.x += Math.sin(p.w) * dt * 8; }
+    else { p.x -= dt * (6 + p.s * 14); }
+    if (p.y > CH + 10) { p.y = -10; p.x = Math.random() * CW; } if (p.y < -10) { p.y = CH + 10; p.x = Math.random() * CW; } if (p.x < -10) { p.x = CW + 10; p.y = Math.random() * CH; }
+    const r = 1 + p.s * 2.4;
+    if (th.fx === 'snow') { ctx.globalAlpha = 0.35 + p.s * 0.4; ctx.fillStyle = '#e8f8ff'; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.fill(); }
+    else if (th.fx === 'embers') { ctx.globalAlpha = (0.4 + 0.5 * Math.abs(Math.sin(p.w * 3))) * (0.5 + p.s * 0.5); ctx.fillStyle = p.s > 0.5 ? '#ffb347' : '#ff5a2a'; ctx.fillRect(p.x, p.y, r * 0.9, r * 0.9); }
+    else if (th.fx === 'bubbles') { ctx.globalAlpha = 0.25 + p.s * 0.3; ctx.strokeStyle = '#a5ffe3'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(p.x, p.y, r * 1.6, 0, 7); ctx.stroke(); }
+    else { ctx.globalAlpha = 0.3 + 0.5 * Math.abs(Math.sin(p.w)); ctx.fillStyle = '#ffffff'; ctx.fillRect(p.x, p.y, r * 0.7, r * 0.7); }
+  }
+  ctx.restore();
+}
 function blit(sp, x, y, scale = 1) { const w = sp.width * scale; ctx.drawImage(sp, x - w / 2, y - w / 2, w, w); }
 
 /* Background: flying through space (see space.js). Warp speed follows the game:
@@ -919,7 +974,8 @@ function buildMaze(lv, T, col, hot) {
 function ensureMaze(T) {
   const lv = S.lvl, key = S.seed + '|' + lv.L + '|' + T; if (S.mazeKey === key) return;
   S.mazeKey = key;
-  const m = buildMaze(lv, T, hsl(lv.hue, 85, 62), hsl(lv.hue, 100, 88));
+  const th = M.themeFor(lv.L), hue = th.hue(lv.L);
+  const m = buildMaze(lv, T, hsl(hue, th.sat, 62), hsl(hue, 100, 88));
   S.mazeCv = m.c; S.mazeGlow = m.gl;
   // marquee bulbs sit on the outer wall
   S.bulbs = [];
@@ -1051,8 +1107,9 @@ function drawTrail(pts, kind, col, T, strength) {
 function render(dt) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   const lv = S.lvl; if (!lv) return;
-  const beat = A.beat ? A.beat() : 0;
-  drawBackground(dt, lv.hue, beat);
+  const beat = A.beat ? A.beat() : 0, th = M.themeFor(lv.L);
+  drawBackground(dt, th.hue(lv.L), beat);
+  if (S.inGame) drawThemeFx(dt, th);
   const fit = Math.min((CW - 16) / lv.W, (CH - 16) / lv.H);
   const T = Math.max(14, Math.min(34, Math.floor(fit)));
   ensureMaze(T);
@@ -1068,7 +1125,7 @@ function render(dt) {
   // a dark floor under the maze keeps the space scenery outside the play area
   const gone = S.inGame && S.nuked;   // the nuke blew the maze away
   if (!gone) {
-  ctx.fillStyle = 'rgba(6,7,20,0.86)'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(T * 0.2, T * 0.2, mw - T * 0.4, mh - T * 0.4, T * 0.5) : ctx.rect(0, 0, mw, mh); ctx.fill();
+  ctx.fillStyle = th.floor; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(T * 0.2, T * 0.2, mw - T * 0.4, mh - T * 0.4, T * 0.5) : ctx.rect(0, 0, mw, mh); ctx.fill();
   if (S.inGame && isDisco(S.name) && 'filter' in ctx) { ctx.filter = 'hue-rotate(' + Math.round(S.time * 120 % 360) + 'deg) saturate(1.4)'; ctx.drawImage(S.mazeCv, -T, -T); ctx.filter = 'none'; }
   else ctx.drawImage(S.mazeCv, -T, -T);
   const swell = S.inGame && S.ph === 1 ? 0.25 + 0.2 * Math.sin(S.time * 4) : 0;   // gentle glow on level clear, no flashing
@@ -1080,14 +1137,14 @@ function render(dt) {
   // pellets
   const x0 = Math.max(0, Math.floor(-ox / T) - 1), x1 = Math.min(lv.W - 1, Math.ceil((CW - ox) / T) + 1);
   const y0 = Math.max(0, Math.floor(-oy / T) - 1), y1 = Math.min(lv.H - 1, Math.ceil((CH - oy) / T) + 1);
-  const dot = glowSprite('#ffdcae', Math.max(1.6, T * 0.1), T * 0.22, '#fffaf0');
+  const dot = glowSprite(th.pellet, Math.max(1.6, T * 0.1), T * 0.22, '#fffaf0'), noBig = S.inGame && (S.mods & 4);
   const power = glowSprite('#ffcc33', T * 0.22, T * 0.5, '#ffffff');
   const pulse = .8 + .2 * Math.sin(S.time * 7);
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const i = y * lv.W + x, k = lv.p[i]; if (!k) continue;
     if (S.inGame && (gone || (S.nukeSnap ? !S.nukeSnap.has(i) : eaten(i)))) continue;
     const cx = (x + .5) * T, cy = (y + .5) * T;
-    if (k === 1) {
+    if (k === 1 || noBig) {
       const tw = ((x * 7 + y * 13 + Math.floor(S.time * 3)) % 23 === 0) ? 1.6 : 1;   // a few twinkle at a time
       blit(dot, cx, cy, tw);
     } else {
@@ -1163,7 +1220,7 @@ function render(dt) {
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.45)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, CW, CH);
   if (S.inGame && S.nukeIn > 0 && S.ph === 0) MazeNuke.drawWarning(ctx, CW, CH, S.nukeIn, S.time, false);
   if (MazeNuke.active) MazeNuke.draw(ctx, CW, CH, { ox, oy, T });
-  if (S.inGame && S.ph === 0 && effectOn('fog')) drawFog(ox, oy, T);
+  if (S.inGame && S.ph === 0 && S.alive && !S.over && (effectOn('fog') || (S.mods & 8))) drawFog(ox, oy, T);
   if (S.inGame) drawCheers();
   MazeFX.drawScreen(ctx, CW, CH);
 }
@@ -1261,6 +1318,8 @@ function hud(dt, now) {
   let left = S.left;   // the server's count is the one that matters
   if (left < 0) { left = 0; for (const i of lv.pList) if (!eaten(i)) left++; }
   setTxt('pLeft', left); setTxt('gCount', M.isBossLevel(S.L) ? 'Boss' : M.ghostCount(S.L));
+  $('modRow').hidden = !S.mods; if (S.mods) { setTxt('modTxt', '×' + M.modMult(S.mods).toFixed(2)); $('modTxt').title = M.MODS.filter(m => S.mods & m.bit).map(m => m.name).join(', '); }
+  const role = myRole(); $('roleRow').hidden = role === 'none'; if (role !== 'none') setTxt('roleTxt', M.ROLES.find(r => r.id === role).name + (role === 'tank' ? (S.shieldUsed ? ' · shield used' : ' · shield up') : ''));
   if (S.mode === 'versus') {
     const [a, b] = S.teamEat || [0, 0]; setTxt('teamR', a); setTxt('teamB', b);
     $('teamFill').style.width = (a + b ? a / (a + b) * 100 : 50).toFixed(1) + '%';
@@ -1332,6 +1391,8 @@ function effectLeft(id) {
   return best;
 }
 const effectOn = id => S.ph === 0 && effectLeft(id) > 0;
+/** My role id, if roles are on (co-op only). */
+const myRole = () => (S.rolesOn && S.mode !== 'versus' ? (M.ROLES[(S.roster.get(S.id) || {}).role | 0] || M.ROLES[0]).id : 'none');
 function setWant(d) { S.me.want = effectOn('reverse') ? (d + 2) % 4 : d; }
 /** Sounds for effects ending (computed from what's active now vs before). */
 function effectEdges() {
@@ -1561,7 +1622,7 @@ function drawTeamRings(T) {
 }
 /* FOG OF WAR: darkness everywhere except a small circle around you. */
 function drawFog(ox, oy, T) {
-  const [px, py] = M.entPos(S.me), x = ox + (px + .5) * T, y = oy + (py + .5) * T, r = T * 3.5;
+  const [px, py] = M.entPos(S.me), x = ox + (px + .5) * T, y = oy + (py + .5) * T, r = T * (myRole() === 'scout' ? 5.5 : 3.5);
   const g = ctx.createRadialGradient(x, y, r * 0.55, x, y, r);
   g.addColorStop(0, 'rgba(6,5,14,0)'); g.addColorStop(1, 'rgba(6,5,14,0.97)');
   ctx.save(); ctx.fillStyle = g; ctx.fillRect(0, 0, CW, CH); ctx.restore();
@@ -1716,6 +1777,8 @@ function updateReady() {
   $('readyTitle').textContent = 'Level ' + S.L + ' clear';
   $('readyNext').textContent = 'Next: ' + nx.W + ' × ' + nx.H + ' maze · ' + g + (g > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(next) + ' (+' + Math.round(M.speedStep(S.L) * 100) + '%)';
   renderStats();
+  const roles = S.rolesOn && S.mode !== 'versus'; $('readyRoleField').hidden = !roles;
+  if (roles) renderRolePick('readyRolePick');
   $('readyBtn').hidden = !isHost; $('readyHint').hidden = !isHost;
   $('readyBtn').textContent = 'Start level ' + next;
   $('readyWait').hidden = isHost;
@@ -1733,7 +1796,7 @@ function updateLobby() {
   $('lobbyVis').textContent = S.vis === 'private' ? 'Invite only' : 'Public';
   $('lobbyVis').classList.toggle('private', S.vis === 'private');
   $('lobbyLock').hidden = !S.locked;
-  const facts = ['Level ' + S.L, lv.W + ' × ' + lv.H, g + (g > 1 ? ' ghosts' : ' ghost'), 'Speed ' + speedLabel(S.L), S.vis === 'private' ? 'Link only' : 'Listed publicly'];
+  const facts = [M.themeFor(S.L).name, 'Level ' + S.L, lv.W + ' × ' + lv.H, g + (g > 1 ? ' ghosts' : ' ghost'), 'Speed ' + speedLabel(S.L), S.vis === 'private' ? 'Link only' : 'Listed publicly'];
   const fsig = facts.join('|');
   if ($('lobbyMaze').dataset.sig !== fsig) {
     $('lobbyMaze').dataset.sig = fsig; $('lobbyMaze').textContent = '';
@@ -1744,6 +1807,7 @@ function updateLobby() {
   $('lobbyWait').textContent = 'Waiting for ' + hostName() + ' to start the game…';
   renderLobbyPlayers();
   renderLevelSelect(isHost);
+  renderSetup(isHost);
   $('lobbyStart').textContent = S.L > 1 ? 'Start at level ' + S.L : 'Start game';
   if (isHost && wasHidden) setTimeout(() => { if (!$('lobbyOv').hidden) $('lobbyStart').focus({ preventScroll: true }); }, 50);
 }
@@ -1770,10 +1834,48 @@ function renderLevelSelect(isHost) {
 }
 $('lobbyLevel').addEventListener('change', e => { const L = parseInt(e.target.value, 10); if (L >= 1 && S.host === S.id && S.ph === 3) send({ t: 'startlv', lv: L }); });
 
+/* Lobby: challenge modifiers (host picks; each adds to everyone's score) and co-op roles. */
+let setupSig = '';
+function renderSetup(isHost) {
+  const roleId = (S.roster.get(S.id) || {}).role | 0;
+  const sig = [isHost, S.mods, S.rolesOn, S.mode, S.daily, roleId].join('|');
+  if (sig === setupSig) return; setupSig = sig;
+  const daily = !!S.daily, list = $('modList'); list.textContent = '';
+  setTxt('modMult', S.mods ? 'Score ×' + M.modMult(S.mods).toFixed(2) : '');
+  for (const md of M.MODS) {
+    const on = !!(S.mods & md.bit), b = document.createElement('button'); b.type = 'button';
+    b.className = 'mod' + (on ? ' on' : ''); b.setAttribute('aria-pressed', String(on)); b.disabled = !isHost || daily;
+    const n = document.createElement('b'); n.textContent = md.name; const sm = document.createElement('small'); sm.textContent = '+' + Math.round(md.bonus * 100) + '%';
+    const d = document.createElement('span'); d.textContent = md.desc;
+    b.append(n, sm, d); b.title = md.desc;
+    b.addEventListener('click', () => { if (S.host === S.id && S.ph === 3) { send({ t: 'setup', mods: S.mods ^ md.bit }); A.unlock(); A.sfx('eat'); } });
+    list.appendChild(b);
+  }
+  setTxt('modHint', daily ? 'The daily maze is the same for everyone: no modifiers.' : isHost ? 'Each one makes it harder and adds to everyone’s score.' : S.mods ? 'The host picked these. Good luck.' : 'The host can turn these on.');
+  // roles: co-op only
+  const coop = S.mode !== 'versus'; $('rolesField').hidden = !coop;
+  if (!coop) return;
+  const t = $('rolesToggle'); t.setAttribute('aria-checked', String(!!S.rolesOn)); t.classList.toggle('on', !!S.rolesOn); t.disabled = !isHost;
+  $('rolePick').hidden = !S.rolesOn;
+  if (S.rolesOn) renderRolePick('rolePick');
+  setTxt('roleHint', S.rolesOn ? 'Pick a role. Mix them up: a Scout, a Tank and a Medic work well together.' : isHost ? 'Turn on to let everyone pick Scout, Tank or Medic.' : 'The host can turn roles on.');
+}
+function renderRolePick(id) {
+  const box = $(id), mine = (S.roster.get(S.id) || {}).role | 0; box.textContent = '';
+  M.ROLES.forEach((r, i) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'role' + (i === mine ? ' on' : '') + ' r-' + r.id;
+    b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(i === mine));
+    const n = document.createElement('b'); n.textContent = r.name; const d = document.createElement('span'); d.textContent = r.desc;
+    b.append(n, d);
+    b.addEventListener('click', () => { send({ t: 'role', r: i }); A.unlock(); A.sfx('eat'); });
+    box.appendChild(b);
+  });
+}
+$('rolesToggle').addEventListener('click', () => { if (S.host === S.id) send({ t: 'setup', roles: !S.rolesOn }); });
 let lobbySig = '';
 function renderLobbyPlayers() {
   const ids = [...S.roster.keys()];
-  const sig = ids.join(',') + '|' + S.host;
+  const sig = ids.join(',') + '|' + S.host + '|' + S.rolesOn + '|' + ids.map(i => (S.roster.get(i) || {}).role | 0).join(',');
   if (sig === lobbySig) return; lobbySig = sig;
   $('lobbyCount').textContent = String(ids.length);
   const ul = $('lobbyPlayers'); ul.textContent = '';
@@ -1784,7 +1886,8 @@ function renderLobbyPlayers() {
     MazeModels.draw(cv.getContext('2d'), looksOf(r.nm, id === S.id ? S.model : r.mdl | 0), 32, 34, 22, paint, 0, 0.45, 0);
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.nm;
     if (r.reg) { nm.appendChild(verifiedBadge()); if (r.uid) { nm.dataset.uid = r.uid; nm.classList.add('linky'); } }
-    const tags = [r.plv ? 'Lv ' + r.plv : '', id === S.host ? 'Host' : '', id === S.id ? 'You' : ''].filter(Boolean);
+    const role = S.rolesOn && S.mode !== 'versus' && r.role ? M.ROLES[r.role].name : '';
+    const tags = [role, r.plv ? 'Lv ' + r.plv : '', id === S.host ? 'Host' : '', id === S.id ? 'You' : ''].filter(Boolean);
     li.append(cv, nm);
     for (const t of tags) { const c = document.createElement('span'); c.className = 'tag' + (t === 'Host' ? ' host' : ''); c.textContent = t; li.appendChild(c); }
     ul.appendChild(li);

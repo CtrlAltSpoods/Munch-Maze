@@ -778,3 +778,42 @@ input[type=range]{accent-color:var(--pink)}
 .chal.done .chal-xp{color:#3dffa0}
 .chal.done .xpbar i{background:#3dffa0}
 @media (prefers-reduced-motion:reduce){ .xpbar i{transition:none} .cos.nope{animation:none} }
+
+/* ---------- lobby: challenge modifiers and co-op roles ---------- */
+.mult{font-family:var(--arcade);color:var(--accent);letter-spacing:0;margin-left:6px}
+.modlist{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.mod{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;text-align:left;padding:8px 10px;background:rgba(7,6,15,.75);border:1px solid var(--line);color:var(--fg)}
+.mod b{font-family:var(--display);font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+.mod small{font-family:var(--arcade);font-size:10px;color:var(--muted)}
+.mod span{grid-column:1/-1;font-size:11px;color:var(--muted);line-height:1.35}
+.mod.on{border-color:var(--pink);background:linear-gradient(135deg,rgba(255,43,214,.18),rgba(7,6,15,.75));box-shadow:inset 3px 0 0 var(--pink)}
+.mod.on small{color:var(--accent)}
+.mod:disabled{cursor:default}
+.mod:disabled:not(.on){opacity:.55}
+.mod:hover:not(:disabled){border-color:var(--cyan)}
+.roles-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.toggle{position:relative;width:40px;height:22px;border-radius:999px;background:var(--line);border:0;padding:0}
+.toggle i{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--muted);transition:transform .15s,background .15s}
+.toggle.on{background:rgba(61,255,160,.35)}
+.toggle.on i{transform:translateX(18px);background:#3dffa0}
+.toggle:disabled{cursor:default;opacity:.8}
+.rolepick{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.role{display:flex;flex-direction:column;gap:2px;text-align:left;padding:7px 10px;background:rgba(7,6,15,.75);border:1px solid var(--line);color:var(--fg)}
+.role b{font-family:var(--display);font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+.role span{font-size:11px;color:var(--muted);line-height:1.35}
+.role:hover{border-color:var(--cyan)}
+.role.on{border-color:#3dffa0;box-shadow:inset 3px 0 0 #3dffa0;background:rgba(61,255,160,.08)}
+.role.r-scout.on{border-color:var(--cyan);box-shadow:inset 3px 0 0 var(--cyan)}
+.role.r-tank.on{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.role.r-medic.on{border-color:#3dffa0}
+.ready-role{width:100%;max-width:460px;text-align:left}
+.modb{font-family:var(--arcade);font-size:9px;font-weight:700;color:var(--pink);letter-spacing:0}
+@media (max-width:520px){ .modlist,.rolepick{grid-template-columns:minmax(0,1fr)} }
+@media (prefers-reduced-motion:reduce){ .toggle i{transition:none} }
+/* tall cards (the lobby) scroll inside the stage instead of being cut off */
+.overlay{place-items:start center}
+.overlay > .card{margin-block:auto}
+.card.lobby{max-width:820px}
+.lobby-setup{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start;border-top:1px solid var(--line);padding-top:14px}
+.lobby-setup .modlist,.lobby-setup .rolepick{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:760px){ .lobby-setup{grid-template-columns:minmax(0,1fr)} }

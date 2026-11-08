@@ -75,10 +75,13 @@ function open(file) {
   for (const [c, def] of [['games', 'INTEGER NOT NULL DEFAULT 0'], ['best_score', 'INTEGER NOT NULL DEFAULT 0'], ['best_level', 'INTEGER NOT NULL DEFAULT 0'],
     ['cleared', 'INTEGER NOT NULL DEFAULT 0'], ['models', "TEXT NOT NULL DEFAULT '{}'"], ['xp', 'INTEGER NOT NULL DEFAULT 0']]) if (!cols.has(c)) db.exec(`ALTER TABLE accounts ADD COLUMN ${c} ${def}`);
 
+  // which challenge modifiers a run used (a badge on the scoreboards)
+  for (const t of ['scores', 'boards']) if (!db.prepare(`PRAGMA table_info(${t})`).all().some(c => c.name === 'mods')) db.exec(`ALTER TABLE ${t} ADD COLUMN mods INTEGER NOT NULL DEFAULT 0`);
+
   const q = {
     best: db.prepare('SELECT score FROM scores WHERE pkey = ?'),
-    upsert: db.prepare(`INSERT INTO scores (pkey, uid, name, score, level, seed, at) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(pkey) DO UPDATE SET name = excluded.name, score = excluded.score, level = excluded.level, seed = excluded.seed, at = excluded.at
+    upsert: db.prepare(`INSERT INTO scores (pkey, uid, name, score, level, seed, at, mods) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(pkey) DO UPDATE SET name = excluded.name, score = excluded.score, level = excluded.level, seed = excluded.seed, at = excluded.at, mods = excluded.mods
       WHERE excluded.score > scores.score`),
     top: db.prepare(`SELECT COALESCE(a.name, s.name) AS n, s.score AS sc, s.level AS lv, s.uid IS NOT NULL AS reg
       FROM scores s LEFT JOIN accounts a ON a.uid = s.uid ORDER BY s.score DESC, s.at ASC LIMIT ?`),
@@ -94,10 +97,12 @@ function open(file) {
     endSession: db.prepare('DELETE FROM sessions WHERE token_hash = ?'),
     purge: db.prepare('DELETE FROM sessions WHERE expires <= ?'),
     boardBest: db.prepare('SELECT score FROM boards WHERE board = ? AND pkey = ?'),
-    boardUpsert: db.prepare(`INSERT INTO boards (board, pkey, uid, name, score, level, at) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(board, pkey) DO UPDATE SET name = excluded.name, score = excluded.score, level = excluded.level, at = excluded.at WHERE excluded.score > boards.score`),
-    boardTop: db.prepare(`SELECT COALESCE(a.name, b.name) AS n, b.score AS sc, b.level AS lv, b.uid AS uid
+    boardUpsert: db.prepare(`INSERT INTO boards (board, pkey, uid, name, score, level, at, mods) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(board, pkey) DO UPDATE SET name = excluded.name, score = excluded.score, level = excluded.level, at = excluded.at, mods = excluded.mods WHERE excluded.score > boards.score`),
+    boardTop: db.prepare(`SELECT COALESCE(a.name, b.name) AS n, b.score AS sc, b.level AS lv, b.uid AS uid, b.mods AS mods
       FROM boards b LEFT JOIN accounts a ON a.uid = b.uid WHERE b.board = ? ORDER BY b.score DESC, b.at ASC LIMIT ?`),
+    topAll: db.prepare(`SELECT COALESCE(a.name, s.name) AS n, s.score AS sc, s.level AS lv, s.uid AS uid, s.mods AS mods
+      FROM scores s LEFT JOIN accounts a ON a.uid = s.uid ORDER BY s.score DESC, s.at ASC LIMIT ?`),
     topUid: db.prepare(`SELECT s.uid AS uid FROM scores s ORDER BY s.score DESC, s.at ASC LIMIT ?`),
     profile: db.prepare('SELECT uid, name, created, games, best_score, best_level, cleared, models FROM accounts WHERE uid = ?'),
     gamePlayed: db.prepare('UPDATE accounts SET games = games + 1, best_score = MAX(best_score, ?), best_level = MAX(best_level, ?), models = ? WHERE uid = ?'),
@@ -121,22 +126,23 @@ function open(file) {
   };
 
   /** Record a finished run; keeps only each player's best. Returns true if it was a new best. */
-  function addScore({ uid = null, n, sc, lv, seed = '', boards = [] }) {
+  function addScore({ uid = null, n, sc, lv, seed = '', boards = [], mods = 0 }) {
+    mods = Math.max(0, Math.min(255, mods | 0));
     sc = Math.max(0, sc | 0); lv = Math.max(0, lv | 0);
     const name = String(n || 'Player').slice(0, 16), key = uid ? 'u:' + uid : 'g:' + nameKey(name);
     if (sc <= 0 || key === 'g:') return false;
     const now = Date.now();
-    for (const b of boards) { const cur = q.boardBest.get(b, key); if (!cur || cur.score < sc) q.boardUpsert.run(b, key, uid || null, name, sc, lv, now); }
+    for (const b of boards) { const cur = q.boardBest.get(b, key); if (!cur || cur.score < sc) q.boardUpsert.run(b, key, uid || null, name, sc, lv, now, mods); }
     const cur = q.best.get(key);
     if (cur && cur.score >= sc) return false;
-    q.upsert.run(key, uid || null, name, sc, lv, String(seed).slice(0, 40), now);
+    q.upsert.run(key, uid || null, name, sc, lv, String(seed).slice(0, 40), now, mods);
     return true;
   }
   /** All-time table, or a time-limited board ('week:…' / 'day:…'). */
   function topScores(limit = 10, board = '') {
-    if (board) return q.boardTop.all(board, limit).map(r => ({ n: r.n, sc: r.sc, lv: r.lv, reg: !!r.uid, uid: r.uid || 0 }));
-    return db.prepare(`SELECT COALESCE(a.name, s.name) AS n, s.score AS sc, s.level AS lv, s.uid AS uid
-      FROM scores s LEFT JOIN accounts a ON a.uid = s.uid ORDER BY s.score DESC, s.at ASC LIMIT ?`).all(limit).map(r => ({ n: r.n, sc: r.sc, lv: r.lv, reg: !!r.uid, uid: r.uid || 0 }));
+    const row = r => ({ n: r.n, sc: r.sc, lv: r.lv, reg: !!r.uid, uid: r.uid || 0, mods: r.mods | 0 });
+    if (board) return q.boardTop.all(board, limit).map(row);
+    return q.topAll.all(limit).map(row);
   }
   /** Highest all-time score right now (0 if none). */
   const topScore = () => { const r = q.top.get(1); return r ? r.sc : 0; };

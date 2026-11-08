@@ -310,6 +310,35 @@
     return out;
   }
 
-  return { XP, MAX_PLEVEL, xpFor, playerLevel, TRAILS, DEATHFX, pickCosmetic, CHALLENGES, challengesFor, FRUITS, fruitFor, FRUIT_TIME, isBossLevel, BOSS_HP, ACHIEVEMENTS, DIRS, POWERUPS, POWERUP_FROM_LEVEL, VOTE_TIME, SPEED_STEP, PU_SPIN, PU_HOLD, NUKE_WARN, NUKE_TIME, rollPowerup, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, ghostMult, speedStep, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
+  /* ---------- maze themes: a new look every 10 levels (then round again) ---------- */
+  const THEMES = [
+    { id: 'neon',  name: 'Neon City',     sub: 'Where it all starts',             hue: L => (228 + (L - 1) * 47) % 360, sat: 85, pellet: '#ffdcae', floor: 'rgba(6,7,20,0.86)',   fx: 'none' },
+    { id: 'ice',   name: 'Ice Caverns',   sub: 'Mind the cold',                   hue: L => 186 + (L % 10) * 2,         sat: 90, pellet: '#d8f6ff', floor: 'rgba(5,16,30,0.88)',  fx: 'snow' },
+    { id: 'lava',  name: 'Lava Core',     sub: 'It’s getting hot in here',        hue: L => 8 + (L % 10) * 2,           sat: 95, pellet: '#ffd27a', floor: 'rgba(26,6,4,0.88)',   fx: 'embers' },
+    { id: 'deep',  name: 'Deep Sea',      sub: 'Something big lives down here',   hue: L => 162 + (L % 10) * 2,         sat: 80, pellet: '#a5ffe3', floor: 'rgba(3,18,24,0.88)',  fx: 'bubbles' },
+    { id: 'space', name: 'Space Station', sub: 'No one can hear you munch',       hue: L => 268 + (L % 10) * 3,         sat: 70, pellet: '#ffffff', floor: 'rgba(4,4,12,0.9)',    fx: 'stars' }
+  ];
+  const themeFor = L => THEMES[Math.floor((Math.max(1, L) - 1) / 10) % THEMES.length];
+  /* ---------- challenge modifiers: the host picks them in the lobby; each adds to the score ---------- */
+  const MODS = [
+    { bit: 1, id: 'onelife', name: 'One life',       bonus: 0.5,  desc: 'One life each, and no extra lives between levels' },
+    { bit: 2, id: 'fast',    name: 'Fast ghosts',    bonus: 0.25, desc: 'Ghosts move 25% faster' },
+    { bit: 4, id: 'nobig',   name: 'No big pellets', bonus: 0.25, desc: 'Big pellets are just pellets: no turning the tables' },
+    { bit: 8, id: 'fog',     name: 'Fog',            bonus: 0.25, desc: 'Thick fog all game: you only see a little way around you' }
+  ];
+  const MODS_ALL = MODS.reduce((n, m) => n | m.bit, 0);
+  const FAST_GHOSTS = 1.25;
+  /** Score multiplier for a set of modifiers, e.g. 1.75. */
+  const modMult = mods => 1 + MODS.reduce((s, m) => s + ((mods & m.bit) ? m.bonus : 0), 0);
+  /* ---------- co-op roles (the host turns them on) ---------- */
+  const ROLES = [
+    { id: 'none',  name: 'No role', desc: 'Just you' },
+    { id: 'scout', name: 'Scout',   desc: '10% faster, and sees further in fog' },
+    { id: 'tank',  name: 'Tank',    desc: 'Shrugs off one ghost hit each level' },
+    { id: 'medic', name: 'Medic',   desc: 'Revives fallen teammates from much further away' }
+  ];
+  const SCOUT_SPEED = 1.1, MEDIC_REACH = 3.2;
+
+  return { THEMES, themeFor, MODS, MODS_ALL, FAST_GHOSTS, modMult, ROLES, SCOUT_SPEED, MEDIC_REACH, XP, MAX_PLEVEL, xpFor, playerLevel, TRAILS, DEATHFX, pickCosmetic, CHALLENGES, challengesFor, FRUITS, fruitFor, FRUIT_TIME, isBossLevel, BOSS_HP, ACHIEVEMENTS, DIRS, POWERUPS, POWERUP_FROM_LEVEL, VOTE_TIME, SPEED_STEP, PU_SPIN, PU_HOLD, NUKE_WARN, NUKE_TIME, rollPowerup, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, ghostMult, speedStep, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
     genLevel, wrapX, canGo, entPos, getBit, setBit, toB64, fromB64 };
 });
