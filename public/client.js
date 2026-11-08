@@ -57,7 +57,7 @@ function loadLevel(L, b64, ph = 0) {
   S.L = L; S.lvl = M.genLevel(S.seed, L);
   S.myBits = new Uint8Array(S.lvl.bytes);
   S.srvBits = b64 ? M.fromB64(b64, S.lvl.bytes) : new Uint8Array(S.lvl.bytes);
-  S.ge = []; S.gv = []; S.gTarget = []; S.ph = ph; S.fr = 0; S.crates = []; S.fx = []; S.grabbing = 0; S.nuked = false; S.nukeIn = 0; S.nukeSnap = null; S.vote = null; $('voteOv').hidden = true; MazeNuke.clear(); A.nukeAlarm && A.nukeAlarm(false); S.pend.clear(); S.left = -1;
+  S.ge = []; S.gv = []; S.gTarget = []; S.ph = ph; S.fr = 0; S.crates = []; S.fx = []; S.grabbing = 0; S.hfPrime = true; S.nuked = false; S.nukeIn = 0; S.nukeSnap = null; S.vote = null; $('voteOv').hidden = true; MazeNuke.clear(); A.nukeAlarm && A.nukeAlarm(false); S.pend.clear(); S.left = -1;
   S.alive = true; respawn(); S.mazeKey = '';
   const n = M.ghostCount(L);
   endStreak(true);
@@ -295,7 +295,7 @@ function playerStep(dt) {
   if (S.over) return;
   if (!S.alive) {
     S.deadT -= dt;
-    if (S.deadT <= 0 && S.li > 0) { S.alive = true; respawn(); send({ t: 'respawn' }); A.sfx('respawn'); MazeFX.ring(S.me.tx, S.me.ty, S.color, 2, 0.5); }
+    if (S.deadT <= 0 && S.li > 0) { S.alive = true; S.hfPrime = true; respawn(); send({ t: 'respawn' }); A.sfx('respawn'); MazeFX.ring(S.me.tx, S.me.ty, S.color, 2, 0.5); }
     return;
   }
   if (S.ph !== 0) return;
@@ -309,6 +309,30 @@ function playerStep(dt) {
   for (let k = 0; k < steps && S.alive; k++) { movePlayer(S.me, dist / steps); checkGhosts(); }
   if (effectOn('laser')) laserEat();
 }
+/* High five: run into or past another player and you both get a clap and the high-five clip.
+   Triggers when you come within reach of someone, then waits until you've parted (and a
+   short cooldown) before it can fire for that player again. */
+const HF_REACH = 0.75, HF_COOLDOWN = 2500;
+function checkHighFives() {
+  if (!S.alive || S.ph !== 0) return;
+  const [px, py] = M.entPos(S.me), now = performance.now();
+  S.hfNear = S.hfNear || new Set(); S.hfAt = S.hfAt || new Map();
+  const prime = S.hfPrime; S.hfPrime = false;   // just (re)spawned: whoever's already beside you doesn't count until you part
+  for (const p of S.players) {
+    const o = S.ov.get(p.id) || p;
+    const near = p.al && !p.over && Math.hypot(o.x - px, o.y - py) < HF_REACH;
+    if (prime && near) { S.hfNear.add(p.id); continue; }
+    if (!near) { if (Math.hypot(o.x - px, o.y - py) > HF_REACH * 1.6) S.hfNear.delete(p.id); continue; }
+    if (S.hfNear.has(p.id)) continue;
+    S.hfNear.add(p.id);
+    if (now - (S.hfAt.get(p.id) || 0) < HF_COOLDOWN) continue;
+    S.hfAt.set(p.id, now);
+    const mx = (o.x + px) / 2, my = (o.y + py) / 2;
+    A.sfx('clap'); if (A.playSample) A.playSample('highfive', 0.9);
+    MazeFX.sparks(mx, my, '#fcee0a', 18, 6, 0.6); MazeFX.ring(mx, my, '#ff2bd6', 1.8, 0.4);
+    MazeFX.text(mx, my - 0.6, 'HIGH FIVE!', '#fcee0a');
+  }
+}
 function checkGhosts() {
   const [px, py] = M.entPos(S.me);
   for (const c of S.crates) if (c[0] !== S.grabbing && Math.hypot(c[1] - px, c[2] - py) < 0.75) { S.grabbing = c[0]; send({ t: 'grab', id: c[0], x: Math.round(px * 100) / 100, y: Math.round(py * 100) / 100, f: S.me.face }); }
@@ -319,7 +343,7 @@ function checkGhosts() {
       S.ge.push([g.i, g.ep]); if (S.ge.length > 8) S.ge.shift();
       g.st = 3; send({ t: 'ghost', i: g.i, ep: g.ep }); A.sfx('ghost');
       MazeFX.ring(g.x, g.y, '#41e0f0', 3, 0.45); MazeFX.sparks(g.x, g.y, GCOL[g.i % GCOL.length], 22, 10, 0.55); MazeFX.coins(g.x, g.y, 5); MazeFX.shake(7); A.sfx('coin');
-    } else if (S.inv <= 0 && !effectOn('autopilot')) {   // autopilot never gets caught
+    } else if (S.inv <= 0 && !effectOn('autopilot') && !effectOn('hacker')) {   // autopilot never gets caught; hacked ghosts are harmless
       S.alive = false; S.deadT = 1.4; send({ t: 'die' }); A.sfx('die');
       MazeFX.sparks(px, py, S.color, 40, 9, 0.9); MazeFX.ring(px, py, '#ff4d5e', 3, 0.6); MazeFX.flash('#ff4d5e', 0.35); MazeFX.shake(12); endStreak(true); break;
     }
@@ -658,7 +682,7 @@ function render(dt) {
     const hacked = S.inGame && effectOn('hacker');
     if (!S.nuked) for (const g of S.gv) {
       if (mega > 1 && g.st !== 3) { ctx.globalAlpha = 0.35; blit(glowSprite('#7a0020', T * 0.6, T * 0.9), (g.x + .5) * T, (g.y + .5) * T); ctx.globalAlpha = 1; }
-      drawGhost(g.x, g.y, T, g.phone ? '#ffcc33' : GCOL[g.i % GCOL.length], g.st, g.d, fl, g.st === 3 ? 1 : mega);
+      drawGhost(g.x, g.y, T, hacked ? '#b44dff' : g.phone ? '#ffcc33' : GCOL[g.i % GCOL.length], g.st, g.d, fl, g.st === 3 ? 1 : mega);
       if (hacked && g.st !== 3) drawHacked(g, T);
       if (g.phone && g.st !== 3) MazeFX.icon(ctx, 'phone', (g.x + .5) * T, (g.y + .5) * T - T * 0.75 * mega, T * 0.55, S.time);
     }
@@ -1365,7 +1389,7 @@ addEventListener('keydown', () => A.unlock(), { once: true });
 /* ---------- loop ---------- */
 function frame() {
   const now = performance.now(), dt = Math.min(.05, (now - S.lastT) / 1000); S.lastT = now; S.time += dt;
-  if (S.inGame && S.lvl) { playerStep(dt); updateGhostView(dt); }
+  if (S.inGame && S.lvl) { playerStep(dt); updateGhostView(dt); checkHighFives(); }
   const quake = S.inGame && S.ph === 0 && effectOn('quake');
   MazeFX.setRumble(quake ? 11 : S.inGame && S.streak >= 100 ? 1.6 : 0, quake);   // earthquake (felt even with reduced motion), or a small steady shake from a 100 streak
   MazeFX.update(dt); MazeNuke.update(dt); drawHero();

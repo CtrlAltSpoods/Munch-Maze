@@ -48,6 +48,7 @@ function build() {
 
   noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
   const ch = noiseBuf.getChannelData(0); for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+  loadSample('highfive', 'sounds/high-five.mp3');
 }
 
 function unlock() {
@@ -486,6 +487,11 @@ const FX = {
     tone(sfxBus, { type: 'triangle', f: 880, t: m + 0.42, dur: 0.12, vol: 0.1 });
     tone(sfxBus, { type: 'triangle', f: 1320, t: m + 0.56, dur: 0.22, vol: 0.1 });
   },
+  clap(t) {   // a crisp hand clap: a few tight bursts, then a short tail
+    for (const [d, v] of [[0, 0.5], [0.011, 0.38], [0.022, 0.3]]) noise(sfxBus, { t: t + d, dur: 0.03, vol: v, type: 'bandpass', freq: 1400, q: 1.1 });
+    noise(sfxBus, { t: t + 0.03, dur: 0.16, vol: 0.22, type: 'bandpass', freq: 1100, q: 0.8 });
+    noise(sfxBus, { t, dur: 0.05, vol: 0.12, type: 'highpass', freq: 5000 });
+  },
   phone(t) {   // old phone ring, twice
     for (let r = 0; r < 2; r++) for (let k = 0; k < 10; k++) {
       const tt = t + r * 0.65 + k * 0.04;
@@ -539,6 +545,22 @@ const FX = {
   respawn(t) { tone(sfxBus, { type: 'sine', f: 400, f2: 1200, t, dur: 0.18, vol: 0.22 }); },
   join(t) { [79, 84].forEach((m, i) => tone(sfxBus, { type: 'sine', f: hz(m), t: t + i * 0.07, dur: 0.18, vol: 0.12 })); }
 };
+/* Recorded clips (public/sounds/*.mp3), decoded once and played through the effects channel.
+   A missing or undecodable file just stays silent. */
+const samples = {};
+function loadSample(name, url) {
+  if (!ctx || samples[name]) return;
+  samples[name] = 'loading';
+  fetch(url).then(r => r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.status)))
+    .then(b => new Promise((res, rej) => ctx.decodeAudioData(b, res, rej)))
+    .then(buf => { samples[name] = buf; }).catch(() => { samples[name] = null; });
+}
+function playSample(name, vol = 1) {
+  if (!ready()) return;
+  const buf = samples[name]; if (!buf || buf === 'loading') return;
+  const s = ctx.createBufferSource(), g = ctx.createGain();
+  s.buffer = buf; g.gain.value = vol; s.connect(g); g.connect(sfxBus); s.start();
+}
 /* A short robotic voice line (the browser's built-in speech), at the effects volume. */
 function say(text, { pitch = 0.5, rate = 1.05 } = {}) {
   try {
@@ -593,5 +615,5 @@ document.addEventListener('visibilitychange', () => {
   else ctx.resume().then(() => { if (music.on) music.next = Math.max(music.next, ctx.currentTime + 0.05); }).catch(() => {});
 });
 
-window.MazeAudio = { say, nukeAlarm, get alarmOn() { return !!alarm; }, fadeOutMusic, DROP_TIME, get playing() { return music.on; }, get mode() { return music.mode; }, /* for tests */ levels() { return tracks ? { normal: +tracks.normal.bus.gain.value.toFixed(3), boss: +tracks.boss.bus.gain.value.toFixed(3) } : null; }, get bpm() { return music.bpm; }, unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, beat, get supported() { return !!AC; } };
+window.MazeAudio = { loadSample, playSample, say, nukeAlarm, get alarmOn() { return !!alarm; }, fadeOutMusic, DROP_TIME, get playing() { return music.on; }, get mode() { return music.mode; }, /* for tests */ levels() { return tracks ? { normal: +tracks.normal.bus.gain.value.toFixed(3), boss: +tracks.boss.bus.gain.value.toFixed(3) } : null; }, get bpm() { return music.bpm; }, unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, beat, get supported() { return !!AC; } };
 })();
