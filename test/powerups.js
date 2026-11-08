@@ -22,7 +22,7 @@ const until = async (c, pred, ms = 6000) => { const t0 = Date.now(); while (Date
 const lastS = c => c.last.s;
 
 async function room(seed, level) {
-  const a = await client('host', seed), b = await client('guest', seed);
+  const a = await client('host', seed), b = await client('guest', seed, { room: a.last.welcome.gid });
   send(a, { t: 'startlv', lv: level }); await wait(150);
   send(a, { t: 'ready' }); await until(b, m => m.t === 'level' && m.ph === 0);
   // park both at the spawn point

@@ -2,14 +2,14 @@
 
 A self-hosted, multiplayer maze-chase game that runs in any web browser.
 
-Everyone who enters the same **seed** shares one maze. Players eat pellets together, dodge ghosts, and clear the level to unlock the next one, which is bigger. Levels are generated from the seed, so the same seed always gives the same mazes.
+Start a maze and anyone can join it from the lobby list or a shared link. Players eat pellets together, dodge ghosts, and clear the level to unlock the next one, which is bigger. Every new maze is its own game with a unique id; its levels are generated from a **seed**, so the same seed always builds the same layouts (two games can share a seed without ever mixing).
 
 - Level 1 is a 15×11 maze with 1 ghost. Each level adds 4 tiles in each direction, up to 63×51, and more ghosts (up to 6).
 - Every completed level makes the game **5% faster** (compounding: ×1.05, ×1.10, ×1.16 … about ×1.48 by level 9), for players and ghosts alike.
 - Every new maze opens in a **lobby**: players gather, see who's in and copy the invite link, and the host presses *Start game* when everyone's ready. The host can also choose a **starting level**: each browser remembers the highest level it has reached (a `mm_best_level` cookie), and the lobby offers every level up to that, so players can continue where they left off (up to level 50). The running-mazes list marks mazes that are still in their lobby.
 - Between levels the maze pauses for the **host**, the player who started it, who presses *Start level N* (or Enter/Space) when everyone is ready. Other players see who they're waiting for. If the host leaves, the longest-present player takes over, and the original host gets it back if they return.
 - No player limit, no accounts, no external services, no npm dependencies.
-- Each maze is **Public** (listed by its lobby name under “Mazes running now” for anyone on the server; the list never shows seeds) or **Invite only** (never listed; joined through a private link like `http://your-server:8080/#seed-name~k3j9x2m4p8qa`). Typing the same seed without the link starts a separate maze, so private games stay private. Public lobbies can also have a **password**: they stay listed (tagged “Password”), but joining by list, seed or link asks for it. Passwords are stored only as salted scrypt hashes and wrong guesses are limited to 8 per address per 10 minutes.
+- Each maze is **Public** (listed by its lobby name under “Mazes running now” for anyone on the server; the list never shows seeds) or **Invite only** (never listed; joined through a private link like `http://your-server:8080/#lobby-name~k3j9x2m4p8qa`). Public lobbies can also have a **password**: they stay listed (tagged “Password”), but joining from the list or a link asks for it. Passwords are stored only as salted scrypt hashes and wrong guesses are limited to 8 per address per 10 minutes.
 - Ten chomping characters: Chomper, Shark, Polar Bear, Piranha, Croc, Wolf, Dino, Whale, Dragon and Gem. Character N unlocks when you clear level N, and so does colour N of each character's five. Five premium animated finishes (Rainbow, Gold Rush, Plasma, Galaxy, Prism) unlock at 10, 20, 30, 40 and 50 levels cleared. Progress is kept per browser in a `mm_cleared` cookie.
 - **Power-ups** from level 3: 1 or 2 glowing loot crates appear at random. Walking into one pauses everyone for an 8 s vote on opening it (most votes wins; a tie or no votes opens it). On a no it's binned; on a yes a slot machine reveals what's inside, then it kicks in as play resumes: Mega Ghost, Nuke (rare: survive a 10 s countdown, then a jet drops it and the whole maze is blown away; level passed), Reverse Controls (6 s), Laser Beamz (eats pellets and zaps ghosts), Mega Pellet, Just A Lil Bomb, EARTHQUAKE, Controller Died, Autopilot and Phone A Ghost, each with its own sound and visuals.
 - Clearing a level drops a big bass hit and a level-up fanfare while the music fades out over the drop.
@@ -40,7 +40,7 @@ npm test         # end-to-end smoke test
 | `PORT` | `8080` | Port inside the container |
 | `SERVER_NAME` | `Munch Maze` | Shown in the browser tab |
 | `MAX_PLAYERS_PER_MAZE` | `0` | `0` means unlimited |
-| `MAX_MAZES` | `200` | How many seeds can run at once |
+| `MAX_MAZES` | `200` | How many mazes can run at once |
 | `SHOW_LOBBY` | `true` | List running mazes on the start screen; set `false` for private games |
 | `DEFAULT_SEED` | *(empty)* | Seed used when a player leaves it blank; empty means random |
 | `TICK_RATE` | `30` | Simulation steps per second (10–60) |
@@ -67,7 +67,7 @@ The game uses a WebSocket at `/ws`, so the proxy must pass `Upgrade` and `Connec
 ## How it works
 
 - `shared/maze.js` builds a level from `seed + level number`. It is loaded by both the server and the browser, so both always build the identical maze. A level is a mirrored maze with a central ghost house, extra loops, no dead ends, and a wrap-around tunnel from level 2.
-- `server/` is plain Node: an HTTP server for the page, a small WebSocket implementation (`ws.js`), and one `Game` per seed (`game.js`). The server owns pellets, ghosts, scores, lives and level changes, and sends state 15 times a second.
+- `server/` is plain Node: an HTTP server for the page, a small WebSocket implementation (`ws.js`), and one `Game` per maze, keyed by a random id (`game.js`). The server owns pellets, ghosts, scores, lives and level changes, and sends state 15 times a second.
 - `public/` is the client. Each browser moves its own player for instant controls and reports which pellets it ate. The server checks that the player is next to the pellet before awarding points.
 - If a player's connection drops, reconnecting within 2 minutes resumes their score and lives.
 

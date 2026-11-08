@@ -145,9 +145,30 @@ function icon(ctx, id, x, y, s, t = 0) {
 function powerSlot({ items, final, by = '', title = 'LOOT CRATE', subtitle = '', spin = 1.6, hold = 2.0, onLand }) {
   pslot = { items, final, by, title, subtitle, spin, hold, onLand, t: 0, landed: false, rows: 3 * items.length + final };
 }
+/** Break text into lines that fit maxW with the current ctx.font. */
+function wrapLines(ctx, text, maxW) {
+  const words = String(text).split(/\s+/), lines = []; let line = '';
+  for (const wd of words) {
+    const tryL = line ? line + ' ' + wd : wd;
+    if (ctx.measureText(tryL).width <= maxW || !line) line = tryL; else { lines.push(line); line = wd; }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+/** Largest font size (up to max) at which text fits maxW. */
+function fitFont(ctx, text, max, maxW, fmt) {
+  let s = max; ctx.font = fmt(s);
+  while (s > 10 && ctx.measureText(text).width > maxW) { s--; ctx.font = fmt(s); }
+  return s;
+}
+const DESC_FONT = s => '500 ' + s + 'px "IBM Plex Mono", ui-monospace, monospace';
 function drawPowerSlot(ctx, W, H) {
   const p = pslot, n = p.items.length, it = p.items[p.final];
-  const w = Math.min(W - 32, 460), rowH = Math.min(64, H * 0.11), h = rowH * 2.6 + 120, x0 = (W - w) / 2, y0 = Math.max(16, (H - h) / 2);
+  const w = Math.min(W - 32, 460), rowH = Math.min(64, H * 0.11);
+  // the description wraps inside the box, and the box grows to hold it
+  const descSize = w < 340 ? 12 : 13; ctx.font = DESC_FONT(descSize);
+  const descLines = wrapLines(ctx, it.desc || '', w - 48).slice(0, 4), lineH = descSize + 6;
+  const h = 72 + rowH * 1.6 + 38 + descLines.length * lineH + 22, x0 = (W - w) / 2, y0 = Math.max(16, (H - h) / 2);
   const appear = Math.min(1, p.t / 0.15), fade = p.t > p.spin + p.hold - 0.25 ? Math.max(0, (p.spin + p.hold - p.t) / 0.25) : 1;
   ctx.save(); ctx.globalAlpha = appear * fade;
   ctx.fillStyle = 'rgba(5,6,16,0.55)'; ctx.fillRect(0, 0, W, H);
@@ -160,7 +181,7 @@ function drawPowerSlot(ctx, W, H) {
     ctx.fillStyle = on ? '#fff3b0' : '#5a4510'; ctx.beginPath(); ctx.arc(bx, by, 3, 0, Math.PI * 2); ctx.fill(); }
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   glowText(ctx, p.title, W / 2, y0 + 30, Math.min(30, w / 12), '#ffcc33', 14);
-  ctx.font = '600 13px "IBM Plex Mono", ui-monospace, monospace'; ctx.fillStyle = '#c8cbe8';
+  fitFont(ctx, p.subtitle || (p.by ? p.by + ' opened a crate' : 'A crate was opened'), 13, w - 48, s => '600 ' + s + 'px "IBM Plex Mono", ui-monospace, monospace'); ctx.fillStyle = '#c8cbe8';
   ctx.fillText(p.subtitle || (p.by ? p.by + ' opened a crate' : 'A crate was opened'), W / 2, y0 + 56);
   // the reel window
   const rx = x0 + 22, ry = y0 + 72, rw = w - 44, rh = rowH * 1.6;
@@ -173,7 +194,7 @@ function drawPowerSlot(ctx, W, H) {
     const row = Math.floor(pos) + j, off = (row - pos) * rowH, idx = ((row % n) + n) % n, item = p.items[idx];
     const cy = ry + rh / 2 + off;
     icon(ctx, item.id, rx + 44, cy, rowH * 0.62, p.t);
-    ctx.font = '900 ' + Math.round(Math.min(26, rw / 14)) + 'px Orbitron, Impact, "Arial Black", sans-serif';
+    fitFont(ctx, item.name.toUpperCase(), Math.round(Math.min(26, rw / 14)), rw - 100, s => '900 ' + s + 'px Orbitron, Impact, "Arial Black", sans-serif');
     ctx.fillStyle = p.landed && idx === p.final ? (item.good ? '#1f8a3a' : '#c2142f') : '#2a2f6a';
     ctx.textAlign = 'left'; ctx.fillText(item.name.toUpperCase(), rx + 84, cy + 1);
   }
@@ -183,7 +204,8 @@ function drawPowerSlot(ctx, W, H) {
   ctx.restore();
   if (p.landed) {
     glowText(ctx, it.good ? 'NICE!' : 'UH OH!', W / 2, ry + rh + 24, 20, col, 10);
-    ctx.font = '500 13px "IBM Plex Mono", ui-monospace, monospace'; ctx.fillStyle = '#eef0ff'; ctx.fillText(it.desc, W / 2, ry + rh + 48);
+    ctx.font = DESC_FONT(descSize); ctx.fillStyle = '#eef0ff';
+    descLines.forEach((ln, i) => ctx.fillText(ln, W / 2, ry + rh + 46 + i * lineH));
   }
   ctx.restore();
 }

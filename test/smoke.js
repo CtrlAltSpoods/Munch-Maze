@@ -50,8 +50,9 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   if ((await fetch(base + '/../server/index.js')).status === 200) fail('path traversal');
 
   const a = await client('alice');
-  const b = await client('bob');
   const wa = a.last.welcome;
+  if (!/^[A-Za-z0-9_-]{8}$/.test(wa.gid || '')) fail('every game needs its own opaque id');
+  const b = await client('bob', { room: wa.gid });
   if (wa.seed !== 'smoke-test') fail('seed not normalised: ' + wa.seed);
   if (b.last.welcome.roster.length !== 2) fail('roster should list both players');
   await waitFor(a, 'join', m => m.nm === 'bob');
@@ -61,7 +62,7 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   if (games[0].players !== 2) fail('lobby count');
   if (games[0].name !== 'Smoke Party') fail('lobby list should show the lobby name, got ' + games[0].name);
   if (JSON.stringify(games).includes('smoke-test')) fail('lobby list must not reveal the seed');
-  if (!/^[A-Za-z0-9_-]{8}$/.test(games[0].id)) fail('lobby list entries need an opaque id');
+  if (games[0].id !== wa.gid) fail('lobby list entries are the game id');
   console.log('ok  lobby lists the maze by name, without its seed');
   const viaList = await client('carol', { seed: '', room: games[0].id, tok: 'carol' });
   if (viaList.last.welcome.seed !== 'smoke-test') fail('joining by list id should land in that maze');
@@ -156,7 +157,7 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   await waitFor(b, 'leave');
   const sAfter2 = await waitFor(b, 's', m => m.h === b.last.welcome.id, 3000);
   console.log('ok  host passed to bob when alice left');
-  const a2 = await client('alice');
+  const a2 = await client('alice', { room: wa.gid });
   if (a2.last.welcome.sc !== expected) fail('resume did not keep score');
   console.log('ok  reconnect resumed score', a2.last.welcome.sc);
   if (a2.last.welcome.host !== a2.last.welcome.id) fail('the player who started the maze should get host back on return');
@@ -208,10 +209,11 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   // password-protected public lobby
   const tryJoin = extra => new Promise(res => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
-    ws.onopen = () => ws.send(JSON.stringify(Object.assign({ t: 'join', nm: 'pw-test', seed: 'locked-room' }, extra)));
+    ws.onopen = () => ws.send(JSON.stringify(Object.assign({ t: 'join', nm: 'pw-test', room: ownerGid }, extra)));
     ws.onmessage = e => { const m = JSON.parse(e.data); if (m.t === 'welcome' || m.t === 'error') { res(m); ws.close(); } };
   });
   const owner = await client('owner', { seed: 'locked-room', setpw: 'hunter2', lname: 'Secret Club', tok: 'owner' });
+  const ownerGid = owner.last.welcome.gid;
   if (!owner.last.welcome.locked) fail('owner should see the lobby is password protected');
   const listedPw = (await (await fetch(base + '/api/games')).json()).find(g => g.name === 'Secret Club');
   if (!listedPw || !listedPw.locked) fail('password lobbies should be listed and marked locked');
@@ -219,7 +221,11 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   if ((await tryJoin({ pw: 'nope' })).code !== 'pw_wrong') fail('a wrong password should be refused');
   const okJoin = await tryJoin({ pw: 'hunter2' });
   if (okJoin.t !== 'welcome') fail('the right password should let you in');
-  if ((await tryJoin({ room: listedPw.id, pw: 'hunter2' })).t !== 'welcome') fail('joining from the list with the password should work');
+  if (listedPw.id !== ownerGid) fail('locked lobby listed under its game id');
+  owner.ws.close(); await new Promise(r => setTimeout(r, 200));
+  const ownerBack = await client('owner', { room: ownerGid, tok: 'owner' });
+  if (!ownerBack.last.welcome || ownerBack.last.welcome.gid !== ownerGid) fail('the owner reconnecting needs no password');
+  console.log('ok  reconnecting to your own locked lobby needs no password');
   const setpwIgnored = await tryJoin({ pw: 'hunter2', setpw: 'takeover' });
   if (setpwIgnored.t !== 'welcome' || (await tryJoin({ pw: 'takeover' })).code !== 'pw_wrong') fail('a joiner must not be able to change the password');
   console.log('ok  password lobby: listed as locked, wrong/missing refused, right one joins');
@@ -227,6 +233,18 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   for (let i = 0; i < 9 && !limited; i++) limited = (await tryJoin({ pw: 'guess' + i })).code === 'pw_limit';
   if (!limited) fail('repeated wrong passwords should be rate limited');
   console.log('ok  repeated wrong guesses are locked out');
+
+  // same seed, separate games: "Start maze" never lands you in someone else's (or your old) game
+  const s1g = await client('solo1', { seed: 'shared-seed', tok: 'solo1' });
+  const s2g = await client('solo2', { seed: 'shared-seed', tok: 'solo2' });
+  if (s1g.last.welcome.gid === s2g.last.welcome.gid || s2g.last.welcome.roster.length !== 1) fail('starting a maze on a seed already in use must make a separate game');
+  if (s1g.last.welcome.seed !== s2g.last.welcome.seed) fail('both games should still use that seed');
+  s1g.ws.send(JSON.stringify({ t: 'startlv', lv: 1 })); s1g.ws.send(JSON.stringify({ t: 'ready' }));
+  await waitFor(s1g, 'level', m => m.ph === 0, 3000);
+  s1g.ws.close(); await new Promise(r => setTimeout(r, 200));
+  const again = await client('solo1', { seed: 'shared-seed', tok: 'solo1' });
+  if (again.last.welcome.gid === s1g.last.welcome.gid || again.last.welcome.ph !== 3) fail('leaving and starting again on the same seed must give a fresh game in its lobby');
+  console.log('ok  same seed, separate games: new mazes never resume an old one');
 
   console.log('\nAll smoke tests passed.');
   cleanup(0);

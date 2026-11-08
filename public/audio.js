@@ -87,16 +87,29 @@ function noise(dest, { t, dur, vol, type = 'highpass', freq = 7000, q = 0.8 }) {
 }
 
 /* ---------- the track ----------
-   128 BPM four-on-the-floor in A minor: Am - F - C - G.
-   Kick, clap, hats, pumping saw bass, sidechained pad and a delayed square arp.
+   Neon synthwave, ~112 BPM in A minor over an 8-bar progression with sevenths:
+   Am7 - Fmaj7 - Cmaj7 - G6 - Dm7 - Am7 - Fmaj7 - E7.
+   A 32-bar arrangement builds up: drums, round off-beat bass and a warm pumping pad,
+   then a soft plucked arp with echo, then a sung-style lead melody. No square waves,
+   gentle hats, so it sits under the game instead of buzzing over it.
    Each level shifts the key and nudges the tempo up a little. */
-const PROG = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]]; // chord tones (MIDI)
-const BASS = [45, 41, 48, 43];
-const ARP_A = [0, 1, 2, 1, 0, 2, 3, 2, 0, 1, 2, 3, 2, 1, 0, 2];   // index into chord + octave
-const ARP_B = [3, 2, 0, 2, 1, 2, 3, 0, 3, 2, 1, 2, 0, 1, 2, 3];
-const BASS_STEPS = [0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 2]; // 0 rest, 1 root, 2 octave
+const PROG = [[57, 60, 64, 67], [53, 57, 60, 64], [52, 55, 59, 60], [55, 59, 62, 64],
+              [53, 57, 60, 62], [55, 57, 60, 64], [53, 57, 60, 64], [52, 56, 59, 62]];   // chord tones (MIDI)
+const BASS = [45, 41, 48, 43, 50, 45, 41, 40];
+const ARP = [0, 1, 2, 3, 2, 1, 2, 3];   // 8th-note pattern, index into the chord (an octave up)
+// lead melody, one entry per bar: [step, MIDI note, length in 16ths]
+const MELODY = [
+  [[0, 76, 6], [6, 74, 2], [8, 72, 4], [12, 69, 4]],
+  [[0, 72, 4], [4, 69, 2], [6, 72, 2], [8, 76, 8]],
+  [[0, 79, 6], [6, 76, 2], [8, 74, 4], [12, 72, 4]],
+  [[0, 74, 8], [8, 71, 4]],
+  [[0, 69, 4], [4, 72, 2], [6, 74, 2], [8, 77, 6], [14, 76, 2]],
+  [[0, 76, 4], [4, 74, 2], [6, 72, 2], [8, 69, 8]],
+  [[0, 72, 4], [4, 74, 4], [8, 76, 4], [12, 79, 4]],
+  [[0, 71, 6], [6, 74, 2], [8, 71, 4], [12, 68, 4]]
+];
 const KEYS = [0, 3, -2, 5, 2, -4, 7];
-let music = { mode: 'normal', baseBpm: 128, on: false, step: 0, next: 0, bpm: 128, trans: 0, pendingTrans: 0, timer: 0, bar: 0, pad: null, kicks: [] };
+let music = { mode: 'normal', baseBpm: 112, on: false, step: 0, next: 0, bpm: 112, trans: 0, pendingTrans: 0, timer: 0, bar: 0, pad: null, kicks: [] };
 
 function stepDur() { return 60 / music.bpm / 4; }
 function kick(t, vol, track = true) {
@@ -104,7 +117,7 @@ function kick(t, vol, track = true) {
   const o = ctx.createOscillator(), g = ctx.createGain();
   o.type = 'sine'; o.frequency.setValueAtTime(160, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.13);
   env(g, t, 0.002, vol, 0.32); o.connect(g); g.connect(tracks[music.mode].bus); o.start(t); o.stop(t + 0.4);
-  if (music.pad) { const pg = music.pad.gain, sd = stepDur(); pg.cancelScheduledValues(t); pg.setValueAtTime(0.012, t); pg.linearRampToValueAtTime(music.mode === 'boss' ? 0.045 : 0.07, t + sd * 3); }
+  if (music.pad) { const pg = music.pad.gain, sd = stepDur(); pg.cancelScheduledValues(t); pg.setValueAtTime(0.012, t); pg.linearRampToValueAtTime(music.mode === 'boss' ? 0.045 : 0.05, t + sd * 3); }
 }
 
 /* ---------- boss fight ----------
@@ -156,28 +169,51 @@ function bossImpact(t) {
   tone(bossDist, { type: 'sawtooth', f: hz(52 + music.trans), f2: hz(40 + music.trans), t, dur: 0.5, vol: 0.12, filter: [2500, 300, 3] });
 }
 
-function schedStep(s, t) {
-  const bar = music.bar, chord = PROG[bar % 4].map(n => n + music.trans), sd = stepDur();
-  const sec = Math.floor(bar / 8) % 2;       // alternate arp patterns every 8 bars
-  if (s % 4 === 0) kick(t, 0.95);
-  // clap on 2 and 4
-  if (s === 4 || s === 12) { noise(tracks.normal.bus, { t, dur: 0.16, vol: 0.32, type: 'bandpass', freq: 1500, q: 0.9 }); noise(tracks.normal.bus, { t: t + 0.012, dur: 0.1, vol: 0.18, type: 'bandpass', freq: 2400, q: 1.2 }); }
-  // hats: closed 16ths, open on the off-beat
-  noise(tracks.normal.bus, { t, dur: s % 4 === 2 ? 0.09 : 0.025, vol: s % 4 === 2 ? 0.12 : 0.045, freq: 8000 });
-  // bass
-  const bs = BASS_STEPS[s];
-  if (bs) tone(tracks.normal.bus, { type: 'sawtooth', f: hz(BASS[bar % 4] + music.trans + (bs === 2 ? 12 : 0)), t, dur: sd * 0.9, vol: 0.2, filter: [900, 160, 4] });
-  // arp (from bar 2 on, so the loop opens with drums and bass)
-  if (bar % 16 !== 0) {
-    const idx = (sec ? ARP_B : ARP_A)[s];
-    const n = idx === 3 ? chord[0] + 12 : chord[idx];
-    tone(tracks.normal.bus, { type: 'square', f: hz(n + 12), t, dur: sd * 0.75, vol: 0.055, filter: [3800, 1200, 2] });
-    tone(tracks.normal.send, { type: 'square', f: hz(n + 12), t, dur: sd * 0.6, vol: 0.04 });
+/** Soft lead voice: triangle with a quiet sine an octave up, gentle attack, a little vibrato. */
+function lead(dest, n, t, dur, vol) {
+  const g = ctx.createGain(), f = ctx.createBiquadFilter();
+  f.type = 'lowpass'; f.frequency.setValueAtTime(3200, t); f.frequency.exponentialRampToValueAtTime(1800, t + dur); f.Q.value = 0.5;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.03);
+  g.gain.setTargetAtTime(vol * 0.6, t + 0.05, 0.25); g.gain.setTargetAtTime(0.0001, t + dur * 0.92, 0.08);
+  const vib = ctx.createOscillator(), vg = ctx.createGain(); vib.frequency.value = 5.2; vg.gain.value = 0; vg.gain.setValueAtTime(0, t); vg.gain.linearRampToValueAtTime(7, t + Math.min(dur, 0.6));
+  vib.connect(vg);
+  for (const [type, mul, lvl] of [['triangle', 1, 1], ['sine', 2, 0.25]]) {
+    const o = ctx.createOscillator(), og = ctx.createGain(); o.type = type; o.frequency.value = hz(n) * mul; og.gain.value = lvl;
+    vg.connect(o.detune); o.connect(og); og.connect(f); o.start(t); o.stop(t + dur + 0.6);
   }
-  // a short lead hook every other bar, on the off-beats
-  if (bar % 2 === 1 && (s === 6 || s === 10 || s === 14)) {
-    const n = chord[s === 14 ? 2 : s === 10 ? 1 : 0] + 24;
-    tone(tracks.normal.bus, { type: 'sawtooth', f: hz(n), t, dur: sd * 1.6, vol: 0.05, detune: 6, filter: [5200, 1800, 1] });
+  vib.start(t); vib.stop(t + dur + 0.6);
+  f.connect(g); g.connect(dest);
+}
+function schedStep(s, t) {
+  const bar = music.bar, ci = bar % 8, chord = PROG[ci].map(n => n + music.trans), sd = stepDur();
+  const part = Math.floor(bar / 8) % 4;   // 0 groove, 1 + arp, 2 + melody, 3 melody + arp
+  const bus = tracks.normal.bus, send = tracks.normal.send;
+  if (s % 4 === 0) kick(t, 0.8);
+  // snare: soft noise burst with a little body on 2 and 4
+  if (s === 4 || s === 12) {
+    noise(bus, { t, dur: 0.22, vol: 0.13, type: 'bandpass', freq: 1900, q: 0.7 });
+    tone(bus, { type: 'triangle', f: 210, f2: 150, t, dur: 0.09, vol: 0.09 });
+    noise(send, { t, dur: 0.15, vol: 0.05, type: 'bandpass', freq: 2500, q: 0.8 });
+  }
+  // hats: closed on the off-beat 8ths, a faint shaker on the rest
+  if (s % 4 === 2) noise(bus, { t, dur: 0.05, vol: 0.05, freq: 9500 });
+  else if (s % 2 === 1) noise(bus, { t, dur: 0.02, vol: 0.016, freq: 11000 });
+  // bass: round off-beat 8ths, root then octave (synthwave gallop)
+  if (s % 2 === 0) {
+    const n = BASS[ci] + music.trans + (s % 4 === 2 ? 12 : 0);
+    tone(bus, { type: 'sawtooth', f: hz(n), t, dur: sd * 1.7, vol: 0.085, filter: [700, 220, 1.5] });
+    tone(bus, { type: 'sine', f: hz(n), t, dur: sd * 1.7, vol: 0.12 });
+  }
+  // plucked arp with echo
+  if ((part === 1 || part === 3) && s % 2 === 0) {
+    const n = chord[ARP[s / 2]] + 12;
+    tone(bus, { type: 'sawtooth', f: hz(n), t, dur: 0.26, vol: 0.068, filter: [3200, 460, 2] });
+    tone(send, { type: 'triangle', f: hz(n), t, dur: 0.2, vol: 0.045 });
+  }
+  // the melody
+  if (part >= 2) for (const [st, n, len] of MELODY[ci]) if (st === s) {
+    lead(bus, n + music.trans, t, len * sd, 0.06);
+    lead(send, n + music.trans, t, len * sd * 0.8, 0.028);
   }
 }
 function stopPad(t) {
@@ -194,7 +230,7 @@ function setPad(t) {
     f.connect(g); g.connect(tracks[music.mode].bus);
     music.pad = { gain: g.gain, node: g, filter: f, oscs: [], mode: music.mode };
   }
-  const chord = music.mode === 'boss' ? [0, 7, 12].map(iv => BOSS_ROOTS[music.bar % 4] + 12 + iv + music.trans) : PROG[music.bar % 4].map(n => n + music.trans);
+  const chord = music.mode === 'boss' ? [0, 7, 12].map(iv => BOSS_ROOTS[music.bar % 4] + 12 + iv + music.trans) : PROG[music.bar % 8].map(n => n + music.trans);
   const old = music.pad.oscs; music.pad.oscs = [];
   for (const n of chord) for (const dt of [-8, 8]) {
     const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = hz(n); o.detune.value = dt;
@@ -218,7 +254,7 @@ function startMusic(level = 1) {
   if (!unlock()) return;
   clearTimeout(fadeTimer);
   if (!music.on) { const g = musicBus.gain; g.cancelScheduledValues(ctx.currentTime); g.setValueAtTime(curve(musicVol) * MUSIC_TRIM, ctx.currentTime); }
-  music.baseBpm = 128 + Math.min(12, (level - 1) * 1.5);
+  music.baseBpm = 112 + Math.min(14, (level - 1) * 1.5);
   music.bpm = music.mode === 'boss' ? bossBpm() : music.baseBpm;
   music.pendingTrans = KEYS[(level - 1) % KEYS.length];
   setDelays();
@@ -260,7 +296,7 @@ function setDelays() {
   tracks.normal.send._delay.delayTime.setTargetAtTime(60 / music.baseBpm / 4 * 3, ctx.currentTime, 0.02);
   tracks.boss.send._delay.delayTime.setTargetAtTime(60 / bossBpm() / 4 * 3, ctx.currentTime, 0.02);
 }
-const bossBpm = () => Math.min(176, Math.round(music.baseBpm * 1.2));
+const bossBpm = () => Math.min(176, Math.round(music.baseBpm * 1.2 + 20));   // boss stays fast (~154 at level 1)
 /** Ghosts turned blue: cut to the boss track on the very next 16th; back again when they recover. */
 function setFright(on) {
   if (!ready() || on === frightOn) return; frightOn = on;

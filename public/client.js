@@ -91,8 +91,9 @@ function onMsg(m) {
       $('startOv').hidden = true; $('overOv').hidden = !S.over; $('leaveBtn').hidden = false; $('app').classList.add('ingame');
       $('playBtn').disabled = false; $('playBtn').textContent = S.inviteKey ? 'Join maze' : 'Start maze';
       S.key = typeof m.key === 'string' ? m.key : ''; S.vis = m.vis === 'private' ? 'private' : 'public';
-      S.title = typeof m.title === 'string' ? m.title : ''; S.locked = !!m.locked; S.room = '';
-      S.link = typeof m.link === 'string' ? m.link : ''; S.linkJoin = '';   // reconnects go by seed and key
+      S.title = typeof m.title === 'string' ? m.title : ''; S.locked = !!m.locked;
+      S.link = typeof m.link === 'string' ? m.link : ''; S.linkJoin = '';
+      S.room = typeof m.gid === 'string' ? m.gid : '';   // reconnects go back to this exact game (with S.key if private)
       S.setpw = '';   // only sent when opening the lobby
       $('joinPwField').hidden = true; S.pwRoom = '';
       S.lvStats = m.stats || null;
@@ -444,7 +445,7 @@ function leave() {
   S.wantGame = false; S.inGame = false; clearTimeout(S.reconnectT);
   if (S.ws) { const old = S.ws; S.ws = null; old.close(); }
   $('startOv').hidden = false; $('overOv').hidden = true; $('leaveBtn').hidden = true; $('app').classList.remove('ingame');
-  $('seedIn').value = S.seed; setNet('Not in a maze yet.');
+  $('seedIn').value = ''; setNet('Not in a maze yet.');   // a new maze gets a new random seed unless you type one
   A.stopMusic(); A.setFright(false); MazeFX.clear(); MazeNuke.clear(); if (A.nukeAlarm) A.nukeAlarm(false); S.nukeIn = 0; S.vote = null; $('voteOv').hidden = true; endStreak(true); S.eatQ = []; S.ph = 0; S.host = 0; updateReady();
   $('visChip').hidden = true; S.key = ''; clearInvite();
   try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }

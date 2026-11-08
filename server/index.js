@@ -81,17 +81,15 @@ function newKey() { // 12 chars of a-z0-9 from a CSPRNG (~62 bits)
   for (const b of crypto.randomBytes(24)) { if (b < 252) k += abc[b % 36]; if (k.length === 12) break; }
   return k.length === 12 ? k : newKey();
 }
-function getGame(seed, key) {
-  const id = key ? seed + '~' + key : seed;
-  let g = games.get(id);
-  if (!g) {
-    if (games.size >= CFG.maxMazes) return null;
-    g = new Game(seed, key, { onScore: addScore, testHooks: process.env.TEST_HOOKS === '1', testMode: CFG.testMode });
-    g.title = '';
-    if (key) byKey.set(key, g);
-    if (!key) { do { g.pubId = crypto.randomBytes(6).toString('base64url'); } while (byPublicId.has(g.pubId)); byPublicId.set(g.pubId, g); }
-    games.set(id, g);
-  }
+/** Every game gets its own random id. The seed only decides the maze layouts, so two games can
+    share a seed and "Start maze" always makes a fresh game rather than resuming an old one. */
+function createGame(seed, key) {
+  if (games.size >= CFG.maxMazes) return null;
+  const g = new Game(seed, key, { onScore: addScore, testHooks: process.env.TEST_HOOKS === '1', testMode: CFG.testMode });
+  g.title = '';
+  do { g.gid = crypto.randomBytes(6).toString('base64url'); } while (games.has(g.gid));
+  if (key) byKey.set(key, g);
+  games.set(g.gid, g);
   return g;
 }
 const EMPTY_TTL = 5 * 60 * 1000;
@@ -100,8 +98,8 @@ setInterval(() => {
   const now = Date.now(), dt = Math.min(0.1, (now - lastTick) / 1000); lastTick = now;
   tickCount++;
   const sendState = tickCount % 2 === 0; // state goes out at half the tick rate
-  for (const [seed, g] of games) {
-    if (!g.players.size && g.emptySince && now - g.emptySince > EMPTY_TTL) { games.delete(seed); if (g.pubId) byPublicId.delete(g.pubId); if (g.key) byKey.delete(g.key); if (byLink.get(g.link) === g) byLink.delete(g.link); continue; }
+  for (const [gid, g] of games) {
+    if (!g.players.size && g.emptySince && now - g.emptySince > EMPTY_TTL) { games.delete(gid); if (g.key) byKey.delete(g.key); if (byLink.get(g.link) === g) byLink.delete(g.link); continue; }
     g.tick(dt, sendState);
   }
 }, 1000 / CFG.tickRate);
@@ -111,8 +109,7 @@ let nextId = 1;
 const stripCtl = s => String(s || '').replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁠-⁯]/g, '').replace(/\s+/g, ' ').trim();
 const cleanName = s => stripCtl(s).slice(0, 16) || 'Player';
 const cleanTitle = s => stripCtl(s).slice(0, 32);
-// Public mazes are listed by name with an opaque id, so the list never shows seeds.
-const byPublicId = new Map();   // pubId -> Game
+// games: gid -> Game. Public mazes are listed by name with that opaque id, so the list never shows seeds.
 const byKey = new Map();        // invite key -> private Game
 const byLink = new Map();       // lobby-name slug ("friday-night-munch") -> public Game
 /** A short, unique, readable name for links: the lobby name, or the seed if it has none. */
@@ -128,7 +125,8 @@ function linkName(g) {
 function resolveLink(raw) {
   const [name, key = ''] = String(raw).slice(0, 80).split('~'), slug = M.slug(name);
   if (key) { const g = KEY_RE.test(key) && byKey.get(key); return g || null; }
-  const g = byLink.get(slug) || games.get(slug);
+  let g = byLink.get(slug);
+  if (!g) for (const x of games.values()) if (x.seed === slug && !x.isPrivate && x.players.size) { g = x; break; }   // old #seed links
   return g && !g.isPrivate && g.players.size ? g : null;
 }
 
@@ -159,24 +157,28 @@ function onSocket(ws, ip = '?') {
     if (!m || typeof m !== 'object') return;
     if (m.t === 'join') {
       if (game) return;
-      // joining from the lobby list: look the maze up by its public id
-      const listed = typeof m.room === 'string' && byPublicId.get(m.room);
-      if (m.room && !listed) { ws.send(JSON.stringify({ t: 'error', msg: 'That maze has closed. Pick another one or start your own.' })); return; }
-      if (listed) { m.seed = listed.seed; m.key = ''; m.vis = 'public'; }
-      // arriving from a shared link
-      if (!listed && typeof m.link === 'string' && m.link) {
-        const linked = resolveLink(m.link);
-        if (!linked) { ws.send(JSON.stringify({ t: 'error', code: 'closed', msg: 'That maze has closed. Start your own or pick one from the list.' })); return; }
-        m.seed = linked.seed; m.key = linked.key || ''; m.vis = linked.isPrivate ? 'private' : 'public';
+      // Which game? (1) by id: from the lobby list, or reconnecting to the game you were in;
+      // (2) a shared link; (3) an invite key; otherwise (4) a brand-new game.
+      let g = null, opening = false;
+      if (typeof m.room === 'string' && m.room) {
+        g = games.get(m.room.slice(0, 16)) || null;
+        if (g && g.isPrivate && m.key !== g.key) g = null;   // private games also need their key
+        if (!g) { ws.send(JSON.stringify({ t: 'error', code: 'closed', msg: 'That maze has closed. Pick another one or start your own.' })); return; }
+      } else if (typeof m.link === 'string' && m.link) {
+        g = resolveLink(m.link);
+        if (!g) { ws.send(JSON.stringify({ t: 'error', code: 'closed', msg: 'That maze has closed. Start your own or pick one from the list.' })); return; }
+      } else if (typeof m.key === 'string' && KEY_RE.test(m.key) && byKey.has(m.key)) {
+        g = byKey.get(m.key);
+      } else {
+        const seed = M.slug(m.seed) || CFG.defaultSeed || M.randomSeed();
+        g = createGame(seed, m.vis === 'private' ? newKey() : '');   // "Invite only" mints a fresh key
+        if (!g) { ws.send(JSON.stringify({ t: 'error', msg: 'This server is at its maze limit. Join one of the running mazes instead.' })); return; }
+        opening = true;
       }
-      const seed = M.slug(m.seed) || CFG.defaultSeed || M.randomSeed();
-      // An invite link carries its key; choosing "Invite only" mints a fresh one.
-      const key = typeof m.key === 'string' && KEY_RE.test(m.key) ? m.key : (m.vis === 'private' ? newKey() : '');
-      const g = getGame(seed, key);
-      if (!g) { ws.send(JSON.stringify({ t: 'error', msg: 'This server is at its maze limit. Try a seed that is already running.' })); return; }
-      if (CFG.maxPlayersPerMaze && g.players.size >= CFG.maxPlayersPerMaze) { ws.send(JSON.stringify({ t: 'error', msg: 'That maze is full. Try another seed.' })); return; }
-      const opening = !g.players.size && !g.title;   // this player is opening a new maze
-      if (g.pass && !opening) {
+      if (CFG.maxPlayersPerMaze && g.players.size >= CFG.maxPlayersPerMaze) { ws.send(JSON.stringify({ t: 'error', msg: 'That maze is full. Try another one.' })); return; }
+      const tok = typeof m.tok === 'string' ? m.tok.slice(0, 64) : '';
+      const returning = tok && (tok === g.creatorToken || g.resume.has(tok));   // already let in once: no password again on reconnect
+      if (g.pass && !opening && !returning) {
         const err = code => { ws.send(JSON.stringify({ t: 'error', code, name: g.title || '', msg: code === 'pw_limit' ? 'Too many wrong passwords. Try again in a few minutes.' : m.pw ? 'That password isn’t right.' : 'This lobby needs a password.' })); };
         if (pwBlocked(ip)) return err('pw_limit');
         if (!checkPassword(g.pass, m.pw)) { if (m.pw) pwFailed(ip); return err(m.pw ? 'pw_wrong' : 'pw_needed'); }
@@ -190,7 +192,7 @@ function onSocket(ws, ip = '?') {
       const look = M.pickModel(m.mdl, m.ci);   // validated character + colour
       p = { id: nextId++, ws, nm: cleanName(m.nm), col: look.col, mdl: look.mdl, ci: look.ci, x: 0, y: 0, f: 2, al: true, sc: 0, li: 3, over: false, spawnAt: Date.now(), fid: -1, combo: 0 };
       game = g;
-      g.add(p, typeof m.tok === 'string' ? m.tok.slice(0, 64) : '');
+      g.add(p, tok);
       return;
     }
     if (game && p) game.onMessage(p, m);
@@ -236,7 +238,7 @@ const server = http.createServer((req, res) => {
   if (p === '/api/info') return json(res, { name: CFG.serverName, lobby: CFG.showLobby, defaultSeed: CFG.defaultSeed, maxPlayersPerMaze: CFG.maxPlayersPerMaze });
   if (p === '/api/games') {
     if (!CFG.showLobby) return json(res, []);
-    const list = [...games.values()].filter(g => g.players.size && !g.isPrivate).map(g => ({ id: g.pubId, name: g.title || 'Unnamed maze', players: g.players.size, level: g.L, lobby: g.ph === 3, locked: !!g.pass }))
+    const list = [...games.values()].filter(g => g.players.size && !g.isPrivate).map(g => ({ id: g.gid, name: g.title || 'Unnamed maze', players: g.players.size, level: g.L, lobby: g.ph === 3, locked: !!g.pass }))
       .sort((a, b) => b.players - a.players).slice(0, 20);
     return json(res, list);
   }
