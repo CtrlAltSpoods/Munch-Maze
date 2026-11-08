@@ -80,7 +80,7 @@
     { id: 'magnet',     name: 'Magnet',           good: true,  dur: 10, weight: 9,  desc: 'Pellets near you fly into your mouth for 10 s' },
     { id: 'swap',       name: 'Ghost Swap',       good: true,  dur: 0,  weight: 7,  desc: 'You swap places with the nearest ghost' },
     { id: 'freeze',     name: 'Freeze',           good: true,  dur: 6,  weight: 9,  desc: 'Ghosts are frozen in ice for 6 s (and harmless)' },
-    { id: 'shrink',     name: 'Shrink',           good: true,  dur: 8,  weight: 8,  desc: 'Everyone shrinks for 8 s and slips past ghosts more easily' },
+    { id: 'shrink',     name: 'Shrink',           good: true,  dur: 8,  weight: 8,  desc: 'Everyone shrinks for 8 s: too small for ghosts or fireballs to catch' },
     { id: 'fog',        name: 'Fog of War',       good: false, dur: 10, weight: 8,  desc: 'Thick fog for 10 s: you only see a little way around you' }
   ];
   const POWERUP_FROM_LEVEL = 3;

@@ -217,15 +217,16 @@
           <div class="vote-btns">
             <button type="button" class="vbtn yes" id="voteYes">Yes, open it <kbd>Y</kbd></button>
             <button type="button" class="vbtn no" id="voteNo">No, bin it <kbd>N</kbd></button>
+            <button type="button" class="vbtn rev" id="voteRev" hidden>Revive the fallen <kbd>R</kbd></button>
           </div>
           <div class="vote-bar"><i id="voteBar"></i></div>
-          <div class="vote-tally"><span class="vy" id="voteY">0 yes</span><span id="voteLeft">8s</span><span class="vn" id="voteN">0 no</span></div>
-          <p class="vote-note">Most votes wins. A tie, or no votes at all, opens it.</p>
+          <div class="vote-tally"><span class="vy" id="voteY">0 yes</span><span id="voteLeft">8s</span><span class="vr" id="voteR" hidden>0 revive</span><span class="vn" id="voteN">0 no</span></div>
+          <p class="vote-note" id="voteNote">Most votes wins. A tie, or no votes at all, opens it.</p>
         </div>
       </div>
       <div class="spectate" id="overOv" hidden>
         <div class="spec-card">
-          <div class="spec-txt"><b>Game over · spectating</b><span id="overTxt">You scored 0.</span></div>
+          <div class="spec-txt"><b id="specTitle">Game over · spectating</b><span id="overTxt">You scored 0.</span></div>
           <div class="cheers" role="group" aria-label="Cheer the others on">
             <button type="button" class="cheer-b" data-e="0" title="Applaud">👏</button>
             <button type="button" class="cheer-b" data-e="1" title="On fire">🔥</button>

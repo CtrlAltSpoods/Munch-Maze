@@ -729,3 +729,10 @@ input[type=range]{accent-color:var(--pink)}
 .cheers{display:flex;gap:6px}
 .cheer-b{width:42px}
 .spec-card .cta{font-size:13px;padding:10px 16px;margin:0}
+
+/* third vote option: revive the fallen */
+#voteOv.three .vote-btns{grid-template-columns:1fr 1fr 1fr}
+.vbtn.rev{background:rgba(61,255,160,.08);border-color:#b44dff;color:#e2c6ff}
+.vbtn.chosen.rev{background:#b44dff;color:#12051f}
+.vote-tally .vr{color:#c98bff;font-weight:600}
+@media (max-width:520px){ #voteOv.three .vote-btns{grid-template-columns:1fr} }

@@ -192,7 +192,7 @@ class Game {
       }
       case 'cheer': {   // out of lives? you can still cheer the others on
         const e = m.e | 0, now = Date.now();
-        if (!p.over || e < 0 || e > 2 || now - (p.cheerAt || 0) < 700) return;
+        if ((p.al && !p.over) || e < 0 || e > 2 || now - (p.cheerAt || 0) < 700) return;
         p.cheerAt = now; this.broadcast({ t: 'cheer', id: p.id, nm: p.nm, e });
         return;
       }
@@ -215,9 +215,7 @@ class Game {
           this.broadcast({ t: 'nukecancel', by: p.id, nm: p.nm });
         }
         return;
-      case 'respawn':
-        if (p.al || p.over || p.li <= 0) return;
-        p.al = true; p.spawnAt = Date.now(); p.x = this.lv.sx; p.y = this.lv.sy;
+      case 'respawn':   // no respawning mid-level: you spectate until the next level (or a revive)
         return;
       case 'ready':   // host starts the next level
         if (p.id !== this.hostId) return;
@@ -242,12 +240,12 @@ class Game {
         this.pending = { kind: -1, by: p.id, nm: p.nm, x: c.x, y: c.y, crate: c.id };
         this.ph = 6; this.ct = M.VOTE_TIME; this.pausedAt = Date.now();
         this.votes = new Map();
-        this.broadcast({ t: 'vote', by: p.id, nm: p.nm, x: c.x, y: c.y, crate: c.id, s: M.VOTE_TIME, tot: this.players.size });
+        this.broadcast({ t: 'vote', by: p.id, nm: p.nm, x: c.x, y: c.y, crate: c.id, s: M.VOTE_TIME, tot: this.players.size, rv: this.anyFallen() ? 1 : 0 });
         return;
       }
       case 'vote': {   // yes / no on opening the crate
         if (this.ph !== 6 || !this.votes) return;
-        this.votes.set(p.id, !!m.y);
+        this.votes.set(p.id, m.r && this.anyFallen() ? 'r' : m.y ? 'y' : 'n');
         this.sendTally();
         if (this.votes.size >= this.players.size) this.endVote();
         return;
@@ -364,13 +362,29 @@ class Game {
   }
 
   /* ---------- crate votes ---------- */
-  tally() { let y = 0, n = 0; for (const v of this.votes.values()) v ? y++ : n++; return { y, n }; }
-  sendTally() { const { y, n } = this.tally(); this.broadcast({ t: 'vt', y, n, tot: this.players.size, s: Math.max(0, Math.round(this.ct * 10) / 10) }); }
+  tally() { let y = 0, n = 0, r = 0; for (const v of this.votes.values()) v === 'r' ? r++ : v === 'y' ? y++ : n++; return { y, n, r }; }
+  sendTally() { const { y, n, r } = this.tally(); this.broadcast({ t: 'vt', y, n, r, tot: this.players.size, s: Math.max(0, Math.round(this.ct * 10) / 10) }); }
+  /** Anyone down (spectating until next level) or out of lives? */
+  anyFallen() { for (const p of this.players.values()) if (!p.al || p.over) return true; return false; }
+  /** Crate vote picked "revive": everyone who's down comes back, and anyone out of lives gets one. */
+  reviveAll() {
+    const now = Date.now();
+    for (const p of this.players.values()) {
+      if (p.al && !p.over) continue;
+      if (p.over) { p.over = false; p.li = Math.max(1, p.li); }
+      p.al = true; p.spawnAt = now; p.x = this.lv.sx; p.y = this.lv.sy;
+      this.downs.delete(p.id);
+      this.send(p, { t: 'revived', x: this.lv.sx, y: this.lv.sy, by: 'the loot crate' });
+    }
+  }
   /** Majority of the votes cast decides; a tie, or nobody voting, opens it (someone did walk into it). */
   endVote() {
-    const { y, n } = this.tally(), open = y >= n, pd = this.pending;
+    // most votes wins; ties go revive > open > bin, and no votes at all opens it
+    const { y, n, r } = this.tally(), pd = this.pending;
+    const revive = r > 0 && r >= y && r >= n && this.anyFallen(), open = !revive && y >= n;
     this.votes = null;
-    this.broadcast({ t: 'voted', open, y, n });
+    this.broadcast({ t: 'voted', open, revive, y, n, r });
+    if (revive) { this.reviveAll(); this.pending = null; this.ph = 0; return; }
     if (!open) { this.pending = null; this.ph = 0; return; }   // binned: no spin, no effect
     pd.kind = this.opts.forcePowerup != null ? this.opts.forcePowerup : M.rollPowerup();   // forcing is for tests only
     this.ph = 4; this.ct = M.PU_SPIN + M.PU_HOLD;
@@ -624,6 +638,14 @@ class Game {
       this.lastMode = mode;
       const players = [];
       for (const p of this.players.values()) if (p.al && !p.over) players.push(p);
+      if (!players.length) {   // nobody left standing
+        if ([...this.players.values()].some(p => !p.over)) {   // ...but some still have lives: try the level again
+          this.broadcast({ t: 'wipe', lv: this.L });
+          this.startLevel(this.L, false);
+        }
+        if (sendState) this.sendState();
+        return;
+      }
       const base = M.ghostSpeed(this.L), lv = this.lv;
       this.tickPowerups(dt, players);
       const frozen = !!this.effect('freeze');

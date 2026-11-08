@@ -131,11 +131,34 @@ async function power(r, id) {
   if (emos.length !== 1 || emos[0].e !== 2) fail('one emote per 1.2 s, valid ones only: ' + JSON.stringify(emos));
   send(em.a, { t: 'cheer', e: 0 }); await wait(200);
   if (em.b.msgs.some(m => m.t === 'cheer')) fail('only players who are out can cheer');
-  for (let k = 0; k < 3; k++) { await wait(1600); send(em.a, { t: 'die' }); await wait(100); if (k < 2) send(em.a, { t: 'respawn' }); }   // three lives gone
+  await wait(1600); send(em.a, { t: 'die' }); await wait(100);   // down: spectating until the next level
   await wait(200); send(em.a, { t: 'cheer', e: 1 });
   const ch = await until(em.b, m => m.t === 'cheer', 2000, 'cheer');
   if (ch.e !== 1 || ch.nm !== 'host') fail('cheer carries who and which');
-  console.log('ok  emotes are rate limited; players who are out can cheer');
+  send(em.a, { t: 'respawn' }); await wait(200);
+  if (em.b.last.s.p.find(p => p[0] === em.a.last.welcome.id)[4] !== 0) fail('no respawning mid-level');
+  console.log('ok  emotes are rate limited; players who are down can cheer; no respawning mid-level');
+
+  // a crate vote can revive the fallen (third option when someone's down)
+  em.a.msgs.length = 0; em.b.msgs.length = 0;
+  send(em.b, { t: 'testcrate', kind: idx('quake') });
+  const rc = await until(em.a, m => m.t === 'crate', 3000, 'crate');
+  send(em.b, { t: 'grab', id: rc.id });
+  const rvote = await until(em.a, m => m.t === 'vote', 3000, 'vote');
+  if (rvote.rv !== 1) fail('the vote offers a revive when someone is down');
+  send(em.a, { t: 'vote', r: true }); send(em.b, { t: 'vote', y: true });   // 1-1: revive wins ties
+  const rres = await until(em.a, m => m.t === 'voted', 3000, 'voted');
+  if (!rres.revive || rres.r !== 1) fail('revive wins a tie: ' + JSON.stringify(rres));
+  await until(em.a, m => m.t === 'revived', 2000, 'revived');
+  await wait(150);
+  if (em.b.last.s.p.find(p => p[0] === em.a.last.welcome.id)[4] !== 1 || em.b.msgs.some(m => m.t === 'pu')) fail('revived, and no slot spins');
+  console.log('ok  crate vote: “revive the fallen” brings everyone back instead of opening it');
+
+  // everyone down: the level starts again
+  await wait(1700); send(em.a, { t: 'die' }); send(em.b, { t: 'die' });
+  const wipe = await until(em.b, m => m.t === 'wipe', 3000, 'wipe');
+  await until(em.b, m => m.t === 'level' && m.lv === wipe.lv && m.ph === 0, 3000, 'restart');
+  console.log('ok  team wipe: everyone down restarts the level');
 
   console.log('\nAll gameplay tests passed.');
   srv.kill(); process.exit(0);

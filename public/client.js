@@ -139,15 +139,19 @@ function onMsg(m) {
       MazeFX.ring(m.x, m.y, '#ffcc33', 2.5, 0.5); MazeFX.sparks(m.x, m.y, '#ffcc33', 14, 5, 0.6); A.sfx('crate');
       S.vote = { end: performance.now() + (+m.s || M.VOTE_TIME) * 1000, dur: M.VOTE_TIME, mine: null };
       $('voteWho').textContent = ((m.by | 0) === S.id ? 'You' : String(m.nm || 'Someone')) + ' found a loot crate. Everyone votes.';
-      for (const b of [$('voteYes'), $('voteNo')]) { b.classList.remove('chosen'); b.disabled = false; }
-      showTally(0, 0, m.tot | 0);
+      S.vote.rv = !!m.rv;
+      $('voteRev').hidden = !m.rv; $('voteR').hidden = !m.rv; $('voteOv').classList.toggle('three', !!m.rv);
+      $('voteNote').textContent = m.rv ? 'Most votes wins. Ties: revive, then open. No votes at all opens it.' : 'Most votes wins. A tie, or no votes at all, opens it.';
+      for (const b of [$('voteYes'), $('voteNo'), $('voteRev')]) { b.classList.remove('chosen'); b.disabled = false; }
+      showTally(0, 0, m.tot | 0, 0);
       $('voteOv').hidden = false;
       break;
     }
-    case 'vt': showTally(m.y | 0, m.n | 0, m.tot | 0); if (S.vote && typeof m.s === 'number') S.vote.end = performance.now() + m.s * 1000; break;
+    case 'vt': showTally(m.y | 0, m.n | 0, m.tot | 0, m.r | 0); if (S.vote && typeof m.s === 'number') S.vote.end = performance.now() + m.s * 1000; break;
     case 'voted': {
       $('voteOv').hidden = true; S.vote = null;
-      if (!m.open) {
+      if (m.revive) { MazeFX.bigText('THE FALLEN RISE', 'Everyone who was down is back in', '#3dffa0', 2); MazeFX.flash('#3dffa0', 0.25); A.sfx('start'); }
+      else if (!m.open) {
         MazeFX.bigText('CRATE BINNED', (m.y | 0) + ' yes · ' + (m.n | 0) + ' no', '#ff4d5e', 1.4);
         MazeFX.flash('#ff4d5e', 0.15); A.sfx('puLand', false);
       }
@@ -177,9 +181,16 @@ function onMsg(m) {
       break;
     }
     case 'lvstats': S.lvStats = m; renderStats(); break;
+    case 'wipe': MazeFX.bigText('EVERYONE’S DOWN', 'Back to the start of level ' + (m.lv | 0), '#ff3864', 2.2); A.sfx('over'); break;
     case 'kicked': leave(); $('joinErr').textContent = 'The server admin removed you from that maze.'; $('joinErr').hidden = false; break;
-    case 'emo': S.emotes.set(m.id | 0, { e: m.e | 0, at: performance.now(), until: performance.now() + 2200 }); A.sfx('emote'); break;
-    case 'cheer': S.cheers.push({ e: m.e | 0, nm: String(m.nm || ''), x: 0.1 + Math.random() * 0.8, at: performance.now() }); if (S.cheers.length > 40) S.cheers.shift(); A.sfx('emote'); break;
+    case 'emo': {
+      const id = m.id | 0, p = id === S.id ? null : S.players.find(q => q.id === id);
+      const onMap = id === S.id ? S.alive && !S.over : p && p.al && !p.over;
+      if (onMap) S.emotes.set(id, { e: m.e | 0, at: performance.now(), until: performance.now() + 2200 });
+      else { S.cheers.push({ ch: EMOTES[m.e | 0] || '', nm: (S.roster.get(id) || {}).nm || '', x: 0.1 + Math.random() * 0.8, at: performance.now() }); if (S.cheers.length > 40) S.cheers.shift(); }   // spectators: float up the screen
+      A.sfx('emote'); break;
+    }
+    case 'cheer': S.cheers.push({ ch: CHEERS[m.e | 0] || '', nm: String(m.nm || ''), x: 0.1 + Math.random() * 0.8, at: performance.now() }); if (S.cheers.length > 40) S.cheers.shift(); A.sfx('emote'); break;
     case 'fruit': { const f = M.FRUITS[m.k | 0]; MazeFX.ring(+m.x, +m.y, '#3dffa0', 2.2, 0.5); A.sfx('coin'); toast('Bonus fruit!', (f ? f.name : 'Fruit') + ' in the middle for ' + (f ? f.pts : 0) + ' points'); break; }
     case 'fruitgot': {
       const x = +m.x, y = +m.y; MazeFX.sparks(x, y, '#3dffa0', 26, 7, 0.6); MazeFX.text(x, y - 0.4, '+' + (m.v | 0), '#3dffa0'); S.fruit = null;
@@ -266,8 +277,9 @@ function onMsg(m) {
         const p = { id, x: +a[1], y: +a[2], f: a[3] & 3, al: a[4] === 1, sc: a[5] | 0, li: a[6] | 0, over: a[7] === 1, nm: r.nm, col: /^#[0-9a-f]{6}$/i.test(r.col) ? r.col : '#ffcc33', mdl: r.mdl | 0, paint: r.paint || r.col };
         if (id === S.id) {
           S.sc = p.sc; S.li = p.li;
-          if (p.over && !S.over) { S.over = true; A.sfx('over'); endStreak(true); $('overTxt').textContent = 'You scored ' + S.sc.toLocaleString() + ' and reached level ' + S.L + '.'; $('overOv').hidden = false; }
-          if (!p.over && S.over) { S.over = false; $('overOv').hidden = true; }
+          if (!p.al && S.alive && !S.over && S.ph === 0 && S.lvl) { S.alive = false; S.deadT = 0; endStreak(true); }   // the server says you're down
+          if (p.over && !S.over) { S.over = true; A.sfx('over'); endStreak(true); updateSpectate.sig = ''; }
+          if (!p.over && S.over) { S.over = false; updateSpectate.sig = ''; }
         } else pl.push(p);
       }
       S.players = pl;
@@ -331,6 +343,8 @@ function movePlayer(e, dist) {
   const lv = S.lvl; let guard = 0;
   while (dist > 1e-6 && guard++ < 8) {
     if (e.d < 0) { if (e.want >= 0 && M.canGo(lv, e.tx, e.ty, e.want)) { e.d = e.want; e.face = e.d; } else return; }
+    // just past a corner when the turn came in? hop back to the centre and take it
+    if (e.want >= 0 && e.want !== e.d && e.want !== (e.d + 2) % 4 && e.t > 0 && e.t < 0.32 && M.canGo(lv, e.tx, e.ty, e.want)) { e.t = 0; e.d = e.want; e.face = e.d; }
     if (e.want >= 0 && e.want === (e.d + 2) % 4 && e.t > 0) { e.tx = M.wrapX(lv, e.tx + DIRS[e.d][0]); e.ty += DIRS[e.d][1]; e.t = 1 - e.t; e.d = e.want; e.face = e.d; }
     const rem = 1 - e.t;
     if (dist < rem) { e.t += dist; return; }
@@ -343,11 +357,7 @@ function movePlayer(e, dist) {
 }
 function playerStep(dt) {
   if (S.over) return;
-  if (!S.alive) {
-    S.deadT -= dt;
-    if (S.deadT <= 0 && S.li > 0) { S.alive = true; S.hfPrime = true; respawn(); send({ t: 'respawn' }); A.sfx('respawn'); MazeFX.ring(S.me.tx, S.me.ty, S.color, 2, 0.5); }
-    return;
-  }
+  if (!S.alive) { S.deadT -= dt; return; }   // down: spectate until the next level (or a revive)
   if (S.ph !== 0) return;
   for (const f of S.fx) f.rem -= dt;   // count down locally between server updates
   if (S.streak && !effectOn('autopilot')) { S.streakT += dt; if (S.streakT > STREAK_WINDOW) endStreak(false); }   // autopilot holds the streak
@@ -404,11 +414,12 @@ function checkGhosts() {
     d.tried = performance.now(); send({ t: 'revive', id });
   }
   // boss fireballs
-  if (S.inv <= 0) for (const b of S.bullets) if (Math.hypot(b[0] - px, b[1] - py) < 0.5) { die(px, py); return; }
+  const tiny = effectOn('shrink');   // SHRINK: too small to catch: ghosts and fireballs pass right over you
+  if (S.inv <= 0 && !tiny) for (const b of S.bullets) if (Math.hypot(b[0] - px, b[1] - py) < 0.5) { die(px, py); return; }
   const small = effectOn('shrink') ? 0.5 : 1, frozenNow = effectOn('freeze');
   for (const g of S.gv) {
     if (g.st !== 1 && g.st !== 2) continue;
-    if (g.st === 1 && frozenNow) continue;   // frozen ghosts can't hurt you
+    if (g.st === 1 && (frozenNow || tiny)) continue;   // frozen ghosts can't hurt you, and nothing catches you while you're tiny
     const reach = (g.boss ? 1.25 : effectOn('megaghost') ? 1.05 : 0.62) * (g.st === 1 ? small : 1);   // mega ghosts and bosses reach further
     if (Math.hypot(g.x - px, g.y - py) > reach) continue;
     if (g.st === 2) {
@@ -555,7 +566,7 @@ for (const b of document.querySelectorAll('.cheer-b')) b.addEventListener('click
 addEventListener('keydown', e => {
   if (!S.inGame || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
   const k = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code);
-  if (k >= 0) { if (S.over && k < 3) send({ t: 'cheer', e: k }); else emote(k); e.preventDefault(); }
+  if (k >= 0) { if ((S.over || !S.alive) && k < 3) send({ t: 'cheer', e: k }); else emote(k); e.preventDefault(); }
 });
 function drawEmotes(T) {
   const now = performance.now();
@@ -582,7 +593,7 @@ function drawCheers() {
   for (const c of S.cheers) {
     const k = (now - c.at) / 2600, x = c.x * CW + Math.sin(k * 9 + c.x * 20) * 14, y = CH - 30 - k * CH * 0.55;
     ctx.globalAlpha = k < 0.8 ? 1 : (1 - k) / 0.2;
-    ctx.font = Math.round(30 + 10 * Math.sin(k * 3.14)) + 'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; ctx.fillText(CHEERS[c.e] || '', x, y);
+    ctx.font = Math.round(30 + 10 * Math.sin(k * 3.14)) + 'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; ctx.fillText(c.ch || '', x, y);
     ctx.font = '600 11px "IBM Plex Mono", monospace'; ctx.fillStyle = '#c9cdfb'; ctx.fillText(c.nm, x, y + 26);
   }
   ctx.restore();
@@ -1038,23 +1049,37 @@ function updateTestPanel() {
   $('testHint').textContent = ready ? 'Pick one: the game pauses, the slot lands on it, then it kicks in.'
     : S.ph === 3 ? 'Start the game to use these.' : 'Waiting for play to resume…';
 }
-function showTally(y, n, tot) {
-  setTxt('voteY', y + ' yes'); setTxt('voteN', n + ' no');
-  $('voteYes').title = $('voteNo').title = (y + n) + ' of ' + tot + ' voted';
+function showTally(y, n, tot, rv = 0) {
+  setTxt('voteY', y + ' yes'); setTxt('voteN', n + ' no'); setTxt('voteR', rv + ' revive');
+  $('voteYes').title = $('voteNo').title = $('voteRev').title = (y + n + rv) + ' of ' + tot + ' voted';
 }
-function castVote(yes) {
-  if (!S.vote) return;
-  S.vote.mine = yes; send({ t: 'vote', y: yes });
-  $('voteYes').classList.toggle('chosen', yes); $('voteNo').classList.toggle('chosen', !yes);
-  A.sfx(yes ? 'coin' : 'reel');
+/** choice: true (open), false (bin) or 'r' (revive the fallen) */
+function castVote(choice) {
+  if (!S.vote || (choice === 'r' && !S.vote.rv)) return;
+  S.vote.mine = choice; send(choice === 'r' ? { t: 'vote', r: true } : { t: 'vote', y: choice });
+  $('voteYes').classList.toggle('chosen', choice === true); $('voteNo').classList.toggle('chosen', choice === false); $('voteRev').classList.toggle('chosen', choice === 'r');
+  A.sfx(choice === false ? 'reel' : 'coin');
 }
+$('voteRev').addEventListener('click', () => castVote('r'));
 $('voteYes').addEventListener('click', () => castVote(true));
 $('voteNo').addEventListener('click', () => castVote(false));
 addEventListener('keydown', e => {
   if (!S.vote || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
-  if (e.code === 'KeyY') { castVote(true); e.preventDefault(); } else if (e.code === 'KeyN') { castVote(false); e.preventDefault(); }
+  if (e.code === 'KeyY') { castVote(true); e.preventDefault(); } else if (e.code === 'KeyN') { castVote(false); e.preventDefault(); } else if (e.code === 'KeyR') { castVote('r'); e.preventDefault(); }
 });
+/* The spectate bar: down until the next level, or out of lives. */
+function updateSpectate() {
+  const down = S.inGame && !S.over && !S.alive && S.lvl && (S.ph === 0 || S.ph === 4 || S.ph === 6);
+  const show = S.inGame && (S.over || down), sig = show ? (S.over ? 'over' : 'down') : '';
+  if (sig === updateSpectate.sig) return; updateSpectate.sig = sig;
+  $('overOv').hidden = !show;
+  if (!show) return;
+  $('specTitle').textContent = S.over ? 'Game over · spectating' : 'You’re down · spectating';
+  $('overTxt').textContent = S.over ? 'You scored ' + S.sc.toLocaleString() + ' and reached level ' + S.L + '.' : 'Back next level, or sooner if a teammate revives you.';
+  $('againBtn').hidden = !S.over;
+}
 function hud(dt, now) {
+  updateSpectate();
   if (S.vote) {
     const left = Math.max(0, (S.vote.end - performance.now()) / 1000);
     $('voteBar').style.transform = 'scaleX(' + (left / S.vote.dur).toFixed(3) + ')';
@@ -1104,7 +1129,20 @@ function hud(dt, now) {
 
 /* ---------- input ---------- */
 const KEYS = { ArrowRight: 0, KeyD: 0, ArrowDown: 1, KeyS: 1, ArrowLeft: 2, KeyA: 2, ArrowUp: 3, KeyW: 3 };
-addEventListener('keydown', e => { if (e.code === 'KeyM' && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) { toggleMute(); return; } if (!S.inGame || /INPUT|SELECT/.test(e.target.tagName)) return; if (e.code in KEYS) { setWant(KEYS[e.code]); e.preventDefault(); } });
+/* Held directions, newest last: hold a key before a corner and the turn is taken as soon as it's
+   open; let go of it while still holding another, and that one takes over again. */
+S.held = [];
+addEventListener('keydown', e => {
+  if (e.code === 'KeyM' && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) { toggleMute(); return; }
+  if (!S.inGame || /INPUT|SELECT/.test(e.target.tagName)) return;
+  if (e.code in KEYS) { const d = KEYS[e.code]; S.held = S.held.filter(x => x !== d); S.held.push(d); setWant(d); e.preventDefault(); }
+});
+addEventListener('keyup', e => {
+  if (!(e.code in KEYS)) return;
+  const d = KEYS[e.code]; S.held = S.held.filter(x => x !== d);
+  if (S.inGame && S.held.length) setWant(S.held[S.held.length - 1]);
+});
+addEventListener('blur', () => { S.held = []; });
 let touch = null;
 cv.addEventListener('touchstart', e => { const t = e.changedTouches[0]; touch = [t.clientX, t.clientY]; }, { passive: true });
 cv.addEventListener('touchmove', e => {
@@ -1697,10 +1735,10 @@ function updateVisHint() {
 }
 function setVis(v) {
   $('visIn').value = v === 'private' ? 'private' : 'public';
-  for (const b of document.querySelectorAll('.seg-b')) { const on = b.dataset.vis === $('visIn').value; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); }
+  for (const b of document.querySelectorAll('.seg-b[data-vis]')) { const on = b.dataset.vis === $('visIn').value; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); }
   updateVisHint();
 }
-for (const b of document.querySelectorAll('.seg-b')) b.addEventListener('click', () => { setVis(b.dataset.vis); store.set('mm.vis', b.dataset.vis); });
+for (const b of document.querySelectorAll('.seg-b[data-vis]')) b.addEventListener('click', () => { setVis(b.dataset.vis); store.set('mm.vis', b.dataset.vis); });
 $('visIn').addEventListener('change', updateVisHint);
 $('ownBtn').addEventListener('click', () => {
   clearInvite(); $('seedIn').value = '';
