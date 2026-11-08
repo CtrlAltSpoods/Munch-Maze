@@ -76,7 +76,12 @@
     { id: 'unplugged',  name: 'Controller Died',  good: false, dur: 3,  weight: 10, desc: 'Nobody can move for 3 s' },
     { id: 'autopilot',  name: 'Autopilot',        good: true,  dur: 10, weight: 10, desc: 'Your browser plays for you for 10 s' },
     { id: 'phone',      name: 'Phone A Ghost',    good: false, dur: 20, weight: 10, desc: 'An extra ghost joins for 20 s' },
-    { id: 'hacker',     name: 'Hacker',           good: true,  dur: 10, weight: 9,  desc: 'Ghosts are hacked for 10 s: they eat pellets as they roam' }
+    { id: 'hacker',     name: 'Hacker',           good: true,  dur: 10, weight: 9,  desc: 'Ghosts are hacked for 10 s: they eat pellets as they roam' },
+    { id: 'magnet',     name: 'Magnet',           good: true,  dur: 10, weight: 9,  desc: 'Pellets near you fly into your mouth for 10 s' },
+    { id: 'swap',       name: 'Ghost Swap',       good: true,  dur: 0,  weight: 7,  desc: 'You swap places with the nearest ghost' },
+    { id: 'freeze',     name: 'Freeze',           good: true,  dur: 6,  weight: 9,  desc: 'Ghosts are frozen in ice for 6 s (and harmless)' },
+    { id: 'shrink',     name: 'Shrink',           good: true,  dur: 8,  weight: 8,  desc: 'Everyone shrinks for 8 s and slips past ghosts more easily' },
+    { id: 'fog',        name: 'Fog of War',       good: false, dur: 10, weight: 8,  desc: 'Thick fog for 10 s: you only see a little way around you' }
   ];
   const POWERUP_FROM_LEVEL = 3;
   const VOTE_TIME = 8;   // seconds everyone gets to vote on opening a crate
@@ -217,6 +222,18 @@
     return o;
   }
 
+  // Bonus fruit: appears in the middle of the maze at 30% and 70% of pellets eaten, for a few seconds.
+  const FRUITS = [
+    { id: 'cherry', name: 'Cherries', pts: 100 }, { id: 'strawberry', name: 'Strawberry', pts: 300 },
+    { id: 'orange', name: 'Orange', pts: 500 }, { id: 'apple', name: 'Apple', pts: 700 },
+    { id: 'melon', name: 'Melon', pts: 1000 }, { id: 'grapes', name: 'Grapes', pts: 2000 },
+    { id: 'pear', name: 'Pear', pts: 3000 }, { id: 'starfruit', name: 'Star fruit', pts: 5000 }
+  ];
+  const fruitFor = L => Math.min(FRUITS.length - 1, Math.floor((Math.max(1, L) - 1) / 2));
+  const FRUIT_TIME = 9.5;
+  // Every 10th level is a boss level: one giant ghost with 3 hits and a few minions.
+  const isBossLevel = L => L > 0 && L % 10 === 0;
+  const BOSS_HP = 3;
   // Achievements, earned by players logged in with Discord (shown on their profile card).
   const ACHIEVEMENTS = [
     { id: 'first',     name: 'First Clear',  desc: 'Clear a level' },
@@ -232,6 +249,6 @@
     { id: 'daily',     name: 'Daily Driver', desc: 'Set a score on the daily maze' },
     { id: 'versus',    name: 'Champion',     desc: 'Win a versus level' }
   ];
-  return { ACHIEVEMENTS, DIRS, POWERUPS, POWERUP_FROM_LEVEL, VOTE_TIME, SPEED_STEP, PU_SPIN, PU_HOLD, NUKE_WARN, NUKE_TIME, rollPowerup, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, ghostMult, speedStep, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
+  return { FRUITS, fruitFor, FRUIT_TIME, isBossLevel, BOSS_HP, ACHIEVEMENTS, DIRS, POWERUPS, POWERUP_FROM_LEVEL, VOTE_TIME, SPEED_STEP, PU_SPIN, PU_HOLD, NUKE_WARN, NUKE_TIME, rollPowerup, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, ghostMult, speedStep, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
     genLevel, wrapX, canGo, entPos, getBit, setBit, toB64, fromB64 };
 });

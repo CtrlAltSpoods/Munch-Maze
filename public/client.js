@@ -57,7 +57,7 @@ function loadLevel(L, b64, ph = 0) {
   S.L = L; S.lvl = M.genLevel(S.seed, L);
   S.myBits = new Uint8Array(S.lvl.bytes);
   S.srvBits = b64 ? M.fromB64(b64, S.lvl.bytes) : new Uint8Array(S.lvl.bytes);
-  S.ge = []; S.gv = []; S.gTarget = []; S.ph = ph; S.fr = 0; S.crates = []; S.fx = []; S.grabbing = 0; S.hfPrime = true; S.nuked = false; S.nukeIn = 0; S.nukeSnap = null; S.vote = null; $('voteOv').hidden = true; MazeNuke.clear(); A.nukeAlarm && A.nukeAlarm(false); S.pend.clear(); S.left = -1;
+  S.ge = []; S.gv = []; S.gTarget = []; S.ph = ph; S.fr = 0; S.crates = []; S.fx = []; S.grabbing = 0; S.hfPrime = true; S.nuked = false; S.nukeIn = 0; S.nukeSnap = null; S.vote = null; $('voteOv').hidden = true; MazeNuke.clear(); A.nukeAlarm && A.nukeAlarm(false); S.pend.clear(); S.left = -1; S.bullets = []; S.fruit = null; S.fruitTried = 0; S.downs = new Map(); S.teamEat = [0, 0];
   S.alive = true; respawn(); S.mazeKey = '';
   const n = M.ghostCount(L);
   endStreak(true);
@@ -72,7 +72,7 @@ function connect() {
   url.hash = ''; url.search = '';
   const ws = new WebSocket(url.href);
   S.ws = ws;
-  ws.onopen = () => send({ t: 'join', nm: S.name, seed: S.seed, mdl: S.model, ci: S.ci, tok: token, vis: S.vis, key: S.key || S.inviteKey, room: S.room || undefined, link: S.linkJoin || undefined, lname: S.lname, setpw: S.setpw || undefined, pw: S.pw || undefined });
+  ws.onopen = () => send({ t: 'join', nm: S.name, seed: S.seed, mdl: S.model, ci: S.ci, tok: token, vis: S.vis, key: S.key || S.inviteKey, room: S.room || undefined, link: S.linkJoin || undefined, lname: S.lname, setpw: S.setpw || undefined, pw: S.pw || undefined, mode: S.wantMode || 'coop', daily: S.dailyJoin ? true : undefined });
   ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } onMsg(m); };
   ws.onclose = () => {
     if (S.ws !== ws) return;
@@ -84,7 +84,7 @@ function onMsg(m) {
   switch (m.t) {
     case 'welcome': {
       S.id = m.id; S.seed = m.seed;
-      S.roster.clear(); for (const r of m.roster || []) S.roster.set(r[0], { nm: String(r[1]), col: String(r[2]), mdl: r[3] | 0, paint: M.pickModel(r[3], r[4]).paint, reg: r[5] === 1, uid: r[6] | 0 });
+      S.roster.clear(); for (const r of m.roster || []) S.roster.set(r[0], { nm: String(r[1]), col: String(r[2]), mdl: r[3] | 0, paint: M.pickModel(r[3], r[4]).paint, reg: r[5] === 1, uid: r[6] | 0, team: r[7] | 0 });
       S.sc = m.sc | 0; S.li = m.li | 0; S.over = !!m.over;
       loadLevel(m.lv | 0, m.b, m.ph | 0);
       S.inGame = true;
@@ -96,7 +96,8 @@ function onMsg(m) {
       S.room = typeof m.gid === 'string' ? m.gid : '';   // reconnects go back to this exact game (with S.key if private)
       S.setpw = '';   // only sent when opening the lobby
       $('joinPwField').hidden = true; S.pwRoom = '';
-      S.lvStats = m.stats || null;
+      S.lvStats = m.stats || null; S.mode = m.mode === 'versus' ? 'versus' : 'coop'; S.daily = String(m.daily || ''); S.dailyJoin = false;
+      $('teamBar').hidden = S.mode !== 'versus';
       S.host = m.host | 0; S.ph = m.ph | 0; updateReady();
       S.testMode = !!m.testMode;
       $('seedBtn').textContent = S.seed;
@@ -106,6 +107,7 @@ function onMsg(m) {
       setNet('');
       A.startMusic(S.L); A.sfx('start');
       if (isPeanut(S.name)) MazeFX.bigText('PEANUT MODE', 'quack quack', '#ffd83b', 1.8);
+      if (M.isBossLevel(S.L)) MazeFX.bigText('BOSS LEVEL', 'Big pellets hurt it. 3 hits to win.', '#ff2a6d', 2.4);
       break;
     }
     case 'level':
@@ -114,7 +116,7 @@ function onMsg(m) {
       if (S.ph === 0) recordLevel(S.L);
       if (m.adv && !S.over) A.sfx('life');
       break;
-    case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col), mdl: m.mdl | 0, paint: M.pickModel(m.mdl, m.ci).paint, reg: m.reg === 1, uid: m.uid | 0 }); A.sfx('join'); updateLobby(); break;
+    case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col), mdl: m.mdl | 0, paint: M.pickModel(m.mdl, m.ci).paint, reg: m.reg === 1, uid: m.uid | 0, team: m.team | 0 }); A.sfx('join'); updateLobby(); break;
     case 'leave': S.roster.delete(m.id); S.ov.delete(m.id); updateLobby(); break;
     case 'pw': {   // a big pellet was eaten; we already played our own
       if ((m.id | 0) === S.id || !S.lvl) break;
@@ -172,6 +174,42 @@ function onMsg(m) {
       break;
     }
     case 'lvstats': S.lvStats = m; renderStats(); break;
+    case 'fruit': { const f = M.FRUITS[m.k | 0]; MazeFX.ring(+m.x, +m.y, '#3dffa0', 2.2, 0.5); A.sfx('coin'); toast('Bonus fruit!', (f ? f.name : 'Fruit') + ' in the middle for ' + (f ? f.pts : 0) + ' points'); break; }
+    case 'fruitgot': {
+      const x = +m.x, y = +m.y; MazeFX.sparks(x, y, '#3dffa0', 26, 7, 0.6); MazeFX.text(x, y - 0.4, '+' + (m.v | 0), '#3dffa0'); S.fruit = null;
+      A.sfx('coin'); if ((m.id | 0) === S.id) { MazeFX.coins(x, y, 8); A.sfx('megapellet'); }
+      break;
+    }
+    case 'boss': {
+      const x = +m.x, y = +m.y;
+      if (m.down) { MazeFX.sparks(x, y, '#ff2a6d', 80, 14, 1); MazeFX.ring(x, y, '#fcee0a', 6, 0.8); MazeFX.flash('#ffffff', 0.5); MazeFX.shake(20); A.sfx('nukeBlast'); MazeFX.bigText('BOSS DEFEATED', '+2000 for everyone', '#fcee0a', 2.2); }
+      else { MazeFX.sparks(x, y, '#ff2a6d', 40, 10, 0.7); MazeFX.shake(10); A.sfx('bomb'); MazeFX.bigText('BOSS HIT', (m.hp | 0) + (m.hp === 1 ? ' hit' : ' hits') + ' left · it split!', '#ff2a6d', 1.4); }
+      break;
+    }
+    case 'down': if ((m.id | 0) !== S.id) S.downs.set(m.id | 0, { x: +m.x, y: +m.y, until: performance.now() + (+m.s || 8) * 1000, tried: 0 }); break;
+    case 'revive': {
+      S.downs.delete(m.id | 0); MazeFX.ring(+m.x, +m.y, '#3dffa0', 3, 0.6); MazeFX.sparks(+m.x, +m.y, '#3dffa0', 30, 8, 0.7); A.sfx('respawn');
+      const who = S.roster.get(m.by | 0), whom = S.roster.get(m.id | 0);
+      if ((m.by | 0) === S.id) toast('Lifesaver', 'You brought ' + (whom ? whom.nm : 'a teammate') + ' back!');
+      else if ((m.id | 0) !== S.id && who && whom) toast('Revived', who.nm + ' brought ' + whom.nm + ' back');
+      break;
+    }
+    case 'revived': {
+      if (!S.alive || S.over) {
+        S.over = false; $('overOv').hidden = true; S.alive = true; S.deadT = 0;
+        S.me = { tx: Math.round(+m.x), ty: Math.round(+m.y), d: -1, t: 0, want: -1, face: S.me ? S.me.face : 2 }; S.inv = 2; S.hfPrime = true;
+      }
+      MazeFX.bigText('REVIVED', 'by ' + String(m.by || 'a teammate'), '#3dffa0', 1.6); A.sfx('start');
+      break;
+    }
+    case 'bumped': { const n = S.streak | 0; send({ t: 'give', n }); endStreak(true); MazeFX.flash('#ff3864', 0.25); MazeFX.bigText('STREAK STOLEN', String(m.nm || 'An opponent') + ' took ×' + n, '#ff3864', 1.4); A.sfx('reverse'); break; }
+    case 'gain': { const n = m.n | 0; if (n) { S.streak = (S.streak | 0) + n; S.streakT = 0; MazeFX.bigText('STOLE ×' + n, 'from ' + String(m.nm || 'an opponent'), '#fcee0a', 1.4); A.sfx('megapellet'); } break; }
+    case 'swapto': {
+      const [px0, py0] = M.entPos(S.me); MazeFX.ring(px0, py0, '#b44dff', 2, 0.4);
+      S.me = { tx: +m.x | 0, ty: +m.y | 0, d: -1, t: 0, want: S.me.want, face: S.me.face }; S.inv = 1.5; S.camX = null;
+      MazeFX.ring(+m.x, +m.y, '#b44dff', 2.5, 0.5); MazeFX.sparks(+m.x, +m.y, '#b44dff', 24, 7, 0.6);
+      break;
+    }
     case 'ach': { const a = M.ACHIEVEMENTS.find(x => x.id === m.id); if (a) { toast('Achievement unlocked', a.name + ' · ' + a.desc, 'ach'); A.sfx('puLand', true); } break; }
     case 'zap': { const x = +m.x || 0, y = +m.y || 0; A.sfx('ghost'); MazeFX.sparks(x, y, '#ff3d5e', 18, 6, 0.5); MazeFX.ring(x, y, '#ff6b8b', 1.6, 0.4); break; }
     case 'pts': MazeFX.text(+m.x || 0, (+m.y || 0) - 0.3, String(m.v | 0), '#41e0f0', 0.95); break;
@@ -209,7 +247,10 @@ function onMsg(m) {
       if (S.ph !== wasPh || S.host !== hostWas) updateReady();
       A.setFright(S.fr > 0 && S.ph === 0);
       if (m.fid !== S.fid) { S.fid = m.fid; }
-      S.gTarget = (m.g || []).map((a, i) => ({ i, x: +a[0], y: +a[1], d: a[2] | 0, st: a[3] | 0, ep: a[4] | 0, phone: a[5] === 1 }));
+      S.gTarget = (m.g || []).map((a, i) => ({ i, x: +a[0], y: +a[1], d: a[2] | 0, st: a[3] | 0, ep: a[4] | 0, phone: a[5] === 1, boss: a[6] === 1, hp: a[7] | 0 }));
+      S.bullets = Array.isArray(m.bl) ? m.bl : [];
+      S.fruit = Array.isArray(m.ft) ? { id: m.ft[0], x: m.ft[1], y: m.ft[2], k: m.ft[3], rem: m.ft[4] } : null;
+      if (Array.isArray(m.tm)) S.teamEat = m.tm;
       S.crates = (m.c || []).filter(c => Array.isArray(c));
       S.fx = (m.fx || []).map(f => ({ id: (M.POWERUPS[f[0] | 0] || {}).id, rem: +f[1] || 0, by: f[2] | 0 })).filter(f => f.id);
       effectEdges();
@@ -324,6 +365,10 @@ function checkHighFives() {
   for (const p of S.players) {
     const o = S.ov.get(p.id) || p;
     const near = p.al && !p.over && Math.hypot(o.x - px, o.y - py) < HF_REACH;
+    if (S.mode === 'versus' && (S.roster.get(p.id) || {}).team !== (S.roster.get(S.id) || {}).team) {   // opponents bump instead
+      if (near && now - (S.bumpAt || 0) > 1000) { S.bumpAt = now; send({ t: 'bump', id: p.id }); }
+      continue;
+    }
     if (prime && near) { S.hfNear.add(p.id); continue; }
     if (!near) { if (Math.hypot(o.x - px, o.y - py) > HF_REACH * 1.6) S.hfNear.delete(p.id); continue; }
     if (S.hfNear.has(p.id)) continue;
@@ -336,19 +381,36 @@ function checkHighFives() {
     MazeFX.text(mx, my - 0.6, 'HIGH FIVE!', '#fcee0a');
   }
 }
+function die(px, py) {
+  S.alive = false; S.deadT = 1.4; send({ t: 'die' }); A.sfx('die');
+  MazeFX.sparks(px, py, S.color, 40, 9, 0.9); MazeFX.ring(px, py, '#ff4d5e', 3, 0.6); MazeFX.flash('#ff4d5e', 0.35); MazeFX.shake(12); endStreak(true);
+}
 function checkGhosts() {
   const [px, py] = M.entPos(S.me);
   for (const c of S.crates) if (c[0] !== S.grabbing && Math.hypot(c[1] - px, c[2] - py) < 0.75) { S.grabbing = c[0]; send({ t: 'grab', id: c[0], x: Math.round(px * 100) / 100, y: Math.round(py * 100) / 100, f: S.me.face }); }
+  // bonus fruit
+  if (S.fruit && S.fruitTried !== S.fruit.id && Math.hypot(S.fruit.x - px, S.fruit.y - py) < 0.75) { S.fruitTried = S.fruit.id; send({ t: 'fruit', id: S.fruit.id }); }
+  // a fallen teammate's marker: touch it to bring them back
+  for (const [id, d] of S.downs) {
+    if (performance.now() > d.until) { S.downs.delete(id); continue; }
+    if (d.tried > performance.now() - 800 || Math.hypot(d.x - px, d.y - py) > 0.8) continue;
+    if (S.mode === 'versus' && (S.roster.get(id) || {}).team !== (S.roster.get(S.id) || {}).team) continue;
+    d.tried = performance.now(); send({ t: 'revive', id });
+  }
+  // boss fireballs
+  if (S.inv <= 0) for (const b of S.bullets) if (Math.hypot(b[0] - px, b[1] - py) < 0.5) { die(px, py); return; }
+  const small = effectOn('shrink') ? 0.5 : 1, frozenNow = effectOn('freeze');
   for (const g of S.gv) {
     if (g.st !== 1 && g.st !== 2) continue;
-    if (Math.hypot(g.x - px, g.y - py) > (effectOn('megaghost') ? 1.05 : 0.62)) continue;   // mega ghosts reach further
+    if (g.st === 1 && frozenNow) continue;   // frozen ghosts can't hurt you
+    const reach = (g.boss ? 1.25 : effectOn('megaghost') ? 1.05 : 0.62) * (g.st === 1 ? small : 1);   // mega ghosts and bosses reach further
+    if (Math.hypot(g.x - px, g.y - py) > reach) continue;
     if (g.st === 2) {
       S.ge.push([g.i, g.ep]); if (S.ge.length > 8) S.ge.shift();
       g.st = 3; send({ t: 'ghost', i: g.i, ep: g.ep }); A.sfx('ghost');
       MazeFX.ring(g.x, g.y, '#41e0f0', 3, 0.45); MazeFX.sparks(g.x, g.y, GCOL[g.i % GCOL.length], 22, 10, 0.55); MazeFX.coins(g.x, g.y, 5); MazeFX.shake(7); A.sfx('coin');
     } else if (S.inv <= 0 && !effectOn('autopilot') && !effectOn('hacker')) {   // autopilot never gets caught; hacked ghosts are harmless
-      S.alive = false; S.deadT = 1.4; send({ t: 'die' }); A.sfx('die');
-      MazeFX.sparks(px, py, S.color, 40, 9, 0.9); MazeFX.ring(px, py, '#ff4d5e', 3, 0.6); MazeFX.flash('#ff4d5e', 0.35); MazeFX.shake(12); endStreak(true); break;
+      die(px, py); break;
     }
   }
 }
@@ -361,7 +423,7 @@ function updateGhostView(dt) {
     const prev = S.gv.find(g => g.i === s.i);
     let vx = x, vy = y;
     if (prev && Math.hypot(prev.x - x, prev.y - y) < 2.5) { vx = prev.x + (x - prev.x) * k; vy = prev.y + (y - prev.y) * k; }
-    next.push({ i: s.i, x: vx, y: vy, d: s.d, st, ep: s.ep, phone: s.phone });
+    next.push({ i: s.i, x: vx, y: vy, d: s.d, st, ep: s.ep, phone: s.phone, boss: s.boss, hp: s.hp });
   }
   S.gv = next;
 }
@@ -390,6 +452,8 @@ async function refreshLobby() {
         const main = document.createElement('span'); main.className = 'lr-main';
         const nm = document.createElement('span'); nm.className = 'lr-name'; nm.textContent = g.name; main.appendChild(nm);
         if (g.locked) { const lk = document.createElement('span'); lk.className = 'chip private'; lk.textContent = 'Password'; main.appendChild(lk); }
+        if (g.mode === 'versus') { const t = document.createElement('span'); t.className = 'chip versus'; t.textContent = 'Versus'; main.appendChild(t); }
+        if (g.daily) { const t = document.createElement('span'); t.className = 'chip daily'; t.textContent = 'Daily'; main.appendChild(t); }
         const meta = document.createElement('span'); meta.className = 'lr-meta';
         const st = document.createElement('span'); st.className = 'lr-status ' + (g.lobby ? 'open' : 'playing');
         st.textContent = g.lobby ? 'In lobby' : 'Level ' + g.level;
@@ -409,6 +473,18 @@ async function refreshLobby() {
   } catch (e) { /* server busy; try again later */ }
   loadScores();
 }
+/* ---------- new maze options: co-op / versus, and the daily maze ---------- */
+S.wantMode = store.get('mm.mode') === 'versus' ? 'versus' : 'coop';
+const MODE_HINT = { coop: 'Everyone works together to clear the maze.', versus: 'Two teams race to eat the most pellets. Run into an opponent to steal their streak.' };
+function setMode(m) {
+  S.wantMode = m; store.set('mm.mode', m);
+  for (const b of document.querySelectorAll('.modes .seg-b')) { b.classList.toggle('on', b.dataset.mode === m); b.setAttribute('aria-checked', b.dataset.mode === m ? 'true' : 'false'); }
+  $('modeHint').textContent = MODE_HINT[m];
+}
+for (const b of document.querySelectorAll('.modes .seg-b')) b.addEventListener('click', () => setMode(b.dataset.mode));
+setMode(S.wantMode);
+$('dailyBtn').addEventListener('click', () => { clearInvite(); S.dailyJoin = true; join(); });
+
 /* ---------- leaderboards: all time, this week, today's daily maze ---------- */
 S.board = '';
 const BOARD_HINT = { '': 'Best run per player, ever.', week: 'Best runs since Monday. Resets every week.', day: 'Today’s daily maze: everyone plays the same layouts.' };
@@ -708,7 +784,7 @@ function drawBulbs(T) {
 }
 
 function drawPac(x, y, T, paint, face, mouth, glow = true, mdl = 0, dying = 0) {
-  const cx = (x + .5) * T, cy = (y + .5) * T, r = T * .44, col = MazeModels.colorAt(paint, S.time);
+  const cx = (x + .5) * T, cy = (y + .5) * T, r = T * .44 * (S.inGame && effectOn('shrink') ? 0.55 : 1), col = MazeModels.colorAt(paint, S.time);
   if (glow) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha *= 0.55; blit(glowSprite(col, T * 0.3, T * 0.55), cx, cy); ctx.globalAlpha /= 0.55; ctx.globalCompositeOperation = 'source-over'; }
   const chew = Math.max(0, Math.min(1, (mouth - 0.06) / 0.24));
   if (dying > 0) {   // shrink and spin away
@@ -799,14 +875,18 @@ function render(dt) {
     const fl = S.fr > 0 && S.fr < 2 && Math.floor(S.time * 5) % 2 === 0;
     if (!gone) drawCrates(T);
     const mega = effectOn('megaghost') ? 2 : 1;
-    const hacked = S.inGame && effectOn('hacker');
+    const hacked = S.inGame && effectOn('hacker'), frozen = S.inGame && effectOn('freeze');
     if (!S.nuked) for (const g of S.gv) {
       if (mega > 1 && g.st !== 3) { ctx.globalAlpha = 0.35; blit(glowSprite('#7a0020', T * 0.6, T * 0.9), (g.x + .5) * T, (g.y + .5) * T); ctx.globalAlpha = 1; }
-      drawGhost(g.x, g.y, T, hacked ? '#b44dff' : g.phone ? '#ffcc33' : GCOL[g.i % GCOL.length], g.st, g.d, fl, g.st === 3 ? 1 : mega);
+      if (g.st === 5) continue;   // a defeated boss
+      drawGhost(g.x, g.y, T, hacked ? '#b44dff' : g.boss ? '#ff2a6d' : g.phone ? '#ffcc33' : GCOL[g.i % GCOL.length], g.st, g.d, fl, g.st === 3 ? 1 : g.boss ? 2.1 * mega : mega);
+      if (g.boss && g.st !== 3) drawBossBits(g, T);
+      if (frozen && g.st !== 3) drawIce(g, T, g.boss ? 2.1 : 1);
       if (hacked && g.st !== 3) drawHacked(g, T);
       if (g.phone && g.st !== 3) MazeFX.icon(ctx, 'phone', (g.x + .5) * T, (g.y + .5) * T - T * 0.75 * mega, T * 0.55, S.time);
     }
     drawLasers(T);
+    if (S.inGame) { drawBullets(T); drawFruit(T); drawDowns(T); if (S.mode === 'versus') drawTeamRings(T); }
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     const kx = 1 - Math.exp(-dt * 16);
     for (const p of S.players) {
@@ -860,6 +940,7 @@ function render(dt) {
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.45)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, CW, CH);
   if (S.inGame && S.nukeIn > 0 && S.ph === 0) MazeNuke.drawWarning(ctx, CW, CH, S.nukeIn, S.time, false);
   if (MazeNuke.active) MazeNuke.draw(ctx, CW, CH, { ox, oy, T });
+  if (S.inGame && S.ph === 0 && effectOn('fog')) drawFog(ox, oy, T);
   MazeFX.drawScreen(ctx, CW, CH);
 }
 
@@ -941,7 +1022,11 @@ function hud(dt, now) {
   if (!S.inGame) { setTxt('pCount', '0'); return; }
   let left = S.left;   // the server's count is the one that matters
   if (left < 0) { left = 0; for (const i of lv.pList) if (!eaten(i)) left++; }
-  setTxt('pLeft', left); setTxt('gCount', M.ghostCount(S.L));
+  setTxt('pLeft', left); setTxt('gCount', M.isBossLevel(S.L) ? 'Boss' : M.ghostCount(S.L));
+  if (S.mode === 'versus') {
+    const [a, b] = S.teamEat || [0, 0]; setTxt('teamR', a); setTxt('teamB', b);
+    $('teamFill').style.width = (a + b ? a / (a + b) * 100 : 50).toFixed(1) + '%';
+  }
   const regOf = id => !!(S.roster.get(id) || {}).reg;
   const uidOf = id => (S.roster.get(id) || {}).uid | 0;
   const rows = [{ nm: (S.roster.get(S.id) || {}).nm || S.name, col: S.color, sc: S.sc, al: S.alive && !S.over, me: true, host: S.host === S.id, reg: regOf(S.id), uid: uidOf(S.id) }];
@@ -1020,6 +1105,11 @@ function powerupStarted(kind, by) {
     case 'unplugged': A.sfx('unplugged'); MazeFX.flash('#000000', 0.45); break;
     case 'autopilot': A.sfx('autopilot'); MazeFX.ring(px, py, '#41e0f0', 3, 0.6); break;
     case 'phone': A.sfx('phone'); MazeFX.ring(lv.mid, lv.cy - 2, '#ffcc33', 3, 0.7); break;
+    case 'magnet': A.sfx('magnet'); MazeFX.ring(px, py, '#ff4d5e', 3, 0.6); break;
+    case 'swap': A.sfx('swap'); MazeFX.flash('#b44dff', 0.2); break;
+    case 'freeze': A.sfx('freeze'); MazeFX.flash('#bfefff', 0.35); for (const g of S.gv) MazeFX.sparks(g.x, g.y, '#bfefff', 16, 5, 0.6); break;
+    case 'shrink': A.sfx('shrink'); MazeFX.ring(px, py, '#3dffa0', 1.5, 0.5); break;
+    case 'fog': A.sfx('fog'); MazeFX.flash('#202030', 0.4); break;
     case 'hacker':
       A.sfx('hacker'); MazeFX.flash('#3dffa0', 0.2);
       setTimeout(() => { if (A.say) A.say('System breached. The ghosts work for us now.'); }, 900);
@@ -1160,6 +1250,81 @@ function drawQuake(T, mw, mh) {
   ctx.restore();
   if (Math.random() < 0.5) MazeFX.sparks(Math.random() * S.lvl.W, Math.random() * S.lvl.H, '#b08a5a', 2, 1.2, 0.8);   // dust
 }
+/* Boss: horns, a scowl and its remaining hits. */
+function drawBossBits(g, T) {
+  const cx = (g.x + .5) * T, cy = (g.y + .5) * T, r = T * .44 * 2.1;
+  ctx.save(); ctx.fillStyle = '#fcee0a'; ctx.strokeStyle = '#7a0020'; ctx.lineWidth = Math.max(1, T * 0.05);
+  for (const s of [-1, 1]) { ctx.beginPath(); ctx.moveTo(cx + s * r * 0.35, cy - r * 0.75); ctx.lineTo(cx + s * r * 0.7, cy - r * 1.25); ctx.lineTo(cx + s * r * 0.62, cy - r * 0.62); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+  for (let k = 0; k < M.BOSS_HP; k++) {   // hit pips
+    ctx.fillStyle = k < g.hp ? '#ff2a6d' : 'rgba(255,255,255,0.18)';
+    ctx.beginPath(); ctx.arc(cx + (k - (M.BOSS_HP - 1) / 2) * T * 0.45, cy - r * 1.45, T * 0.14, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawIce(g, T, scale) {
+  const cx = (g.x + .5) * T, cy = (g.y + .5) * T, r = T * .5 * scale;
+  ctx.save(); ctx.fillStyle = 'rgba(190,240,255,0.35)'; ctx.strokeStyle = 'rgba(230,250,255,0.85)'; ctx.lineWidth = Math.max(1, T * 0.05);
+  ctx.beginPath(); for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + k * Math.PI / 3; ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); } ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - r * 0.4, cy - r * 0.5); ctx.lineTo(cx - r * 0.1, cy - r * 0.1); ctx.stroke();
+  ctx.restore();
+}
+function drawBullets(T) {
+  if (!S.bullets.length) return;
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (const b of S.bullets) {
+    const x = (b[0] + .5) * T, y = (b[1] + .5) * T, g = ctx.createRadialGradient(x, y, 0, x, y, T * 0.45);
+    g.addColorStop(0, '#fff3c0'); g.addColorStop(0.35, '#ff6b2a'); g.addColorStop(1, 'rgba(255,42,109,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, T * 0.45, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawFruit(T) {
+  const f = S.fruit; if (!f || (f.rem < 2 && Math.floor(S.time * 8) % 2)) return;
+  const x = (f.x + .5) * T, y = (f.y + .5) * T + Math.sin(S.time * 4) * T * 0.06;
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.5; blit(glowSprite('#3dffa0', T * 0.3, T * 0.7), x, y); ctx.restore();
+  MazeFX.fruit(ctx, M.FRUITS[f.k].id, x, y, T * 0.8);
+}
+function drawDowns(T) {
+  const now = performance.now();
+  for (const [id, d] of S.downs) {
+    const left = (d.until - now) / 1000; if (left <= 0) continue;
+    const r = S.roster.get(id) || {}, x = (d.x + .5) * T, y = (d.y + .5) * T, pulse = 0.5 + 0.5 * Math.sin(S.time * 6);
+    ctx.save(); ctx.globalAlpha = 0.35 + 0.25 * pulse;
+    MazeModels.draw(ctx, looksOf(r.nm, r.mdl | 0), x, y, T * 0.4, r.paint || '#ffffff', 0, 0.3, S.time);
+    ctx.globalAlpha = 0.9; ctx.strokeStyle = '#3dffa0'; ctx.lineWidth = Math.max(1, T * 0.06);
+    ctx.beginPath(); ctx.arc(x, y, T * (0.55 + 0.1 * pulse), -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, left / 8)); ctx.stroke();
+    ctx.fillStyle = '#3dffa0'; ctx.font = '700 ' + Math.round(T * 0.4) + 'px "IBM Plex Mono", monospace'; ctx.textAlign = 'center'; ctx.fillText('+', x, y - T * 0.7);
+    ctx.restore();
+  }
+}
+/* VERSUS: a team-coloured ring under every player. */
+const TEAM_COL = ['#ff3864', '#00a2ff'];
+function drawTeamRings(T) {
+  const ring = (x, y, team) => { ctx.strokeStyle = TEAM_COL[team | 0]; ctx.globalAlpha = 0.85; ctx.lineWidth = Math.max(1.5, T * 0.09); ctx.beginPath(); ctx.arc((x + .5) * T, (y + .5) * T, T * 0.62, 0, Math.PI * 2); ctx.stroke(); };
+  ctx.save();
+  for (const p of S.players) { if (!p.al || p.over) continue; const o = S.ov.get(p.id) || p; ring(o.x, o.y, (S.roster.get(p.id) || {}).team); }
+  if (S.alive && !S.over) { const [px, py] = M.entPos(S.me); ring(px, py, (S.roster.get(S.id) || {}).team); }
+  ctx.restore();
+}
+/* FOG OF WAR: darkness everywhere except a small circle around you. */
+function drawFog(ox, oy, T) {
+  const [px, py] = M.entPos(S.me), x = ox + (px + .5) * T, y = oy + (py + .5) * T, r = T * 3.5;
+  const g = ctx.createRadialGradient(x, y, r * 0.55, x, y, r);
+  g.addColorStop(0, 'rgba(6,5,14,0)'); g.addColorStop(1, 'rgba(6,5,14,0.97)');
+  ctx.save(); ctx.fillStyle = g; ctx.fillRect(0, 0, CW, CH); ctx.restore();
+}
+/* MAGNET: pellets within reach fly to you (a few a frame). */
+function magnetPull() {
+  if (!S.alive || S.ph !== 0 || !effectOn('magnet')) return;
+  const [px, py] = M.entPos(S.me), lv = S.lvl; let n = 0;
+  for (const i of lv.pList) {
+    if (eaten(i)) continue;
+    const x = i % lv.W, y = (i / lv.W) | 0;
+    if (Math.hypot(x - px, y - py) > 2.6) continue;
+    MazeFX.sparks(x, y, '#ff8fa6', 4, 3, 0.25);
+    eatAt(x, y); if (++n >= 4) break;
+  }
+}
 /* HACKER: hacked ghosts glitch (shifted colour slices) and leak little bits of code. */
 function drawHacked(g, T) {
   const cx = (g.x + .5) * T, cy = (g.y + .5) * T, r = T * .5;
@@ -1284,6 +1449,7 @@ function renderStats() {
     tr.append(who, pc, sk); body.appendChild(tr);
   }
   const foot = $('statsFoot'), notes = [];
+  if (st.teams) notes.unshift('Red ' + st.teams[0] + ' – ' + st.teams[1] + ' Blue · ' + (st.win === -1 ? 'a draw!' : (st.win === 0 ? 'Red' : 'Blue') + ' team wins!'));
   if (st.ghosts) notes.push('Hacked ghosts ate ' + Math.round(st.ghosts * 100 / st.total) + '% (' + st.ghosts + ' pellets).');
   if (st.nuked) notes.push('The nuke took the other ' + Math.round(st.nuked * 100 / st.total) + '% (' + st.nuked + ' pellets).');
   foot.hidden = !notes.length; foot.textContent = notes.join(' ');
@@ -1514,7 +1680,7 @@ addEventListener('keydown', () => A.unlock(), { once: true });
 /* ---------- loop ---------- */
 function frame() {
   const now = performance.now(), dt = Math.min(.05, (now - S.lastT) / 1000); S.lastT = now; S.time += dt;
-  if (S.inGame && S.lvl) { playerStep(dt); updateGhostView(dt); checkHighFives(); }
+  if (S.inGame && S.lvl) { playerStep(dt); updateGhostView(dt); checkHighFives(); magnetPull(); }
   const quake = S.inGame && S.ph === 0 && effectOn('quake');
   MazeFX.setRumble(quake ? 11 : S.inGame && S.streak >= 100 ? 1.6 : 0, quake);   // earthquake (felt even with reduced motion), or a small steady shake from a 100 streak
   MazeFX.update(dt); MazeNuke.update(dt); drawHero();

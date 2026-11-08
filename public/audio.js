@@ -533,6 +533,11 @@ const FX = {
     tone(sfxBus, { type: 'triangle', f: 880, t: m + 0.42, dur: 0.12, vol: 0.1 });
     tone(sfxBus, { type: 'triangle', f: 1320, t: m + 0.56, dur: 0.22, vol: 0.1 });
   },
+  magnet(t) { tone(sfxBus, { type: 'sawtooth', f: 90, f2: 180, t, dur: 0.5, vol: 0.08, filter: [600, 1400, 4] }); tone(sfxBus, { type: 'sine', f: 880, f2: 1320, t: t + 0.1, dur: 0.3, vol: 0.06 }); },
+  swap(t) { tone(sfxBus, { type: 'triangle', f: 400, f2: 1200, t, dur: 0.18, vol: 0.12 }); tone(sfxBus, { type: 'triangle', f: 1200, f2: 400, t: t + 0.16, dur: 0.18, vol: 0.12 }); noise(sfxBus, { t: t + 0.15, dur: 0.12, vol: 0.12, type: 'bandpass', freq: 3000, q: 2 }); },
+  freeze(t) { for (let k = 0; k < 6; k++) tone(sfxBus, { type: 'sine', f: 1800 + k * 260, t: t + k * 0.04, dur: 0.4, vol: 0.045 }); noise(sfxBus, { t, dur: 0.5, vol: 0.08, type: 'highpass', freq: 6000 }); },
+  shrink(t) { tone(sfxBus, { type: 'square', f: 900, f2: 1800, t, dur: 0.35, vol: 0.05, filter: [3000, 3000, 1] }); },
+  fog(t) { noise(sfxBus, { t, dur: 1.2, vol: 0.16, type: 'lowpass', freq: 500 }); tone(sfxBus, { type: 'sine', f: 110, f2: 70, t, dur: 1, vol: 0.12 }); },
   clap(t) {   // a crisp hand clap: a few tight bursts, then a short tail
     for (const [d, v] of [[0, 0.5], [0.011, 0.38], [0.022, 0.3]]) noise(sfxBus, { t: t + d, dur: 0.03, vol: v, type: 'bandpass', freq: 1400, q: 1.1 });
     noise(sfxBus, { t: t + 0.03, dur: 0.16, vol: 0.22, type: 'bandpass', freq: 1100, q: 0.8 });

@@ -129,6 +129,55 @@ function icon(ctx, id, x, y, s, t = 0) {
       ctx.fillStyle = '#41e0f0'; ctx.beginPath(); ctx.arc(0, 0, r * 0.18, 0, 7); ctx.fill(); ctx.restore();
       break;
     }
+    case 'magnet': {   // red horseshoe with silver tips, little pull lines
+      ctx.lineWidth = s * 0.2; ctx.lineCap = 'butt';
+      ctx.strokeStyle = '#ff3d5e'; ctx.beginPath(); ctx.arc(0, -r * 0.05, r * 0.5, Math.PI, 0, false); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-r * 0.5, -r * 0.05); ctx.lineTo(-r * 0.5, r * 0.35); ctx.moveTo(r * 0.5, -r * 0.05); ctx.lineTo(r * 0.5, r * 0.35); ctx.stroke();
+      ctx.strokeStyle = '#dfe6f0'; ctx.beginPath(); ctx.moveTo(-r * 0.5, r * 0.35); ctx.lineTo(-r * 0.5, r * 0.62); ctx.moveTo(r * 0.5, r * 0.35); ctx.lineTo(r * 0.5, r * 0.62); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,220,174,' + (0.4 + 0.4 * Math.sin(t * 8)) + ')'; ctx.lineWidth = s * 0.05;
+      for (const k of [-1, 0, 1]) { ctx.beginPath(); ctx.moveTo(k * r * 0.25, r * 0.95); ctx.lineTo(k * r * 0.18, r * 0.72); ctx.stroke(); }
+      break;
+    }
+    case 'swap': {   // two curved arrows chasing each other
+      ctx.strokeStyle = '#b44dff'; ctx.fillStyle = '#b44dff'; ctx.lineWidth = s * 0.1; ctx.lineCap = 'round';
+      ctx.rotate(t * 1.5);
+      for (const k of [0, Math.PI]) {
+        ctx.save(); ctx.rotate(k);
+        ctx.beginPath(); ctx.arc(0, 0, r * 0.62, -Math.PI * 0.85, -Math.PI * 0.15); ctx.stroke();
+        const ax = Math.cos(-Math.PI * 0.15) * r * 0.62, ay = Math.sin(-Math.PI * 0.15) * r * 0.62;
+        ctx.beginPath(); ctx.moveTo(ax + r * 0.18, ay - r * 0.02); ctx.lineTo(ax - r * 0.08, ay - r * 0.2); ctx.lineTo(ax - r * 0.04, ay + r * 0.16); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+      break;
+    }
+    case 'freeze': {   // snowflake
+      ctx.strokeStyle = '#bfefff'; ctx.lineWidth = s * 0.08; ctx.lineCap = 'round'; ctx.rotate(t * 0.4);
+      for (let k = 0; k < 6; k++) {
+        ctx.save(); ctx.rotate(k * Math.PI / 3);
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -r * 0.78); ctx.moveTo(0, -r * 0.48); ctx.lineTo(-r * 0.18, -r * 0.64); ctx.moveTo(0, -r * 0.48); ctx.lineTo(r * 0.18, -r * 0.64); ctx.stroke();
+        ctx.restore();
+      }
+      break;
+    }
+    case 'shrink': {   // four arrows pointing in at a tiny dot
+      const k = 0.85 + 0.1 * Math.sin(t * 5);
+      ctx.strokeStyle = '#3dffa0'; ctx.fillStyle = '#3dffa0'; ctx.lineWidth = s * 0.08; ctx.lineCap = 'round';
+      for (let a = 0; a < 4; a++) {
+        ctx.save(); ctx.rotate(Math.PI / 4 + a * Math.PI / 2);
+        ctx.beginPath(); ctx.moveTo(0, -r * 0.85 * k); ctx.lineTo(0, -r * 0.35); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, -r * 0.28); ctx.lineTo(-r * 0.13, -r * 0.46); ctx.lineTo(r * 0.13, -r * 0.46); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+      ctx.beginPath(); ctx.arc(0, 0, r * 0.1, 0, 7); ctx.fill();
+      break;
+    }
+    case 'fog': {   // a grey cloud drifting
+      ctx.translate(Math.sin(t * 1.2) * r * 0.08, 0);
+      ctx.fillStyle = '#8a8fa8';
+      for (const [x, y, rr] of [[-0.38, 0.1, 0.32], [0, -0.12, 0.42], [0.38, 0.08, 0.32], [0, 0.2, 0.36]]) { ctx.beginPath(); ctx.arc(x * r, y * r, rr * r, 0, 7); ctx.fill(); }
+      ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.beginPath(); ctx.arc(-r * 0.1, -r * 0.22, r * 0.18, 0, 7); ctx.fill();
+      break;
+    }
     case 'hacker': {   // a terminal prompt inside a hex, with a blinking cursor and the odd glitch
       const gl = Math.sin(t * 37) > 0.93 ? r * 0.12 : 0;
       ctx.strokeStyle = '#b44dff'; ctx.lineWidth = s * 0.08;
@@ -144,6 +193,40 @@ function icon(ctx, id, x, y, s, t = 0) {
       ctx.beginPath(); ctx.arc(0, r * 0.35, r * 0.65, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
       ctx.beginPath(); ctx.ellipse(-r * 0.6, -r * 0.05, r * 0.2, r * 0.13, -0.6, 0, 7); ctx.ellipse(r * 0.6, -r * 0.05, r * 0.2, r * 0.13, 0.6, 0, 7); ctx.fill();
       break;
+    }
+  }
+  ctx.restore();
+}
+
+/* ---------- bonus fruit (simple vector drawings) ---------- */
+function fruit(ctx, id, x, y, size) {
+  const r = size / 2;
+  ctx.save(); ctx.translate(x, y); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  const ball = (cx, cy, rr, c1, c2) => { const g = ctx.createRadialGradient(cx - rr * 0.35, cy - rr * 0.35, rr * 0.1, cx, cy, rr); g.addColorStop(0, c1); g.addColorStop(1, c2); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, rr, 0, 7); ctx.fill(); };
+  const leaf = (lx, ly, a, c = '#3dbb5a') => { ctx.save(); ctx.translate(lx, ly); ctx.rotate(a); ctx.fillStyle = c; ctx.beginPath(); ctx.ellipse(r * 0.18, 0, r * 0.2, r * 0.09, 0, 0, 7); ctx.fill(); ctx.restore(); };
+  const stem = (x1, y1, x2, y2) => { ctx.strokeStyle = '#6b4a2a'; ctx.lineWidth = Math.max(1, r * 0.09); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.quadraticCurveTo((x1 + x2) / 2 + r * 0.1, (y1 + y2) / 2, x2, y2); ctx.stroke(); };
+  switch (id) {
+    case 'cherry': stem(-r * 0.35, r * 0.2, r * 0.1, -r * 0.75); stem(r * 0.4, r * 0.3, r * 0.1, -r * 0.75); ball(-r * 0.35, r * 0.3, r * 0.34, '#ff8a9a', '#c4102e'); ball(r * 0.4, r * 0.38, r * 0.34, '#ff8a9a', '#c4102e'); leaf(r * 0.1, -r * 0.75, -0.4); break;
+    case 'strawberry': {
+      ctx.fillStyle = '#e8213f'; ctx.beginPath(); ctx.moveTo(0, r * 0.8); ctx.bezierCurveTo(-r * 0.9, r * 0.1, -r * 0.6, -r * 0.55, 0, -r * 0.45); ctx.bezierCurveTo(r * 0.6, -r * 0.55, r * 0.9, r * 0.1, 0, r * 0.8); ctx.fill();
+      ctx.fillStyle = '#ffe58a'; for (const [sx, sy] of [[-0.3, -0.1], [0.25, -0.15], [0, 0.15], [-0.2, 0.35], [0.22, 0.32], [0, -0.3], [0.38, 0.08], [-0.4, 0.12]]) { ctx.beginPath(); ctx.ellipse(sx * r, sy * r, r * 0.04, r * 0.06, 0, 0, 7); ctx.fill(); }
+      for (const a of [-0.9, -0.3, 0.3, 0.9]) leaf(0, -r * 0.48, a - Math.PI / 2, '#2fa14b'); break;
+    }
+    case 'orange': ball(0, r * 0.08, r * 0.62, '#ffd08a', '#f07c10'); stem(0, -r * 0.5, r * 0.05, -r * 0.7); leaf(r * 0.05, -r * 0.62, -0.3); break;
+    case 'apple': ball(-r * 0.2, r * 0.1, r * 0.48, '#ff9a8a', '#c41a1a'); ball(r * 0.2, r * 0.1, r * 0.48, '#ff9a8a', '#c41a1a'); stem(0, -r * 0.3, r * 0.08, -r * 0.72); leaf(r * 0.08, -r * 0.62, -0.5); break;
+    case 'melon': {
+      ctx.fillStyle = '#2f8a3a'; ctx.beginPath(); ctx.arc(0, -r * 0.1, r * 0.8, 0.1, Math.PI - 0.1); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ff5a6e'; ctx.beginPath(); ctx.arc(0, -r * 0.1, r * 0.66, 0.12, Math.PI - 0.12); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#1a1a1a'; for (const sx of [-0.35, -0.1, 0.15, 0.38]) { ctx.beginPath(); ctx.ellipse(sx * r, r * 0.12, r * 0.04, r * 0.07, 0, 0, 7); ctx.fill(); } break;
+    }
+    case 'grapes': stem(0, -r * 0.5, r * 0.1, -r * 0.85); for (const [gx, gy] of [[-0.3, -0.3], [0, -0.3], [0.3, -0.3], [-0.15, 0], [0.15, 0], [0, 0.3], [-0.3, 0.02], [0.3, 0.02]]) ball(gx * r, gy * r, r * 0.2, '#d6a8ff', '#6a2bb0'); leaf(r * 0.1, -r * 0.7, -0.2); break;
+    case 'pear': {
+      const g = ctx.createRadialGradient(-r * 0.2, -r * 0.1, r * 0.05, 0, r * 0.2, r * 0.7); g.addColorStop(0, '#f6ff9a'); g.addColorStop(1, '#9ac22a'); ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(0, r * 0.3, r * 0.48, 0, 7); ctx.arc(0, -r * 0.2, r * 0.3, 0, 7); ctx.fill(); stem(0, -r * 0.45, r * 0.06, -r * 0.8); leaf(r * 0.06, -r * 0.7, -0.4); break;
+    }
+    default: {   // star fruit
+      ctx.fillStyle = '#ffe23a'; ctx.strokeStyle = '#c99a00'; ctx.lineWidth = Math.max(1, r * 0.06);
+      ctx.beginPath(); for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? r * 0.38 : r * 0.82; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); ctx.stroke();
     }
   }
   ctx.restore();
@@ -387,7 +470,7 @@ function setRumble(a, force = false) { rumble = Math.max(0, a); rumbleForced = !
 function clear() { rumble = 0; pslot = null; world.length = 0; texts.length = 0; screen.length = 0; banner = null; reel = null; shakeAmt = 0; flashA = 0; }
 
 window.MazeFX = {
-  icon, powerSlot, get slotActive() { return !!pslot; },
+  icon, fruit, powerSlot, get slotActive() { return !!pslot; },
   sparks, coins, ring, text, shake, setRumble, flash, bigText, confetti, reels, update, drawWorld, drawScreen, clear,
   get shakeX() { return shakeX; }, get shakeY() { return shakeY; }, get reelActive() { return !!reel; }, reduced
 };

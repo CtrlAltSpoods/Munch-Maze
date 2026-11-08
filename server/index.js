@@ -191,8 +191,10 @@ function onSocket(ws, ip = '?', account = null) {
       } else if (typeof m.key === 'string' && KEY_RE.test(m.key) && byKey.has(m.key)) {
         g = byKey.get(m.key);
       } else {
-        const seed = M.slug(m.seed) || CFG.defaultSeed || M.randomSeed();
+        const daily = m.daily === true ? dayKey() : '';   // the daily maze: same layouts for everyone today
+        const seed = daily ? 'daily-' + daily : M.slug(m.seed) || CFG.defaultSeed || M.randomSeed();
         g = createGame(seed, m.vis === 'private' ? newKey() : '');   // "Invite only" mints a fresh key
+        if (g) { g.daily = daily; g.mode = m.mode === 'versus' ? 'versus' : 'coop'; }
         if (!g) { ws.send(JSON.stringify({ t: 'error', msg: 'This server is at its maze limit. Join one of the running mazes instead.' })); return; }
         opening = true;
       }
@@ -213,7 +215,7 @@ function onSocket(ws, ip = '?', account = null) {
         if (!checkPassword(g.pass, m.pw)) { if (m.pw) pwFailed(ip); return err(m.pw ? 'pw_wrong' : 'pw_needed'); }
       }
       if (opening) {
-        g.title = cleanTitle(m.lname) || nm + '’s maze';   // whoever opens a public maze names it
+        g.title = cleanTitle(m.lname) || (g.daily ? 'Daily maze · ' + nm : nm + (g.mode === 'versus' ? '’s versus maze' : '’s maze'));   // whoever opens a public maze names it
         const pw = typeof m.setpw === 'string' && !g.isPrivate ? m.setpw.slice(0, 64) : '';
         g.pass = pw ? hashPassword(pw) : null;
         g.link = linkName(g);
@@ -366,7 +368,7 @@ const server = http.createServer((req, res) => {
   if (p === '/api/info') return json(res, { name: CFG.serverName, lobby: CFG.showLobby, defaultSeed: CFG.defaultSeed, maxPlayersPerMaze: CFG.maxPlayersPerMaze });
   if (p === '/api/games') {
     if (!CFG.showLobby) return json(res, []);
-    const list = [...games.values()].filter(g => g.players.size && !g.isPrivate).map(g => ({ id: g.gid, name: g.title || 'Unnamed maze', players: g.players.size, level: g.L, lobby: g.ph === 3, locked: !!g.pass }))
+    const list = [...games.values()].filter(g => g.players.size && !g.isPrivate).map(g => ({ id: g.gid, name: g.title || 'Unnamed maze', players: g.players.size, level: g.L, lobby: g.ph === 3, locked: !!g.pass, mode: g.mode || 'coop', daily: !!g.daily }))
       .sort((a, b) => b.players - a.players).slice(0, 20);
     return json(res, list);
   }

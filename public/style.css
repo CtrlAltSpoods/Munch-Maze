@@ -693,3 +693,19 @@ input[type=range]{accent-color:var(--pink)}
 .toast.ach{border-left-color:var(--accent)}.toast.ach b{color:var(--accent)}
 .toast.out{opacity:0;transform:translateX(20px)}
 @keyframes toastIn{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:none}}
+
+/* mode switch, daily button, lobby tags, team bar */
+.seg.modes{grid-template-columns:1fr 1fr}
+.cta-row{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:10px;margin-top:auto}
+.cta-row .cta{margin:0}
+.daily-btn{border-color:#3dffa0;color:#3dffa0;font-size:11px;white-space:normal;line-height:1.2}
+.daily-btn:hover{background:rgba(61,255,160,.12);color:#b6ffd9}
+.chip.versus{border-color:#ff3864;color:#ff9bb3}
+.chip.daily{border-color:#3dffa0;color:#3dffa0}
+.teams{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;padding:8px 0 4px}
+.team{display:flex;align-items:center;gap:6px;font-family:var(--display);font-weight:700;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.team b{font-family:var(--arcade);font-size:16px}
+.team.red{color:#ff3864}.team.blue{color:#00a2ff}
+.tbar{height:8px;background:#00a2ff;box-shadow:0 0 8px rgba(0,162,255,.4)}
+.tbar i{display:block;height:100%;width:50%;background:#ff3864;box-shadow:0 0 8px rgba(255,56,100,.5);transition:width .3s}
+@media (max-width:420px){ .cta-row{grid-template-columns:1fr} }

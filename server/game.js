@@ -34,8 +34,13 @@ class Game {
     this.bits = new Uint8Array(this.lv.bytes);
     this.left = this.lv.pList.length;
     this.ghosts = [];
-    for (let i = 0; i < M.ghostCount(L); i++)
+    if (M.isBossLevel(L)) {   // one giant ghost with BOSS_HP hits, and two minions
+      this.ghosts.push({ i: 0, tx: 0, ty: 0, d: -1, t: 0, st: 0, ep: 0, home: 2.5, rev: false, boss: true, hp: M.BOSS_HP });
+      for (let i = 1; i <= 2; i++) this.ghosts.push({ i, tx: 0, ty: 0, d: -1, t: 0, st: 0, ep: 0, home: 4 + i * 3, rev: false });
+    } else for (let i = 0; i < M.ghostCount(L); i++)
       this.ghosts.push({ i, tx: 0, ty: 0, d: -1, t: 0, st: 0, ep: 0, home: 1.5 + i * 2.5, rev: false });
+    this.bullets = []; this.bossCd = 4; this.fruit = null; this.fruitsDone = 0; this.fruitSeq = this.fruitSeq || 0;
+    this.downs = new Map(); this.teamEat = [0, 0]; this.bumpAt = new Map(); this.steals = new Map();
     this.fr = 0; this.fid = 0; this.ph = lobby ? 3 : 0; this.ct = 0; this.clock = 0; this.lastMode = -1;
     this.eatenSince = [];
     // loot crates: from level 3, 1 or 2 appear at random moments in the level
@@ -55,18 +60,23 @@ class Game {
     const r = token && this.resume.get(token);
     if (r) { p.sc = r.sc; p.li = r.li; p.over = r.over; this.resume.delete(token); }
     p.token = token;
+    if (this.mode === 'versus') {   // even out the teams
+      const r = r0 => [...this.players.values()].filter(q => q.team === r0).length;
+      p.team = r(0) <= r(1) ? 0 : 1;
+    } else p.team = 0;
     p.x = this.lv.sx; p.y = this.lv.sy;
     this.players.set(p.id, p);
     this.emptySince = 0;
     this.send(p, {
       t: 'welcome', id: p.id, seed: this.seed, key: this.key, vis: this.isPrivate ? 'private' : 'public', gid: this.gid, title: this.title || '', testMode: this.opts.testMode ? 1 : 0, link: this.link || '', locked: !!this.pass,
       lv: this.L, b: M.toB64(this.bits),
-      roster: [...this.players.values()].map(q => [q.id, q.nm, q.col, q.mdl, q.ci, q.uid ? 1 : 0, q.uid || 0]),
+      roster: [...this.players.values()].map(q => [q.id, q.nm, q.col, q.mdl, q.ci, q.uid ? 1 : 0, q.uid || 0, q.team | 0]),
+      mode: this.mode || 'coop', daily: this.daily || '',
       sc: p.sc, li: p.li, over: p.over, host: this.hostId, ph: this.ph,
       stats: (this.ph === 1 || this.ph === 2) ? this.lvStats : null,
       pu: this.pending ? { kind: this.pending.kind, by: this.pending.by, x: this.pending.x, y: this.pending.y } : null
     });
-    this.broadcast({ t: 'join', id: p.id, nm: p.nm, col: p.col, mdl: p.mdl, ci: p.ci, reg: p.uid ? 1 : 0, uid: p.uid || 0 }, p.id);
+    this.broadcast({ t: 'join', id: p.id, nm: p.nm, col: p.col, mdl: p.mdl, ci: p.ci, reg: p.uid ? 1 : 0, uid: p.uid || 0, team: p.team | 0 }, p.id);
     if (this.ph === 6 && this.votes) {   // arrived mid-vote: they get a say too
       const pd = this.pending;
       this.send(p, { t: 'vote', by: pd.by, nm: pd.nm, x: pd.x, y: pd.y, crate: pd.crate, s: Math.round(this.ct * 10) / 10, tot: this.players.size });
@@ -119,13 +129,59 @@ class Game {
         if (!g || g.ep !== (m.ep | 0) || g.st !== 2 || !p.al) return;
         const [gx, gy] = M.entPos(g);
         // allow for latency: faster levels put client and server further apart
-        if (Math.hypot(gx - p.x, gy - p.y) > 1.8 + M.ghostSpeed(this.L) * 0.15) return;
+        if (Math.hypot(gx - p.x, gy - p.y) > 1.8 + M.ghostSpeed(this.L) * 0.15 + (g.boss ? 1 : 0)) return;
+        if (g.boss) { this.hitBoss(g, p); return; }
         g.st = 3; g.ep++;
         if (p.fid !== this.fid) { p.fid = this.fid; p.combo = 0; }
         const pts = 200 * Math.pow(2, Math.min(p.combo, 3)); p.combo++;
         if (p.combo >= 4) this.achieve(p, 'quad');
         p.sc += pts;
         this.send(p, { t: 'pts', v: pts, x: gx, y: gy });
+        return;
+      }
+      case 'fruit': {   // grabbed the bonus fruit
+        const f = this.fruit;
+        if (!f || f.id !== (m.id | 0) || !p.al || this.ph !== 0 || Math.hypot(f.x - p.x, f.y - p.y) > 1.6) return;
+        const v = M.FRUITS[f.k].pts; p.sc += v; this.fruit = null;
+        this.broadcast({ t: 'fruitgot', id: p.id, nm: p.nm, v, x: f.x, y: f.y, k: f.k });
+        this.achieve(p, 'fruit');
+        return;
+      }
+      case 'revive': {   // touched a fallen teammate's marker
+        const d = this.downs.get(m.id | 0), o = this.players.get(m.id | 0);
+        if (!d || !o || o === p || !p.al || Date.now() > d.until || Math.hypot(d.x - p.x, d.y - p.y) > 1.6) return;
+        if (this.mode === 'versus' && o.team !== p.team) return;
+        this.downs.delete(o.id);
+        if (o.over) { o.over = false; o.li = 1; } else o.li = Math.min(5, o.li + 1);
+        o.al = true; o.spawnAt = Date.now(); o.x = d.x; o.y = d.y;
+        this.send(o, { t: 'revived', x: d.x, y: d.y, by: p.nm });
+        this.broadcast({ t: 'revive', id: o.id, by: p.id, x: d.x, y: d.y });
+        this.achieve(p, 'revive');
+        return;
+      }
+      case 'bump': {   // versus: ran into an opponent. Whoever charged in steals the other's streak.
+        const o = this.players.get(m.id | 0);
+        if (this.mode !== 'versus' || !o || o === p || o.team === p.team || !o.al || !p.al || this.ph !== 0) return;
+        const dx = o.x - p.x, dy = o.y - p.y, dist = Math.hypot(dx, dy);
+        if (dist > 1.4) return;
+        const key = Math.min(p.id, o.id) + '-' + Math.max(p.id, o.id), now = Date.now();
+        if (now - (this.bumpAt.get(key) || 0) < 3000) return;
+        const charging = (a, ux, uy) => { const [fx, fy] = DIRS[a.f & 3]; return dist < 0.05 || fx * ux + fy * uy > 0.5; };
+        const pc = charging(p, dx / (dist || 1), dy / (dist || 1)), oc = charging(o, -dx / (dist || 1), -dy / (dist || 1));
+        if (pc === oc) return;   // head-on (or nobody charging): nothing happens
+        this.bumpAt.set(key, now);
+        const thief = pc ? p : o, victim = pc ? o : p;
+        this.steals.set(victim.id, { to: thief.id, at: now });
+        this.send(victim, { t: 'bumped', by: thief.id, nm: thief.nm });
+        return;
+      }
+      case 'give': {   // the bumped player hands over their streak
+        const st = this.steals.get(p.id), o = st && this.players.get(st.to);
+        if (!st || !o || Date.now() - st.at > 2000) return;
+        this.steals.delete(p.id);
+        const n = Math.max(0, Math.min(m.n | 0, p.lvEat || 0, 500));
+        if (n) { this.send(o, { t: 'gain', n, nm: p.nm }); o.lvBest = Math.max(o.lvBest || 0, n); }
+        this.broadcast({ t: 'steal', from: p.id, to: o.id, n });
         return;
       }
       case 'hf': {   // a high five (the client spotted it); both players must really be next to each other
@@ -138,6 +194,10 @@ class Game {
         if (!p.al || p.over || Date.now() - p.spawnAt < 1500) return;
         p.al = false; p.li = Math.max(0, p.li - 1);
         if (p.li === 0) { p.over = true; if (p.sc > 0) this.report(p); }
+        if (this.players.size > 1) {   // a marker a teammate can touch to bring you back
+          this.downs.set(p.id, { x: Math.round(p.x), y: Math.round(p.y), until: Date.now() + 8000 });
+          this.broadcast({ t: 'down', id: p.id, x: Math.round(p.x), y: Math.round(p.y), s: 8 });
+        }
         if (this.nukeIn > 0) {   // everyone had to survive: one death and the strike is called off
           this.nukeIn = 0;
           this.broadcast({ t: 'nukecancel', by: p.id, nm: p.nm });
@@ -154,7 +214,7 @@ class Game {
         return;
       case 'startlv': {   // host picks the starting level in the lobby
         const lv = m.lv | 0;
-        if (this.ph !== 3 || p.id !== this.hostId || lv < 1 || lv > MAX_START_LEVEL || lv === this.L) return;
+        if (this.ph !== 3 || p.id !== this.hostId || lv < 1 || lv > MAX_START_LEVEL || lv === this.L || this.daily) return;   // the daily maze always starts at 1
         this.startLevel(lv, false, true);   // regenerate that maze for everyone, still in the lobby
         return;
       }
@@ -189,6 +249,10 @@ class Game {
         this.broadcast({ t: 'pu', kind, by: p.id, nm: p.nm, x, y, crate: 0, test: 1 });
         return;
       }
+      case 'testfruit':   // tests only: pretend 70% of the pellets are gone so the fruit appears
+        if (!this.opts.testHooks || this.ph !== 0) return;
+        this.fruitsDone = 1; this.left = Math.max(1, Math.floor(this.lv.pList.length * 0.29)); this.checkFruit();
+        return;
       case 'testcrate':   // tests only: put a crate right here (needs TEST_HOOKS=1)
         if (!this.opts.testHooks || this.ph !== 0) return;
         if (m.kind != null) this.opts.forcePowerup = m.kind | 0;
@@ -207,20 +271,48 @@ class Game {
     // the player has to be close to the pellet they claim
     const tx = i % lv.W, ty = (i / lv.W) | 0;
     let dx = Math.abs(Math.round(p.x) - tx); dx = Math.min(dx, lv.W - dx);
-    if (dx + Math.abs(Math.round(p.y) - ty) > 2 + M.playerSpeed(this.L) * 0.06 && !this.laserCanReach(p, tx, ty)) return;   // pellets eaten since the last update
+    if (dx + Math.abs(Math.round(p.y) - ty) > 2 + M.playerSpeed(this.L) * 0.06 + (this.effect('magnet') ? 3 : 0) && !this.laserCanReach(p, tx, ty)) return;   // pellets eaten since the last update
     M.setBit(this.bits, i); this.left--; this.eatenSince.push(i);
     p.lvEat = (p.lvEat || 0) + 1;
+    if (this.mode === 'versus') this.teamEat[p.team | 0]++;
+    this.checkFruit();
     p.sc += lv.p[i] === 2 ? 50 : 10;
     if (lv.p[i] === 2) { this.frighten(); this.broadcast({ t: 'pw', id: p.id, i }); }   // everyone hears who powered up
     if (this.left <= 0) this.finishLevel(false);
   }
 
+  /** Bonus fruit pops out at 30% and 70% of the pellets eaten. */
+  checkFruit() {
+    const total = this.lv.pList.length, eaten = total - this.left;
+    if (this.fruitsDone < 2 && eaten >= total * (this.fruitsDone ? 0.7 : 0.3) && this.left > 0) {
+      this.fruitsDone++;
+      this.fruit = { id: ++this.fruitSeq, x: this.lv.sx, y: this.lv.sy, k: M.fruitFor(this.L), rem: M.FRUIT_TIME };
+      this.broadcast({ t: 'fruit', id: this.fruit.id, x: this.fruit.x, y: this.fruit.y, k: this.fruit.k });
+    }
+  }
+  /** A frightened boss got eaten: lose a hit and split, or go down for good. */
+  hitBoss(g, p) {
+    const [gx, gy] = M.entPos(g);
+    g.hp--; g.ep++;
+    if (g.hp <= 0) {
+      g.st = 5;   // defeated: gone for the rest of the level
+      for (const q of this.players.values()) if (!q.over) { q.sc += 2000; this.achieve(q, 'boss'); }
+      this.bullets = [];
+      this.broadcast({ t: 'boss', down: 1, x: gx, y: gy, by: p.id });
+      return;
+    }
+    g.st = 3;   // back to the box as eyes, and it splits off two more ghosts
+    for (let k = 0; k < 2; k++) this.ghosts.push({ i: this.ghosts.length, tx: Math.round(gx), ty: Math.round(gy), d: -1, t: 0, st: 1, ep: 0, home: 0, rev: false, split: true });
+    p.sc += 1000;
+    this.broadcast({ t: 'boss', hp: g.hp, x: gx, y: gy, by: p.id });
+  }
   /** A hacked ghost eats the pellet on its tile. Counts towards clearing the level; scores nothing. */
   ghostEat(i) {
     const lv = this.lv;
     if (!lv.p[i] || M.getBit(this.bits, i)) return;
     M.setBit(this.bits, i); this.left--; this.eatenSince.push(i);
     this.ghostEats = (this.ghostEats || 0) + 1;
+    this.checkFruit();
     if (this.left <= 0) this.finishLevel(false);
   }
   frighten(dur) {
@@ -248,7 +340,13 @@ class Game {
     for (const p of this.players.values()) rows.push([p.id, p.nm, p.lvEat || 0, Math.round((p.lvEat || 0) * 1000 / total) / 10, p.lvBest || 0]);
     rows.sort((a, b) => b[2] - a[2] || b[4] - a[4]);
     const got = rows.reduce((s, r) => s + r[2], 0);
-    this.lvStats = { lv: this.L, total, rows, nuked: nuked ? Math.max(0, total - got - (this.ghostEats || 0)) : 0, ghosts: this.ghostEats || 0 };
+    let win = -2;
+    if (this.mode === 'versus') {
+      win = this.teamEat[0] === this.teamEat[1] ? -1 : this.teamEat[0] > this.teamEat[1] ? 0 : 1;
+      for (const p of this.players.values()) if (p.team === win) this.achieve(p, 'versus');
+    }
+    this.fruit = null; this.bullets = [];
+    this.lvStats = { lv: this.L, total, rows, teams: this.mode === 'versus' ? [...this.teamEat] : undefined, win, nuked: nuked ? Math.max(0, total - got - (this.ghostEats || 0)) : 0, ghosts: this.ghostEats || 0 };
     this.broadcast(Object.assign({ t: 'lvstats' }, this.lvStats));
   }
 
@@ -336,6 +434,18 @@ class Game {
       case 'bomb':   // every ghost out on the maze is sent back to the box as eyes
         for (const g of this.ghosts) if (g.st === 1 || g.st === 2) { g.st = 3; g.ep++; }
         break;
+      case 'swap': {   // the opener trades places with the nearest ghost
+        const p = this.players.get(by); if (!p) break;
+        let best = null, bd = 1e9;
+        for (const g of this.ghosts) if (g.st === 1 || g.st === 2) { const [gx, gy] = M.entPos(g), d = Math.hypot(gx - p.x, gy - p.y); if (d < bd) { bd = d; best = g; } }
+        if (!best) break;
+        const [gx, gy] = M.entPos(best), to = [Math.round(gx), Math.round(gy)];
+        const here = this.openTileNear(p.x, p.y), lw = this.lv.W;
+        best.tx = here % lw; best.ty = (here / lw) | 0; best.t = 0; best.d = -1;
+        p.x = to[0]; p.y = to[1];
+        this.send(p, { t: 'swapto', x: to[0], y: to[1] });
+        break;
+      }
       case 'phone': {
         const g = { i: this.ghosts.length, tx: this.lv.mid, ty: this.lv.cy - 2, d: -1, t: 0, st: 1, ep: 0, home: 0, rev: false, phone: true };
         this.ghosts.push(g);
@@ -503,10 +613,29 @@ class Game {
       for (const p of this.players.values()) if (p.al && !p.over) players.push(p);
       const base = M.ghostSpeed(this.L), lv = this.lv;
       this.tickPowerups(dt, players);
+      const frozen = !!this.effect('freeze');
       for (const g of this.ghosts) {
+        if (g.st === 5) continue;   // a defeated boss
+        if (frozen && g.st !== 3) continue;   // FREEZE: everything but eyes stands still
         if (g.st === 0) { g.home -= dt; if (g.home <= 0) { g.st = 1; g.tx = lv.mid; g.ty = lv.cy - 2; g.t = 0; g.d = -1; } continue; }
-        this.moveGhost(g, (g.st === 3 ? M.eyesSpeed(this.L) : g.st === 2 ? M.frightGhostSpeed(this.L) : base) * dt, players);
+        this.moveGhost(g, (g.st === 3 ? M.eyesSpeed(this.L) : g.st === 2 ? M.frightGhostSpeed(this.L) : base) * (g.boss && g.st !== 3 ? 0.85 : 1) * dt, players);
       }
+      if (this.ph !== 0) { if (sendState) this.sendState(); return; }
+      // the boss shoots slow fireballs at the nearest player
+      const boss = this.ghosts.find(g => g.boss && g.st === 1);
+      if (boss && players.length && !frozen && (this.bossCd -= dt) <= 0) {
+        this.bossCd = 3.2;
+        const [bx, by] = M.entPos(boss);
+        let tgt = players[0], bd = 1e9; for (const q of players) { const d = Math.hypot(q.x - bx, q.y - by); if (d < bd) { bd = d; tgt = q; } }
+        const dx = tgt.x - bx, dy = tgt.y - by, n = Math.hypot(dx, dy) || 1, sp = 4.5 + this.L * 0.05;
+        this.bullets.push({ x: bx, y: by, vx: dx / n * sp, vy: dy / n * sp, life: 4 });
+      }
+      this.bullets = this.bullets.filter(b => {
+        b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+        const tx = Math.round(b.x), ty = Math.round(b.y);
+        return b.life > 0 && tx >= 0 && ty >= 0 && tx < lv.W && ty < lv.H && lv.t[ty * lv.W + tx] === 0;
+      });
+      if (this.fruit && (this.fruit.rem -= dt) <= 0) this.fruit = null;
     }
     if (sendState) this.sendState();
   }
@@ -515,7 +644,10 @@ class Game {
     const r2 = v => Math.round(v * 100) / 100;
     const msg = JSON.stringify({
       t: 's', lv: this.L, ph: this.ph, ct: r2(this.ct), fr: r2(this.fr), fid: this.fid, h: this.hostId,
-      g: this.ghosts.map(g => { const [x, y] = M.entPos(g); return [r2(x), r2(y), g.d, g.st, g.ep, g.phone ? 1 : 0]; }),
+      g: this.ghosts.map(g => { const [x, y] = M.entPos(g); return [r2(x), r2(y), g.d, g.st, g.ep, g.phone ? 1 : 0, g.boss ? 1 : 0, g.hp | 0]; }),
+      bl: this.bullets && this.bullets.length ? this.bullets.map(b => [r2(b.x), r2(b.y)]) : undefined,
+      ft: this.fruit ? [this.fruit.id, this.fruit.x, this.fruit.y, this.fruit.k, r2(this.fruit.rem)] : undefined,
+      tm: this.mode === 'versus' ? this.teamEat : undefined,
       fx: this.effects.map(e => [e.kind, r2(e.rem), e.by]),
       nk: this.nukeIn > 0 ? r2(this.nukeIn) : undefined,
       c: this.crates.map(c => [c.id, c.x, c.y]),
