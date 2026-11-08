@@ -38,7 +38,7 @@ const S = {
   sc: 0, li: 3, over: false, alive: true, deadT: 0, inv: 0, ge: [],
   ph: 0, fr: 0, fid: 0, roster: new Map(), players: [], gTarget: [], gv: [], ov: new Map(),
   streak: 0, streakT: 0, streakTier: 0, shownScore: 0, mazeGlow: null, bulbs: [],
-  host: 0, eatQ: [], pend: new Map(), left: -1,
+  host: 0, eatQ: [], pend: new Map(), left: -1, reconnectTries: 0,
   crates: [], fx: [], grabbing: 0, nuked: false, prevFx: '',
   time: 0, lastT: performance.now(), bannerT: 0, camX: null, camY: null, mazeKey: '', mazeCv: null, mazeFlash: null
 };
@@ -83,12 +83,18 @@ function connect() {
   const ws = new WebSocket(url.href);
   S.ws = ws;
   ws.onopen = () => send({ t: 'join', nm: S.name, seed: S.seed, mdl: S.model, ci: S.ci, tok: token, vis: S.vis, key: S.key || S.inviteKey, room: S.room || undefined, link: S.linkJoin || undefined, lname: S.lname, setpw: S.setpw || undefined, pw: S.pw || undefined, mode: S.wantMode || 'coop', daily: S.dailyJoin ? true : undefined, trail: S.trail, dfx: S.dfx });
-  ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } onMsg(m); };
+  ws.onmessage = ev => { S.lastMsg = performance.now(); let m; try { m = JSON.parse(ev.data); } catch (e) { return; } onMsg(m); };
   ws.onclose = () => {
     if (S.ws !== ws) return;
     S.ws = null;
-    if (S.wantGame) { setNet('Connection lost. Reconnecting…'); S.reconnectT = setTimeout(connect, 1500); }
+    if (S.wantGame) lostConnection();
   };
+}
+/* Connection dropped (or went silent): try again quickly. The server keeps our place for 30 s. */
+function lostConnection() {
+  setNet('Connection lost. Reconnecting…');
+  if (S.inGame && !S.reconnecting) { S.reconnecting = true; toast('Connection lost', 'Reconnecting… your place in the maze is kept for 30 seconds.'); }
+  clearTimeout(S.reconnectT); S.reconnectT = setTimeout(connect, S.reconnectTries++ ? 2000 : 300);
 }
 function onMsg(m) {
   switch (m.t) {
@@ -97,6 +103,12 @@ function onMsg(m) {
       S.roster.clear(); for (const r of m.roster || []) addRoster(r);
       S.sc = m.sc | 0; S.li = m.li | 0; S.over = !!m.over;
       loadLevel(m.lv | 0, m.b, m.ph | 0);
+      if (m.you) {   // back in after a dropped connection (or still down from before)
+        S.me = { tx: Math.round(+m.you.x), ty: Math.round(+m.you.y), d: -1, t: 0, want: -1, face: m.you.f & 3 }; S.inv = 1.5; S.camX = null;
+        S.alive = !!m.you.al; S.shieldUsed = !!m.you.sh; if (!S.alive) S.deadT = 0;
+      }
+      if (S.reconnecting) { S.reconnecting = false; toast('Back in', 'Reconnected. Carry on!'); }
+      S.reconnectTries = 0; S.lastMsg = performance.now();
       S.inGame = true;
       $('startOv').hidden = true; $('overOv').hidden = !S.over; $('leaveBtn').hidden = false; $('app').classList.add('ingame');
       $('playBtn').disabled = false; $('playBtn').textContent = S.inviteKey ? 'Join maze' : 'Start maze';
@@ -142,6 +154,8 @@ function onMsg(m) {
       MazeFX.ring(x, y, '#41e0f0', 2, 0.5); MazeFX.burst(x, y, { colors: ['#41e0f0', '#ffffff'], n: 24, speed: 6, life: 0.5, size: 0.08, shape: 'sq' }); A.sfx('bomb');
       break;
     }
+    case 'away': { const r = S.roster.get(m.id | 0); if (r) { r.away = true; toast('Connection trouble', r.nm + ' dropped out. Holding their place…'); } break; }
+    case 'back': { const r = S.roster.get(m.id | 0); if (r) { r.away = false; toast('Back', r.nm + ' is back in.'); } break; }
     case 'plv': { const r = S.roster.get(m.id | 0); if (r) r.plv = m.lv | 0; break; }
     case 'died': {   // someone else was caught: play their exit effect where they fell
       const r = S.roster.get(m.id | 0); if (!r || !S.lvl) break;
@@ -325,6 +339,10 @@ function onMsg(m) {
   }
 }
 setInterval(() => {
+  // the server sends ~15 updates a second; 4 s of silence means the connection died without telling us
+  if (S.inGame && S.ws && S.ws.readyState === 1 && performance.now() - (S.lastMsg || 0) > 4000) {
+    const old = S.ws; S.ws = null; old.onclose = null; try { old.close(); } catch (e) { /* ignore */ } lostConnection();
+  }
   if (!S.inGame || !S.lvl) return;
   const [x, y] = M.entPos(S.me), pos = { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100, f: S.me.face };
   // pellets eaten since the last update travel with the current position
@@ -864,7 +882,7 @@ function join(roomId) {
 }
 function leave() {
   S.wantGame = false; S.inGame = false; clearTimeout(S.reconnectT);
-  if (S.ws) { const old = S.ws; S.ws = null; old.close(); }
+  if (S.ws) { const old = S.ws; S.ws = null; try { old.send(JSON.stringify({ t: 'bye' })); } catch (e) { /* ignore */ } old.close(); }
   $('startOv').hidden = false; $('overOv').hidden = true; $('leaveBtn').hidden = true; $('app').classList.remove('ingame');
   $('seedIn').value = ''; setNet('Not in a maze yet.');   // a new maze gets a new random seed unless you type one
   A.stopMusic(); A.setFright(false); MazeFX.clear(); MazeNuke.clear(); if (A.nukeAlarm) A.nukeAlarm(false); S.nukeIn = 0; S.vote = null; $('voteOv').hidden = true; endStreak(true); S.eatQ = []; S.ph = 0; S.host = 0; updateReady();
@@ -1182,11 +1200,15 @@ function render(dt) {
       if (moved && S.ph === 0) o.trail.push({ x: o.x, y: o.y, t: S.time });
       while (o.trail.length && S.time - o.trail[0].t > TRAIL_KEEP) o.trail.shift();
       drawTrail(o.trail, (S.roster.get(p.id) || {}).trail | 0, pc, T, 0.4);
+      const away = (S.roster.get(p.id) || {}).away;
+      if (away) ctx.globalAlpha = 0.35 + 0.15 * Math.sin(S.time * 4);
       drawPac(o.x, o.y, T, p.paint, p.f, .06 + .22 * Math.abs(Math.sin(S.time * 12 + p.id)), true, looksOf(p.nm, p.mdl));
+      ctx.globalAlpha = 1;
       ctx.strokeStyle = pc; ctx.globalAlpha = .3 + beat * .25; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc((o.x + .5) * T, (o.y + .5) * T, T * (.62 + beat * .08), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
       ctx.font = '600 ' + Math.max(10, Math.round(T * .42)) + 'px "IBM Plex Mono", ui-monospace, monospace';
-      ctx.lineWidth = 3; ctx.strokeStyle = '#0a0c1c'; ctx.strokeText(p.nm, (o.x + .5) * T, (o.y + .5) * T - T * .5);
-      ctx.fillStyle = '#eef0ff'; ctx.fillText(p.nm, (o.x + .5) * T, (o.y + .5) * T - T * .5);
+      const label = away ? p.nm + ' · reconnecting…' : p.nm;
+      ctx.lineWidth = 3; ctx.strokeStyle = '#0a0c1c'; ctx.strokeText(label, (o.x + .5) * T, (o.y + .5) * T - T * .5);
+      ctx.fillStyle = away ? '#959cd0' : '#eef0ff'; ctx.fillText(label, (o.x + .5) * T, (o.y + .5) * T - T * .5);
     }
     const [px, py] = M.entPos(S.me);
     // motion trail
@@ -2033,9 +2055,75 @@ applyVol('music', VOL.music, false); applyVol('sfx', VOL.sfx, false);
 addEventListener('pointerdown', () => A.unlock(), { once: true });
 addEventListener('keydown', () => A.unlock(), { once: true });
 
+/* ---------- game controllers (Gamepad API) ----------
+   D-pad or left stick: move (and move between buttons on menus). A / Start: confirm, vote yes,
+   start the level. B: vote no. X: vote revive, or cheer while you're out. Y / LB / RB: emotes.
+   Back / Select: mute. */
+const PAD = { prev: [], dir: -1, navAt: 0, on: false };
+addEventListener('gamepadconnected', e => { PAD.on = true; toast('Controller connected', 'D-pad or stick to move · A to confirm · B / X to vote · Y, LB, RB for emotes'); });
+addEventListener('gamepaddisconnected', () => { PAD.on = [...(navigator.getGamepads ? navigator.getGamepads() : [])].some(p => p && p.connected); });
+/** Buttons and fields a controller can move between on whatever menu is showing. */
+function padTargets() {
+  const scope = [$('profileOv'), $('voteOv'), $('lobbyOv'), $('readyOv'), $('overOv'), $('startOv')].find(el => el && !el.hidden);
+  if (!scope) return [];
+  return [...scope.querySelectorAll('button, input, select, a[href]')].filter(el => !el.disabled && el.offsetParent !== null && !el.closest('[hidden]'));
+}
+function padNav(step) {
+  const list = padTargets(); if (!list.length) return;
+  const i = list.indexOf(document.activeElement);
+  list[i < 0 ? (step > 0 ? 0 : list.length - 1) : (i + step + list.length) % list.length].focus();
+}
+function padConfirm() {
+  A.unlock();
+  if (S.vote) { castVote(true); return; }
+  const el = document.activeElement, menu = padTargets();
+  if (el && menu.includes(el) && (el.tagName === 'BUTTON' || el.tagName === 'A')) { el.click(); return; }
+  if (!S.inGame) { if (!$('startOv').hidden && !$('playBtn').disabled) join(); return; }
+  if ((S.ph === 2 || S.ph === 3) && S.host === S.id) sendReady();
+  else if (S.over) $('againBtn').click();
+}
+function pollPad() {
+  if (!PAD.on || !navigator.getGamepads) return;
+  let gp = null; for (const p of navigator.getGamepads()) if (p && p.connected) { gp = p; break; }
+  if (!gp) return;
+  const down = i => !!(gp.buttons[i] && gp.buttons[i].pressed), press = i => down(i) && !PAD.prev[i];
+  const ax = gp.axes[0] || 0, ay = gp.axes[1] || 0;
+  let d = down(12) ? 3 : down(13) ? 1 : down(14) ? 2 : down(15) ? 0 : -1;
+  if (d < 0 && Math.max(Math.abs(ax), Math.abs(ay)) > 0.5) d = Math.abs(ax) > Math.abs(ay) ? (ax > 0 ? 0 : 2) : (ay > 0 ? 1 : 3);
+  const playing = S.inGame && S.ph === 0 && S.alive && !S.over && !S.vote;
+  if (playing) { if (d >= 0 && d !== PAD.dir) setWant(d); }
+  else if (d >= 0 && (d !== PAD.dir || performance.now() - PAD.navAt > 260)) {   // menus: move between buttons (repeats while held)
+    PAD.navAt = performance.now() + (d !== PAD.dir ? 200 : 0); padNav(d === 0 || d === 1 ? 1 : -1);
+  }
+  PAD.dir = d;
+  if (press(0) || press(9)) padConfirm();
+  if (press(1)) { if (S.vote) castVote(false); else if (!$('profileOv').hidden) $('profileOv').hidden = true; }
+  if (press(2)) { if (S.vote) castVote('r'); else if (S.inGame && (S.over || !S.alive)) send({ t: 'cheer', e: 0 }); }
+  if (S.inGame) { if (press(3)) emote(0); if (press(4)) emote(1); if (press(5)) emote(3); }
+  if (press(8)) toggleMute();
+  PAD.prev = gp.buttons.map(b => b.pressed);
+}
+
+/* ---------- install as an app ----------
+   Browsers offer this on HTTPS (or localhost) only: behind a reverse proxy with a certificate. */
+let installEvt = null;
+if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('sw.js').catch(() => {});
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; $('installBtn').hidden = false; });
+$('installBtn').addEventListener('click', async () => {
+  if (!installEvt) return;
+  installEvt.prompt(); try { await installEvt.userChoice; } catch (e) { /* ignore */ }
+  installEvt = null; $('installBtn').hidden = true;
+});
+addEventListener('appinstalled', () => { $('installBtn').hidden = true; toast('Installed', 'Munch Maze is on your device. Open it like any other app.'); });
+{
+  const standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
+  if (!standalone && window.isSecureContext && /iPhone|iPad|iPod/.test(navigator.userAgent)) { $('installHint').hidden = false; $('installHint').textContent = 'Play it like an app: tap Share, then Add to Home Screen.'; }
+}
+
 /* ---------- loop ---------- */
 function frame() {
   const now = performance.now(), dt = Math.min(.05, (now - S.lastT) / 1000); S.lastT = now; S.time += dt;
+  pollPad();
   if (S.inGame && S.lvl) { playerStep(dt); updateGhostView(dt); checkHighFives(); magnetPull(); }
   const quake = S.inGame && S.ph === 0 && effectOn('quake');
   MazeFX.setRumble(quake ? 11 : S.inGame && S.streak >= 100 ? 1.6 : 0, quake);   // earthquake (felt even with reduced motion), or a small steady shake from a 100 streak

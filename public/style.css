@@ -817,3 +817,5 @@ input[type=range]{accent-color:var(--pink)}
 .lobby-setup{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start;border-top:1px solid var(--line);padding-top:14px}
 .lobby-setup .modlist,.lobby-setup .rolepick{grid-template-columns:repeat(2,minmax(0,1fr))}
 @media (max-width:760px){ .lobby-setup{grid-template-columns:minmax(0,1fr)} }
+.install-btn{margin-top:4px}
+.install-hint{margin:0}

@@ -7,6 +7,7 @@ const M = require('../shared/maze.js');
 const { DIRS } = M;
 
 const RESUME_MS = 2 * 60 * 1000;   // keep a disconnected player's score/lives this long
+const GRACE_MS = 30 * 1000;        // a dropped player keeps their place (and spot in the maze) this long
 const MAX_START_LEVEL = 50;       // highest level a host can start a new maze on
 
 class Game {
@@ -59,10 +60,22 @@ class Game {
 
   /* ---------- membership ---------- */
   add(p, token) {
+    // Reconnect grace: the same browser coming back takes over its old place in the maze
+    // (same id, position, lives and down/alive state), as if it had never left.
+    if (token) for (const q of this.players.values()) if (q.token === token) {
+      const old = q.ws; q.ws = p.ws; q.discAt = 0;
+      if (old && old !== p.ws) try { old.close(); } catch (e) { /* ignore */ }
+      this.welcome(q, true);
+      this.broadcast({ t: 'back', id: q.id }, q.id);
+      return q;
+    }
     if (!this.hostId && !this.creatorToken) this.creatorToken = token || ('id:' + p.id);
     if (!this.hostId || (token && token === this.creatorToken)) this.hostId = p.id;
     const r = token && this.resume.get(token);
-    if (r) { p.sc = r.sc; p.li = r.li; p.over = r.over; this.resume.delete(token); }
+    if (r) {
+      p.sc = r.sc; p.li = r.li; p.over = r.over; this.resume.delete(token);
+      if (r.lv === this.L && r.al === false && !r.over && this.ph === 0) p.al = false;   // went down, then left: still down until the next level
+    }
     p.token = token;
     if ((this.mods & 1) && this.ph !== 3) p.li = Math.min(p.li, 1);
     if (this.mode === 'versus') {   // even out the teams
@@ -72,6 +85,17 @@ class Game {
     p.x = this.lv.sx; p.y = this.lv.sy;
     this.players.set(p.id, p);
     this.emptySince = 0;
+    this.welcome(p, !p.al);
+    this.broadcast({ t: 'join', id: p.id, nm: p.nm, r: this.rosterRow(p) }, p.id);
+    if (this.ph === 6 && this.votes) {   // arrived mid-vote: they get a say too
+      const pd = this.pending;
+      this.send(p, { t: 'vote', by: pd.by, nm: pd.nm, x: pd.x, y: pd.y, crate: pd.crate, s: Math.round(this.ct * 10) / 10, tot: this.players.size });
+      this.sendTally();
+    }
+    return p;
+  }
+  /** Everything a (re)joining player needs. you: also say where they are and whether they're down. */
+  welcome(p, you) {
     this.send(p, {
       t: 'welcome', id: p.id, seed: this.seed, key: this.key, vis: this.isPrivate ? 'private' : 'public', gid: this.gid, title: this.title || '', testMode: this.opts.testMode ? 1 : 0, link: this.link || '', locked: !!this.pass,
       lv: this.L, b: M.toB64(this.bits),
@@ -79,14 +103,16 @@ class Game {
       mode: this.mode || 'coop', daily: this.daily || '', mods: this.mods, roles: this.roles ? 1 : 0,
       sc: p.sc, li: p.li, over: p.over, host: this.hostId, ph: this.ph,
       stats: (this.ph === 1 || this.ph === 2) ? this.lvStats : null,
-      pu: this.pending ? { kind: this.pending.kind, by: this.pending.by, x: this.pending.x, y: this.pending.y } : null
+      pu: this.pending ? { kind: this.pending.kind, by: this.pending.by, x: this.pending.x, y: this.pending.y } : null,
+      you: you ? { x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, f: p.f | 0, al: p.al ? 1 : 0, sh: p.shieldUsed ? 1 : 0 } : undefined
     });
-    this.broadcast({ t: 'join', id: p.id, nm: p.nm, r: this.rosterRow(p) }, p.id);
-    if (this.ph === 6 && this.votes) {   // arrived mid-vote: they get a say too
-      const pd = this.pending;
-      this.send(p, { t: 'vote', by: pd.by, nm: pd.nm, x: pd.x, y: pd.y, crate: pd.crate, s: Math.round(this.ct * 10) / 10, tot: this.players.size });
-      this.sendTally();
-    }
+  }
+  /** The connection dropped. Keep their place for a while: they're probably coming straight back. */
+  disconnect(p) {
+    if (!this.players.has(p.id)) return;
+    if (!p.token) { this.remove(p); return; }
+    p.ws = { send() {}, close() {} }; p.discAt = Date.now();
+    this.broadcast({ t: 'away', id: p.id }, p.id);
   }
 
   /** [id, name, colour, character, colour index, registered, uid, team, trail, death effect, player level, role] */
@@ -105,7 +131,7 @@ class Game {
       if (this.players.size && this.votes.size >= this.players.size) this.endVote(); else this.sendTally();
     }
     // keep the run for a while so a reconnect resumes it; record the score once it expires
-    if (p.token) this.resume.set(p.token, { sc: p.sc, li: p.li, over: p.over, nm: p.nm, uid: p.uid || 0, lv: this.L, at: Date.now() });
+    if (p.token) this.resume.set(p.token, { sc: p.sc, li: p.li, over: p.over, al: !!p.al, nm: p.nm, uid: p.uid || 0, lv: this.L, at: Date.now() });
     else if (p.sc > 0 && !p.over) this.report(p);
     this.broadcast({ t: 'leave', id: p.id });
     if (!this.players.size) this.emptySince = Date.now();
@@ -661,6 +687,8 @@ class Game {
       if (r.sc > 0 && !r.over) this.opts.onScore({ uid: r.uid || 0, n: r.nm, sc: r.sc, lv: r.lv, seed: this.seed, daily: this.daily || '', mods: this.mods });
     }
     if (!this.players.size) return;
+    if (this.tickNo % 15 === 0) for (const p of [...this.players.values()]) if (p.discAt && now - p.discAt > GRACE_MS) this.remove(p);   // didn't make it back in time
+    if (!this.players.size) return;
     if (now - (this.flushAt || 0) > 5000) { this.flushAt = now; for (const p of this.players.values()) this.flushStats(p); }
     this.clock += dt;
     if (this.ph === 1) {             // celebrating
@@ -699,7 +727,7 @@ class Game {
       const mode = (this.clock % 27) < 7 ? 0 : 1;
       if (this.lastMode >= 0 && mode !== this.lastMode) for (const g of this.ghosts) if (g.st === 1) g.rev = true;
       this.lastMode = mode;
-      const players = [];
+      let players = [];
       for (const p of this.players.values()) if (p.al && !p.over) players.push(p);
       if (!players.length) {   // nobody left standing
         if ([...this.players.values()].some(p => !p.over)) {   // ...but some still have lives: try the level again
@@ -709,6 +737,7 @@ class Game {
         if (sendState) this.sendState();
         return;
       }
+      players = players.filter(p => !p.discAt);   // ghosts don't hunt players who dropped out (they're coming back)
       const base = this.ghostBase(), lv = this.lv;
       this.tickPowerups(dt, players);
       const frozen = !!this.effect('freeze');

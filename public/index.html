@@ -7,6 +7,12 @@
 <meta name="description" content="A multiplayer maze-chase game. Share a seed, share a maze.">
 <meta name="theme-color" content="#07060f">
 <link rel="icon" href="icon.png" type="image/png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Munch Maze">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
@@ -49,6 +55,8 @@
           <header class="start-head">
             <h1 class="biglogo" data-logo></h1>
             <p>Grab a character, pick a maze, clear every pellet together. Each level opens bigger and faster than the last.</p>
+            <button class="btn install-btn" type="button" id="installBtn" hidden>Install as app</button>
+            <p class="hint install-hint" id="installHint" hidden></p>
           </header>
           <div class="err" id="joinErr" hidden></div>
           <div class="title-grid">

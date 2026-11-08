@@ -69,6 +69,14 @@ The container starts as root only to `chown` the data folder, then switches to `
 - **Bonus fruit** appears in the middle at 30% and 70% of pellets eaten.
 - **Emotes**: keys 1-4. When you're out of lives you keep watching and can cheer (keys 1-3).
 - **Achievements, profiles and the weekly board** need a Discord login. Click any name with a blue tick to see their profile.
+- **Player levels**: logged-in players earn XP from everything they do (pellets, ghosts, boss hits, fruit, crates, high fives, revives, level clears) plus big bonuses for achievements and challenges. Levels unlock **trails** (Sparks, Neon ribbon, Rainbow wake, Bubbles, Pixel stream, Comet, Stardust, Lightning) and **exit effects** for when a ghost gets you (Pixel shatter, Confetti, Black hole, Firework, Glitch, Ghostly rise), picked under *Your player*. Everyone in the maze sees yours.
+- **Challenges**: three daily and three weekly challenges, the same for everyone on the server, under the *Challenges* tab. Daily ones reset at midnight and weekly ones on Monday (server time: set `TZ`).
+- **Themes**: the maze changes look every 10 levels: Neon City, Ice Caverns, Lava Core, Deep Sea and Space Station, then round again.
+- **Challenge modifiers**: in the lobby the host can turn on One life, Fast ghosts, No big pellets and Fog. Each adds to everyone's score (One life +50%, the others +25%), and scoreboards show the multiplier a run was set with. Not available on the daily maze.
+- **Co-op roles**: the host can switch on roles in the lobby, then everyone picks Scout (10% faster, sees further in fog), Tank (shrugs off one hit per level) or Medic (revives from much further away). Roles can be changed between levels.
+- **Controllers**: plug in a gamepad and press a button. D-pad or left stick moves (and moves between buttons on menus), A or Start confirms and starts levels, B and X vote on crates (X cheers while you're out), Y, LB and RB are emotes, Back mutes.
+- **Dropped connections**: if a player's connection drops they keep their place in the maze for 30 seconds (others see them as "reconnecting"); the game reconnects by itself and puts them back where they were, in the same state. Pressing *Leave maze* leaves straight away.
+- **Install as an app**: on HTTPS, browsers offer an *Install as app* button on the title screen (on iPhone and iPad: Share, then Add to Home Screen). Browsers only allow this over HTTPS (or on `localhost`), so put the game behind a reverse proxy with a certificate to use it; on a plain `http://` LAN address the button doesn't appear.
 
 ## Admin page
 

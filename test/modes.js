@@ -104,6 +104,16 @@ console.log('ok  themes every 10 levels; modifier score bonuses');
   if (h.msgs.filter(m => m.t === 'shield').length !== n) fail('one shield per level, tanks only');
   console.log('ok  a Tank’s shield works once a level');
 
+  // reconnect grace: drop while down, come back: same place, still down (no free respawn)
+  const drop = await client('drop', { room: h.last.welcome.gid, tok: 'drop-tok' });
+  await wait(1700);
+  send(drop, { t: 'die' }); await until(h, m => m.t === 'down' && m.id === drop.last.welcome.id);
+  drop.ws.close(); await until(h, m => m.t === 'away' && m.id === drop.last.welcome.id, 3000, 'away');
+  const back = await client('drop', { room: h.last.welcome.gid, tok: 'drop-tok' });
+  if (back.last.welcome.id !== drop.last.welcome.id || !back.last.welcome.you || back.last.welcome.you.al !== 0) fail('a dropped player comes back to the same place, still down: ' + JSON.stringify(back.last.welcome.you));
+  await until(h, m => m.t === 'back' && m.id === drop.last.welcome.id, 3000, 'back');
+  console.log('ok  reconnect grace: same player, same state (down stays down)');
+
   srv.kill(); fs.rmSync(DATA, { recursive: true, force: true });
   console.log('\nAll modifier, role and theme tests passed.');
   process.exit(0);

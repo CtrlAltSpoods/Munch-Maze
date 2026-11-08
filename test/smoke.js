@@ -66,7 +66,7 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   console.log('ok  lobby lists the maze by name, without its seed');
   const viaList = await client('carol', { seed: '', room: games[0].id, tok: 'carol' });
   if (viaList.last.welcome.seed !== 'smoke-test') fail('joining by list id should land in that maze');
-  viaList.ws.close();
+  viaList.ws.send(JSON.stringify({ t: 'bye' })); viaList.ws.close();
   await waitFor(a, 'leave');
   console.log('ok  joining from the list by id works');
 
@@ -161,7 +161,15 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   console.log('ok  far-away pellet claims are rejected');
 
   // reconnect with the same token resumes the score
+  // a dropped connection keeps its place (same id) if it's back within the grace period
   a.ws.close();
+  await waitFor(b, 'away');
+  const aBack = await client('alice', { room: wa.gid });
+  if (aBack.last.welcome.id !== wa.id || !aBack.last.welcome.you || aBack.last.welcome.sc !== expected) fail('reconnecting within the grace period keeps your place');
+  await waitFor(b, 'back');
+  console.log('ok  a dropped player keeps their place (same id, score, position) and slots straight back in');
+  // leaving on purpose (the Leave button says bye) is immediate; rejoining later resumes the score
+  aBack.ws.send(JSON.stringify({ t: 'bye' })); aBack.ws.close();
   await waitFor(b, 'leave');
   const sAfter2 = await waitFor(b, 's', m => m.h === b.last.welcome.id, 3000);
   console.log('ok  host passed to bob when alice left');

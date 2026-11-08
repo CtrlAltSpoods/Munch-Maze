@@ -296,10 +296,11 @@ function onSocket(ws, ip = '?', account = null) {
         ws.send(JSON.stringify({ t: 'error', code: 'name_reserved', msg: '“' + nm + '” belongs to a registered player. Pick another name, or log in with Discord if it’s yours.' }));
         return;
       }
-      if (CFG.maxPlayersPerMaze && g.players.size >= CFG.maxPlayersPerMaze) { ws.send(JSON.stringify({ t: 'error', msg: 'That maze is full. Try another one.' })); return; }
+      const tok0 = typeof m.tok === 'string' ? m.tok.slice(0, 64) : '', rejoining = !!tok0 && [...g.players.values()].some(q => q.token === tok0);
+      if (CFG.maxPlayersPerMaze && !rejoining && g.players.size >= CFG.maxPlayersPerMaze) { ws.send(JSON.stringify({ t: 'error', msg: 'That maze is full. Try another one.' })); return; }
       const tok = typeof m.tok === 'string' ? m.tok.slice(0, 64) : '';
       if (g.kicked && g.kicked.has(tok || ip)) { ws.send(JSON.stringify({ t: 'error', code: 'kicked', msg: 'The server admin removed you from that maze.' })); return; }
-      const returning = tok && (tok === g.creatorToken || g.resume.has(tok));   // already let in once: no password again on reconnect
+      const returning = tok && (tok === g.creatorToken || g.resume.has(tok) || rejoining);   // already let in once: no password again on reconnect
       if (g.pass && !opening && !returning) {
         const err = code => { ws.send(JSON.stringify({ t: 'error', code, name: g.title || '', msg: code === 'pw_limit' ? 'Too many wrong passwords. Try again in a few minutes.' : m.pw ? 'That password isn’t right.' : 'This lobby needs a password.' })); };
         if (pwBlocked(ip)) return err('pw_limit');
@@ -317,12 +318,13 @@ function onSocket(ws, ip = '?', account = null) {
       p = { id: nextId++, ws, uid: account ? account.uid : 0, nm, col: look.col, mdl: look.mdl, ci: look.ci, x: 0, y: 0, f: 2, al: true, sc: 0, li: 3, over: false, spawnAt: Date.now(), fid: -1, combo: 0,
         plv, trail: M.pickCosmetic(M.TRAILS, m.trail, plv), dfx: M.pickCosmetic(M.DEATHFX, m.dfx, plv) };
       game = g;
-      g.add(p, tok);
+      p = g.add(p, tok) || p;   // reconnecting within the grace period: back into your old place
       return;
     }
+    if (m.t === 'bye') { if (game && p) game.remove(p); game = null; return; }   // left on purpose: no grace period
     if (game && p) game.onMessage(p, m);
   });
-  ws.on('close', () => { if (game && p) game.remove(p); game = null; });
+  ws.on('close', () => { if (game && p && p.ws === ws) game.disconnect(p); game = null; });
 }
 
 // Heartbeat: ping every 15 s; a client silent for 45 s (no frames, no pongs) is dropped.
