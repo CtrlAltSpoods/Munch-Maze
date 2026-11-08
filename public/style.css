@@ -554,3 +554,86 @@ input[type=range]{accent-color:var(--pink)}
 .start-head{flex-direction:column;align-items:center;text-align:center;gap:6px}
 .start-head .biglogo{justify-content:center}
 .start-head p{margin:0 auto;max-width:60ch}
+
+/* =====================================================================
+   TITLE SCREEN: logo, then two balanced panels: your player | play
+   (join / new maze / top scores tabs). The HUD and side panel only
+   appear once you're in a maze.
+   ===================================================================== */
+.sr-only{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.app:not(.ingame){grid-template-rows:minmax(0,1fr)}
+.app:not(.ingame) > .hud{display:none}
+.app:not(.ingame) .main{grid-template-columns:minmax(0,1fr)}
+.app:not(.ingame) .side{display:none}
+#startOv{place-items:start center;padding:26px 22px}
+.title{width:100%;max-width:1060px;display:flex;flex-direction:column;gap:22px;margin:auto 0}
+.start-head{gap:10px}
+.start-head p{font-size:13px;letter-spacing:.02em}
+.title-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:20px;align-items:stretch}
+.panel{position:relative;display:flex;flex-direction:column;gap:14px;padding:18px 20px 20px;min-width:0;border:1px solid var(--line);
+  background:
+    linear-gradient(90deg, var(--pink), var(--violet) 45%, var(--cyan)) top/100% 2px no-repeat,
+    linear-gradient(165deg, rgba(24,16,60,.94), rgba(9,7,24,.95));
+  clip-path:polygon(16px 0,100% 0,100% calc(100% - 16px),calc(100% - 16px) 100%,0 100%,0 16px);
+  box-shadow:inset 0 0 0 1px rgba(0,240,255,.06), inset 0 0 40px rgba(122,43,255,.10)}
+.panel::after{content:"";position:absolute;right:0;bottom:0;width:24px;height:24px;background:linear-gradient(135deg, transparent 50%, var(--accent) 50%);pointer-events:none}
+.panel-tag{display:flex;align-items:center;gap:10px}
+.panel-tag span{font-family:var(--arcade);font-weight:900;font-size:11px;letter-spacing:.08em;padding:3px 9px;background:var(--pink);color:#0b0814;
+  clip-path:polygon(5px 0,100% 0,calc(100% - 5px) 100%,0 100%)}
+.panel h2{margin:0;font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--fg)}
+.panel h2::before{content:none}
+
+/* your player */
+.you-top{display:grid;grid-template-columns:132px minmax(0,1fr);gap:18px;align-items:center}
+.hero{position:relative;aspect-ratio:1;background:radial-gradient(circle at 50% 55%, rgba(122,43,255,.35), rgba(7,6,15,.9) 70%);
+  border:1px solid rgba(0,240,255,.35);clip-path:polygon(12px 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%,0 12px)}
+.hero canvas{width:100%;height:100%;display:block}
+.hero::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg, rgba(0,240,255,.07) 0 1px, transparent 1px 4px)}
+.you-id{display:flex;flex-direction:column;gap:14px;min-width:0}
+.charname{display:flex;flex-direction:column;gap:3px}
+.charname b{font-family:var(--arcade);font-weight:900;font-size:24px;letter-spacing:.06em;text-transform:uppercase;color:var(--cyan);
+  text-shadow:0 0 14px rgba(0,240,255,.5);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.you-panel .models{gap:6px}
+.you-panel .model{padding:6px 2px 4px}
+.you-panel .model canvas{max-width:44px}
+.you-panel .hint{margin:0}
+
+/* play: tabs */
+.tabs{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid var(--line);margin:-4px -4px 0}
+.tab{position:relative;background:none;border:0;padding:10px 12px 11px;font-family:var(--display);font-weight:700;font-size:12px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+.tab:hover{color:var(--cyan)}
+.tab.on{color:var(--fg);text-shadow:0 0 10px rgba(255,43,214,.45)}
+.tab.on::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;background:linear-gradient(90deg, var(--pink), var(--cyan));box-shadow:0 0 10px var(--pink)}
+.count{display:inline-grid;place-items:center;min-width:20px;height:18px;padding:0 5px;font-family:var(--arcade);font-size:10px;font-weight:700;letter-spacing:0;
+  background:var(--line);color:var(--fg);clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
+.count.hot{background:#3dffa0;color:#04140b}
+.pane{display:flex;flex-direction:column;gap:12px;min-height:320px;flex:1}
+.pane[hidden]{display:none}
+.pane .col-head h2{font-size:11px;color:var(--muted);letter-spacing:.18em}
+.play-panel .games{max-height:360px;overflow:auto;min-height:0;padding-right:2px}
+.tonew{align-self:flex-start;margin-top:auto;font-family:var(--display);font-weight:600;letter-spacing:.08em;text-transform:uppercase;font-size:12px;color:var(--cyan)}
+#paneScores .scores li{padding:7px 10px;background:rgba(7,6,15,.55);border-left:2px solid var(--line);align-items:center}
+#paneScores .scores li:nth-child(1){border-left-color:var(--accent)}
+#paneScores .scores li:nth-child(2){border-left-color:var(--cyan)}
+#paneScores .scores li:nth-child(3){border-left-color:var(--pink)}
+#paneScores .scores li::before{font-family:var(--arcade);font-weight:700}
+.create .cta{margin-top:auto}
+
+@media (max-width:860px){
+  #startOv{padding:18px 12px}
+  .title-grid{grid-template-columns:minmax(0,1fr)}
+  .play-panel{order:-1}
+  .pane{min-height:0}
+}
+@media (max-width:420px){
+  .you-top{grid-template-columns:96px minmax(0,1fr);gap:12px}
+  .charname b{font-size:19px}
+  .tab{padding:9px 8px;letter-spacing:.08em;font-size:11px}
+  .panel{padding:16px 14px 18px}
+}
+#startOv{background:radial-gradient(ellipse at 50% 40%, rgba(13,10,34,.82), rgba(7,6,15,.95) 70%)}
+.start-head p{max-width:72ch}
+.pane.create{border-top:0;padding-top:0}
+@media (min-width:861px) and (max-height:800px){ .start-head .biglogo .logo-mark{height:92px} .start-head .biglogo{font-size:34px} .title{gap:16px} #startOv{padding-top:16px} }

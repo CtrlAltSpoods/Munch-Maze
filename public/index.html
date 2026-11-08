@@ -45,46 +45,50 @@
         <button type="button" data-d="1" aria-label="Down">▼</button>
       </div>
       <div class="overlay" id="startOv">
-        <form class="card start" id="startForm" autocomplete="off">
+        <form class="title" id="startForm" autocomplete="off">
           <header class="start-head">
             <h1 class="biglogo" data-logo></h1>
-            <p>Share a maze with however many people show up. Clear every pellet together and the next level opens, bigger than the last.</p>
+            <p>Grab a character, pick a maze, clear every pellet together. Each level opens bigger and faster than the last.</p>
           </header>
           <div class="err" id="joinErr" hidden></div>
-          <div class="start-cols">
-            <section class="col join-col" id="lobbyBox" aria-labelledby="joinTitle">
-              <div class="col-head">
-                <h2 id="joinTitle">Join a game</h2>
-                <span class="live"><i></i>Live</span>
-              </div>
-              <div class="games" id="games"><div class="empty">Loading…</div></div>
-              <div class="pwjoin" id="joinPwField" hidden>
-                <label class="k" for="joinPwIn" id="joinPwLabel">Lobby password</label>
-                <div class="pwrow">
-                  <input id="joinPwIn" type="password" maxlength="64" autocomplete="off" placeholder="Password">
-                  <button class="btn primary" id="pwJoinBtn" type="button">Join</button>
-                  <button class="btn" id="pwCancelBtn" type="button">Cancel</button>
+          <div class="title-grid">
+            <section class="panel you-panel" aria-labelledby="youTitle">
+              <div class="panel-tag"><span>P1</span><h2 id="youTitle">Your player</h2></div>
+              <div class="you-top">
+                <div class="hero"><canvas id="heroCv" width="240" height="240" aria-hidden="true"></canvas></div>
+                <div class="you-id">
+                  <div class="field">
+                    <label class="k" for="nameIn">Name</label>
+                    <input id="nameIn" maxlength="16" placeholder="Player">
+                  </div>
+                  <div class="charname"><span class="k" id="charLabel">Character</span><b id="charName">Shark</b></div>
                 </div>
               </div>
-              <details class="scores-box">
-                <summary>Top scores on this server</summary>
-                <ol class="scores" id="scores"><li class="empty">No scores yet.</li></ol>
-              </details>
+              <div class="models" id="modelGrid" role="radiogroup" aria-labelledby="charLabel"></div>
+              <div class="swatches" id="swatches" role="radiogroup" aria-label="Colour"></div>
+              <p class="hint" id="unlockHint"></p>
             </section>
-            <section class="col you-col" aria-labelledby="youTitle">
-              <h2 id="youTitle">Your player</h2>
-              <div class="field">
-                <label class="k" for="nameIn">Name</label>
-                <input id="nameIn" maxlength="16" placeholder="Player">
+            <section class="panel play-panel" id="lobbyBox">
+              <div class="tabs" role="tablist" aria-label="Play">
+                <button type="button" class="tab on" role="tab" id="tabJoin" aria-selected="true" aria-controls="paneJoin">Join a game <span class="count" id="gameCount">0</span></button>
+                <button type="button" class="tab" role="tab" id="tabNew" aria-selected="false" aria-controls="paneNew">New maze</button>
+                <button type="button" class="tab" role="tab" id="tabScores" aria-selected="false" aria-controls="paneScores">Top scores</button>
               </div>
-              <div class="field">
-                <span class="k" id="charLabel">Character · <b id="charName">Chomper</b></span>
-                <div class="models" id="modelGrid" role="radiogroup" aria-labelledby="charLabel"></div>
-                <div class="swatches" id="swatches" role="radiogroup" aria-label="Colour"></div>
-                <p class="hint" id="unlockHint"></p>
+              <div class="pane" id="paneJoin" role="tabpanel" aria-labelledby="tabJoin">
+                <div class="col-head"><h2 id="joinTitle">Open games</h2><span class="live"><i></i>Live</span></div>
+                <div class="games" id="games"><div class="empty">Loading…</div></div>
+                <div class="pwjoin" id="joinPwField" hidden>
+                  <label class="k" for="joinPwIn" id="joinPwLabel">Lobby password</label>
+                  <div class="pwrow">
+                    <input id="joinPwIn" type="password" maxlength="64" autocomplete="off" placeholder="Password">
+                    <button class="btn primary" id="pwJoinBtn" type="button">Join</button>
+                    <button class="btn" id="pwCancelBtn" type="button">Cancel</button>
+                  </div>
+                </div>
+                <button class="linkbtn tonew" type="button" id="toNewBtn">Or start your own maze →</button>
               </div>
-              <div class="create" aria-labelledby="createTitle">
-                <h2 id="createTitle">Start a new maze</h2>
+              <div class="pane create" id="paneNew" role="tabpanel" aria-labelledby="tabNew" hidden>
+                <h2 id="createTitle" class="sr-only">Start a new maze</h2>
                 <div class="invite" id="inviteNote" hidden>
                   <p>You’re joining a private maze from an invite link.</p>
                   <button class="linkbtn" id="ownBtn" type="button">Start my own maze instead</button>
@@ -119,6 +123,9 @@
                   <p class="hint">The same seed always makes the same mazes. If a public maze is already running on it, you’ll join that one.</p>
                 </div>
                 <button class="cta" id="playBtn" type="submit">Start maze</button>
+              </div>
+              <div class="pane" id="paneScores" role="tabpanel" aria-labelledby="tabScores" hidden>
+                <ol class="scores" id="scores"><li class="empty">No scores yet.</li></ol>
               </div>
             </section>
           </div>

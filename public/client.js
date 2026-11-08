@@ -341,11 +341,13 @@ async function refreshLobby() {
     const sig = JSON.stringify(list);
     if (sig !== refreshLobby.sig) {   // only rebuild when something changed
       refreshLobby.sig = sig;
+      setTxt('gameCount', list.length); $('gameCount').classList.toggle('hot', list.length > 0);
+      if (!S.tabPicked) setTab(list.length ? 'join' : 'new');   // open on whichever is useful, until the player picks
       const box = $('games'); box.textContent = '';
       if (!list.length) {
         const d = document.createElement('div'); d.className = 'empty';
         const t = document.createElement('b'); t.textContent = 'No public mazes right now.';
-        const h = document.createElement('span'); h.textContent = 'Start one on the right. It appears here for everyone on this server.';
+        const h = document.createElement('span'); h.textContent = 'Start one under New maze. It appears here for everyone on this server.';
         d.append(t, h); box.appendChild(d);
       }
       for (const g of list) {
@@ -385,13 +387,36 @@ async function refreshLobby() {
 }
 getJSON('api/info').then(info => {
   lobbyOn = !!info.lobby;
-  if (!lobbyOn) { const g = $('games'); g.textContent = ''; const d = document.createElement('div'); d.className = 'empty'; const t = document.createElement('b'); t.textContent = 'This server keeps its mazes unlisted.'; const h = document.createElement('span'); h.textContent = 'Ask a friend for their invite link or seed, or start your own.'; d.append(t, h); g.appendChild(d); document.querySelector('.join-col .live').hidden = true; }
+  if (!lobbyOn) { const g = $('games'); g.textContent = ''; const d = document.createElement('div'); d.className = 'empty'; const t = document.createElement('b'); t.textContent = 'This server keeps its mazes unlisted.'; const h = document.createElement('span'); h.textContent = 'Ask a friend for their invite link or seed, or start your own.'; d.append(t, h); g.appendChild(d); document.querySelector('#paneJoin .live').hidden = true; $('gameCount').hidden = true; if (!S.tabPicked) setTab('new'); }
   if (info.name && info.name !== 'Munch Maze') document.title = info.name + ' · Munch Maze';
   if (info.defaultSeed && !$('seedIn').value) $('seedIn').placeholder = 'Leave blank for ' + info.defaultSeed;
 }).catch(() => {});
 refreshLobby(); setInterval(refreshLobby, 3000);
 
+/* Title screen tabs: Join a game / New maze / Top scores */
+function setTab(name) {
+  for (const [id, pane] of [['tabJoin', 'paneJoin'], ['tabNew', 'paneNew'], ['tabScores', 'paneScores']]) {
+    const on = id === 'tab' + name[0].toUpperCase() + name.slice(1);
+    $(id).classList.toggle('on', on); $(id).setAttribute('aria-selected', on ? 'true' : 'false'); $(pane).hidden = !on;
+  }
+}
+for (const [id, name] of [['tabJoin', 'join'], ['tabNew', 'new'], ['tabScores', 'scores']]) $(id).addEventListener('click', () => { S.tabPicked = true; setTab(name); });
+$('toNewBtn').addEventListener('click', () => { S.tabPicked = true; setTab('new'); });
+$('paneNew').addEventListener('focusin', () => { S.tabPicked = true; });
+/* Big animated portrait of the chosen character on the title screen. */
+function drawHero() {
+  if ($('startOv').hidden) return;
+  const cv = $('heroCv'), g = cv.getContext('2d'), w = cv.width, t = S.time;
+  g.clearRect(0, 0, w, w);
+  const col = MazeModels.colorAt(S.paint, t);
+  const halo = g.createRadialGradient(w / 2, w / 2, w * 0.12, w / 2, w / 2, w * 0.5);
+  halo.addColorStop(0, col + '55'); halo.addColorStop(1, col + '00');
+  g.fillStyle = halo; g.fillRect(0, 0, w, w);
+  const chew = MazeFX.reduced() ? 0.45 : 0.5 + 0.5 * Math.sin(t * 7);
+  MazeModels.draw(g, S.model, w / 2, w / 2 + Math.sin(t * 2) * (MazeFX.reduced() ? 0 : 3), w * 0.3, S.paint, 0, chew, t);
+}
 function askPassword(room, name) {
+  S.tabPicked = true; setTab('join');
   S.pwRoom = room || '';   // remembered so pressing Enter the maze retries the same lobby
   $('joinPwLabel').textContent = name ? 'Password for ' + name : 'Lobby password';
   $('joinPwField').hidden = false; $('joinPwIn').value = ''; updateVisHint(); $('joinPwIn').focus();
@@ -1312,7 +1337,7 @@ function frame() {
   if (S.inGame && S.lvl) { playerStep(dt); updateGhostView(dt); }
   const quake = S.inGame && S.ph === 0 && effectOn('quake');
   MazeFX.setRumble(quake ? 11 : S.inGame && S.streak >= 100 ? 1.6 : 0, quake);   // earthquake (felt even with reduced motion), or a small steady shake from a 100 streak
-  MazeFX.update(dt); MazeNuke.update(dt);
+  MazeFX.update(dt); MazeNuke.update(dt); drawHero();
   if (S.nukeIn > 0 && S.ph === 0) S.nukeIn = Math.max(0, S.nukeIn - dt);
   animatePicker(S.time);
   render(dt); hud(dt, now);
@@ -1333,6 +1358,7 @@ if (hashSeed && /^[a-z0-9]{12}$/.test(hashKey)) {
   S.inviteKey = hashKey;
   $('inviteNote').hidden = false; $('visField').hidden = true; $('lnameField').hidden = true; $('seedIn').readOnly = true;
   $('createTitle').textContent = 'Join private maze'; $('playBtn').textContent = 'Join maze';
+  S.tabPicked = true; setTab('new');
 }
 updateVisHint();
 S.lvl = M.genLevel(S.seed, 1); S.L = 1;
