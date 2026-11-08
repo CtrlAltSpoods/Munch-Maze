@@ -54,4 +54,23 @@ assert.deepStrictEqual(fresh.topScores().map(s => [s.n, s.sc]), [['old', 70]]);
 assert.strictEqual(fresh.importLegacy([{ n: 'Again', sc: 5 }]), 0, 'only imports once');
 console.log('ok  old scores.json is imported once');
 
+// time-limited boards, profiles, achievements, progress
+const p = DB.open(':memory:');
+const u = p.loginDiscord('333333333333333333', 'Pro');
+assert.ok(p.addScore({ uid: u.uid, n: 'Pro', sc: 700, lv: 4, boards: ['week:2026-W45', 'day:2026-11-08'] }));
+p.addScore({ n: 'Guest', sc: 800, lv: 5, boards: ['week:2026-W45'] });
+assert.ok(!p.addScore({ uid: u.uid, n: 'Pro', sc: 600, lv: 3, boards: ['week:2026-W46'] }), 'not an all-time best...');
+assert.deepStrictEqual(p.topScores(10, 'week:2026-W46').map(s => [s.n, s.sc]), [['Pro', 600]], '...but it still counts for a new week');
+assert.deepStrictEqual(p.topScores(10, 'week:2026-W45').map(s => [s.n, s.sc, s.reg]), [['Guest', 800, false], ['Pro', 700, true]]);
+assert.deepStrictEqual(p.topScores(10, 'day:2026-11-08').map(s => s.n), ['Pro']);
+assert.strictEqual(p.topScore(), 800);
+p.recordGame(u.uid, { sc: 700, lv: 4, model: 'shark' }); p.recordGame(u.uid, { sc: 100, lv: 1, model: 'shark' }); p.recordGame(u.uid, { sc: 50, lv: 1, model: 'bear' });
+assert.ok(p.award(u.uid, 'first')); assert.ok(!p.award(u.uid, 'first'), 'an achievement is earned once'); assert.ok(!p.award(0, 'first'), 'guests earn nothing');
+p.setProgress(u.uid, 6, 7); p.setProgress(u.uid, 3, 4);
+const pr = p.profile(u.uid);
+assert.deepStrictEqual([pr.games, pr.best, pr.bestLevel, pr.cleared, pr.fav, pr.achievements.map(a => a.id)], [3, 700, 7, 6, 'shark', ['first']]);
+p.reserveName('Admin'); assert.strictEqual(p.nameOwner('admin'), -1, 'reserved names are owned by nobody'); p.unreserveName('ADMIN'); assert.strictEqual(p.nameOwner('admin'), 0);
+p.resetScores('week'); assert.strictEqual(p.topScores(10, 'week:2026-W45').length, 0); assert.strictEqual(p.topScores(10, 'day:2026-11-08').length, 1);
+console.log('ok  weekly/daily boards, profiles, achievements, progress, reserved names');
+
 console.log('\nAll database tests passed.');

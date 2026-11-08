@@ -136,7 +136,13 @@
                 <button class="cta" id="playBtn" type="submit">Start maze</button>
               </div>
               <div class="pane" id="paneScores" role="tabpanel" aria-labelledby="tabScores" hidden>
+                <div class="seg boards" role="radiogroup" aria-label="Which leaderboard">
+                  <button type="button" class="seg-b on" data-board="" role="radio" aria-checked="true">All time</button>
+                  <button type="button" class="seg-b" data-board="week" role="radio" aria-checked="false">This week</button>
+                  <button type="button" class="seg-b" data-board="day" role="radio" aria-checked="false">Daily maze</button>
+                </div>
                 <ol class="scores" id="scores"><li class="empty">No scores yet.</li></ol>
+                <p class="hint" id="boardHint">Best run per player, ever.</p>
               </div>
             </section>
           </div>
@@ -248,6 +254,19 @@
     </aside>
   </main>
 </div>
+<div class="profile-ov" id="profileOv" hidden>
+  <div class="panel profile-card" role="dialog" aria-modal="true" aria-labelledby="pfName">
+    <button class="btn pf-close" type="button" id="pfClose" aria-label="Close">✕</button>
+    <div class="pf-head">
+      <canvas id="pfAv" width="160" height="160" aria-hidden="true"></canvas>
+      <div><h2 id="pfName">Player</h2><p class="hint" id="pfSince"></p></div>
+    </div>
+    <div class="pf-stats" id="pfStats"></div>
+    <h3 class="k">Achievements <b id="pfAchCount"></b></h3>
+    <div class="pf-ach" id="pfAch"></div>
+  </div>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
 <script src="maze.js"></script>
 <script src="audio.js"></script>
 <script src="fx.js"></script>

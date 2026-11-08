@@ -74,7 +74,23 @@ function openDb() {
   } catch (e) { /* no old file */ }
   setInterval(() => { try { db.purgeSessions(); } catch (e) { /* ignore */ } }, 3600e3).unref();
 }
-function addScore(e) { try { db.addScore(e); } catch (err) { console.warn('[db] score not saved:', err.message); } }
+/* Leaderboard periods, in the server's local time (set TZ on the container): weeks start Monday. */
+function dayKey(d = new Date()) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function weekKey(d = new Date()) {
+  const t = new Date(d.getFullYear(), d.getMonth(), d.getDate()); const wd = (t.getDay() + 6) % 7;   // Monday = 0
+  t.setDate(t.getDate() - wd + 3);                                                                   // Thursday of this week
+  const y = t.getFullYear(), first = new Date(y, 0, 4), w = 1 + Math.round(((t - first) / 864e5 - 3 + ((first.getDay() + 6) % 7)) / 7);
+  return y + '-W' + String(w).padStart(2, '0');
+}
+function addScore(e) {
+  try {
+    const boards = ['week:' + weekKey()];
+    if (e.daily) boards.push('day:' + e.daily);
+    db.addScore({ ...e, boards });
+    if (e.uid && e.model !== undefined) db.recordGame(e.uid, { sc: e.sc, lv: e.lv, model: e.model });
+    if (e.uid && e.daily && e.sc > 0) db.award(e.uid, 'daily');
+  } catch (err) { console.warn('[db] score not saved:', err.message); }
+}
 
 /* ---------- games ---------- */
 const games = new Map(); // room id ("seed" or "seed~key") -> Game
@@ -88,7 +104,9 @@ function newKey() { // 12 chars of a-z0-9 from a CSPRNG (~62 bits)
     share a seed and "Start maze" always makes a fresh game rather than resuming an old one. */
 function createGame(seed, key) {
   if (games.size >= CFG.maxMazes) return null;
-  const g = new Game(seed, key, { onScore: addScore, testHooks: process.env.TEST_HOOKS === '1', testMode: CFG.testMode });
+  const g = new Game(seed, key, { onScore: addScore, testHooks: process.env.TEST_HOOKS === '1', testMode: CFG.testMode,
+    onAchieve: (uid, id) => { try { return db.award(uid, id); } catch (e) { return false; } },
+    onCleared: (uid, L) => { try { db.setProgress(uid, L, L + 1); } catch (e) { /* ignore */ } } });
   g.title = '';
   do { g.gid = crypto.randomBytes(6).toString('base64url'); } while (games.has(g.gid));
   if (key) byKey.set(key, g);
@@ -298,6 +316,12 @@ async function handleApiPost(req, res, p) {
     setCookie(res, req, 'mm_session', '', 0);
     return json(res, { ok: true });
   }
+  if (p === '/api/me/progress') {   // unlocks earned before logging in (browser cookies) move onto the account
+    const me = sessionOf(req); if (!me) return json(res, { error: 'Log in first.' }, 401);
+    let body; try { body = JSON.parse(await readBody(req)); } catch (e) { return json(res, { error: 'Bad request.' }, 400); }
+    db.setProgress(me.uid, Math.min(300, body.cleared | 0), Math.min(301, body.best | 0));
+    const pr = db.profile(me.uid); return json(res, { cleared: pr.cleared, best: pr.bestLevel });
+  }
   if (p === '/api/me/name') {
     const me = sessionOf(req); if (!me) return json(res, { error: 'Log in first.' }, 401);
     if (Date.now() - (renameAt.get(me.uid) || 0) < 3000) return json(res, { error: 'Slow down a moment.' }, 429);
@@ -324,9 +348,9 @@ const server = http.createServer((req, res) => {
   let url;
   try { url = new URL(req.url, 'http://x'); } catch (e) { res.writeHead(400); res.end(); return; }
   const p = url.pathname;
-  if (req.method === 'POST' && (p === '/auth/logout' || p === '/api/me/name')) { handleApiPost(req, res, p).catch(() => json(res, { error: 'failed' }, 500)); return; }
+  if (req.method === 'POST' && (p === '/auth/logout' || p === '/api/me/name' || p === '/api/me/progress')) { handleApiPost(req, res, p).catch(() => json(res, { error: 'failed' }, 500)); return; }
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
-  if (p === '/api/me') { const me = sessionOf(req); return json(res, { discord: discordOn(), user: me ? { uid: me.uid, name: me.name } : null }); }
+  if (p === '/api/me') { const me = sessionOf(req), pr = me ? db.profile(me.uid) : null; return json(res, { discord: discordOn(), user: me ? { uid: me.uid, name: me.name, cleared: pr ? pr.cleared : 0, best: pr ? pr.bestLevel : 0 } : null }); }
   if (p === '/auth/discord') {
     if (!discordOn()) { res.writeHead(404); res.end(); return; }
     const state = crypto.randomBytes(16).toString('base64url');
@@ -346,7 +370,14 @@ const server = http.createServer((req, res) => {
       .sort((a, b) => b.players - a.players).slice(0, 20);
     return json(res, list);
   }
-  if (p === '/api/scores') { let top = []; try { top = db.topScores(10); } catch (e) { /* ignore */ } return json(res, top); }
+  if (p === '/api/scores') {
+    const which = url.searchParams.get('board'), board = which === 'week' ? 'week:' + weekKey() : which === 'day' ? 'day:' + dayKey() : '';
+    let top = []; try { top = db.topScores(10, board); } catch (e) { /* ignore */ } return json(res, top);
+  }
+  if (p === '/api/profile') {
+    let pr = null; try { pr = db.profile(parseInt(url.searchParams.get('uid'), 10) || 0); } catch (e) { /* ignore */ }
+    return pr ? json(res, pr) : json(res, { error: 'not found' }, 404);
+  }
   if (p === '/maze.js') return sendFile(res, path.join(ROOT, 'shared', 'maze.js'));
   // Optional sound files the server owner drops into the data folder (kept out of the image)
   if (p === '/custom/peanut.mp3') return sendFile(res, path.join(CFG.dataDir, 'peanut.mp3'));

@@ -84,7 +84,7 @@ function onMsg(m) {
   switch (m.t) {
     case 'welcome': {
       S.id = m.id; S.seed = m.seed;
-      S.roster.clear(); for (const r of m.roster || []) S.roster.set(r[0], { nm: String(r[1]), col: String(r[2]), mdl: r[3] | 0, paint: M.pickModel(r[3], r[4]).paint, reg: r[5] === 1 });
+      S.roster.clear(); for (const r of m.roster || []) S.roster.set(r[0], { nm: String(r[1]), col: String(r[2]), mdl: r[3] | 0, paint: M.pickModel(r[3], r[4]).paint, reg: r[5] === 1, uid: r[6] | 0 });
       S.sc = m.sc | 0; S.li = m.li | 0; S.over = !!m.over;
       loadLevel(m.lv | 0, m.b, m.ph | 0);
       S.inGame = true;
@@ -114,7 +114,7 @@ function onMsg(m) {
       if (S.ph === 0) recordLevel(S.L);
       if (m.adv && !S.over) A.sfx('life');
       break;
-    case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col), mdl: m.mdl | 0, paint: M.pickModel(m.mdl, m.ci).paint, reg: m.reg === 1 }); A.sfx('join'); updateLobby(); break;
+    case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col), mdl: m.mdl | 0, paint: M.pickModel(m.mdl, m.ci).paint, reg: m.reg === 1, uid: m.uid | 0 }); A.sfx('join'); updateLobby(); break;
     case 'leave': S.roster.delete(m.id); S.ov.delete(m.id); updateLobby(); break;
     case 'pw': {   // a big pellet was eaten; we already played our own
       if ((m.id | 0) === S.id || !S.lvl) break;
@@ -172,6 +172,7 @@ function onMsg(m) {
       break;
     }
     case 'lvstats': S.lvStats = m; renderStats(); break;
+    case 'ach': { const a = M.ACHIEVEMENTS.find(x => x.id === m.id); if (a) { toast('Achievement unlocked', a.name + ' · ' + a.desc, 'ach'); A.sfx('puLand', true); } break; }
     case 'zap': { const x = +m.x || 0, y = +m.y || 0; A.sfx('ghost'); MazeFX.sparks(x, y, '#ff3d5e', 18, 6, 0.5); MazeFX.ring(x, y, '#ff6b8b', 1.6, 0.4); break; }
     case 'pts': MazeFX.text(+m.x || 0, (+m.y || 0) - 0.3, String(m.v | 0), '#41e0f0', 0.95); break;
     case 'error':
@@ -330,7 +331,7 @@ function checkHighFives() {
     if (now - (S.hfAt.get(p.id) || 0) < HF_COOLDOWN) continue;
     S.hfAt.set(p.id, now);
     const mx = (o.x + px) / 2, my = (o.y + py) / 2;
-    A.sfx('clap'); if (A.playSample) A.playSample('highfive', 0.9);
+    A.sfx('clap'); if (A.playSample) A.playSample('highfive', 0.9); send({ t: 'hf', id: p.id });
     MazeFX.sparks(mx, my, '#fcee0a', 18, 6, 0.6); MazeFX.ring(mx, my, '#ff2bd6', 1.8, 0.4);
     MazeFX.text(mx, my - 0.6, 'HIGH FIVE!', '#fcee0a');
   }
@@ -406,20 +407,71 @@ async function refreshLobby() {
       }
     }
   } catch (e) { /* server busy; try again later */ }
+  loadScores();
+}
+/* ---------- leaderboards: all time, this week, today's daily maze ---------- */
+S.board = '';
+const BOARD_HINT = { '': 'Best run per player, ever.', week: 'Best runs since Monday. Resets every week.', day: 'Today’s daily maze: everyone plays the same layouts.' };
+async function loadScores() {
   try {
-    const sc = await getJSON('api/scores');
+    const sc = await getJSON('api/scores' + (S.board ? '?board=' + S.board : ''));
     const ol = $('scores'); ol.textContent = '';
-    if (!sc.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'No scores yet.'; ol.appendChild(li); }
+    if (!sc.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = S.board ? 'No scores here yet. Be the first!' : 'No scores yet.'; ol.appendChild(li); }
     for (const s of sc) {
       const li = document.createElement('li');
       const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = s.n + ' ';
-      if (s.reg) { nm.appendChild(verifiedBadge()); nm.append(' '); }
+      if (s.reg) { nm.appendChild(verifiedBadge()); nm.append(' '); nm.dataset.uid = s.uid; nm.classList.add('linky'); }
       const sm = document.createElement('small'); sm.textContent = 'level ' + s.lv; nm.appendChild(sm);
       const v = document.createElement('span'); v.className = 'sc'; v.textContent = (s.sc | 0).toLocaleString();
       li.append(nm, v); ol.appendChild(li);
     }
   } catch (e) { /* ignore */ }
+  setTxt('boardHint', BOARD_HINT[S.board] || '');
 }
+for (const b of document.querySelectorAll('.boards .seg-b')) b.addEventListener('click', () => {
+  S.board = b.dataset.board;
+  for (const x of document.querySelectorAll('.boards .seg-b')) { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', x === b ? 'true' : 'false'); }
+  loadScores();
+});
+
+/* ---------- profile cards (click a verified name) ---------- */
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-uid]'); if (!el || !(+el.dataset.uid > 0)) return;
+  e.preventDefault(); openProfile(+el.dataset.uid);
+});
+async function openProfile(uid) {
+  let pr; try { pr = await getJSON('api/profile?uid=' + uid); } catch (e) { return; }
+  $('pfName').textContent = pr.name; $('pfName').appendChild(verifiedBadge());
+  $('pfSince').textContent = 'Playing since ' + new Date(pr.since).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  const favIdx = Math.max(0, M.MODELS.findIndex(m => m.id === pr.fav));
+  const g = $('pfAv').getContext('2d'); g.clearRect(0, 0, 160, 160);
+  MazeModels.draw(g, looksOf(pr.name, favIdx), 80, 84, 52, M.MODELS[favIdx].colors[0], 0, 0.45, 0);
+  const st = $('pfStats'); st.textContent = '';
+  for (const [k, v] of [['Best score', (pr.best | 0).toLocaleString()], ['Highest level', pr.bestLevel || '–'], ['Levels cleared', pr.cleared || 0], ['Games', pr.games || 0],
+    ['Favourite', pr.fav ? (M.MODELS[favIdx] || {}).name : '–']]) {
+    const d = document.createElement('div'); const b = document.createElement('b'); b.textContent = v; const s = document.createElement('span'); s.className = 'k'; s.textContent = k; d.append(b, s); st.appendChild(d);
+  }
+  const got = new Map(pr.achievements.map(a => [a.id, a.at])), box = $('pfAch'); box.textContent = '';
+  for (const a of M.ACHIEVEMENTS) {
+    const d = document.createElement('div'); d.className = 'ach' + (got.has(a.id) ? ' got' : '');
+    d.title = a.desc + (got.has(a.id) ? ' · earned ' + new Date(got.get(a.id)).toLocaleDateString() : ' · not yet');
+    const n = document.createElement('b'); n.textContent = a.name; const s = document.createElement('span'); s.textContent = a.desc; d.append(n, s); box.appendChild(d);
+  }
+  setTxt('pfAchCount', got.size + ' / ' + M.ACHIEVEMENTS.length);
+  $('profileOv').hidden = false; $('pfClose').focus();
+}
+$('pfClose').addEventListener('click', () => { $('profileOv').hidden = true; });
+$('profileOv').addEventListener('click', e => { if (e.target === $('profileOv')) $('profileOv').hidden = true; });
+addEventListener('keydown', e => { if (e.key === 'Escape' && !$('profileOv').hidden) $('profileOv').hidden = true; });
+
+/* ---------- toasts (achievements and other little news) ---------- */
+function toast(title, text, kind = '') {
+  const t = document.createElement('div'); t.className = 'toast ' + kind;
+  const b = document.createElement('b'); b.textContent = title; const s = document.createElement('span'); s.textContent = text;
+  t.append(b, s); $('toasts').appendChild(t);
+  setTimeout(() => t.classList.add('out'), 4200); setTimeout(() => t.remove(), 4800);
+}
+
 /** Blue verified tick for names claimed by a Discord account. */
 const BADGE_PATH = (() => {   // a 12-point scalloped rosette
   let d = ''; for (let i = 0; i < 24; i++) { const a = (i / 24) * Math.PI * 2 - Math.PI / 2, r = i % 2 ? 9.2 : 11.6; d += (i ? 'L' : 'M') + (12 + Math.cos(a) * r).toFixed(2) + ' ' + (12 + Math.sin(a) * r).toFixed(2); }
@@ -443,6 +495,10 @@ function showAccount(me) {
     $('acctId').textContent = '#' + ME.user.uid;
     $('nameIn').value = ME.saved = ME.user.name; store.set('mm.name', ME.user.name);
     $('nameIn').title = 'Your account name. Change it here; your scores stay with you.';
+    // unlocks follow the account: take the best of this browser and the account, and save it back
+    recordCleared(Math.max(clearedLevel, ME.user.cleared | 0)); recordLevel(Math.max(bestLevel, ME.user.best | 0));
+    if (clearedLevel > (ME.user.cleared | 0) || bestLevel > (ME.user.best | 0))
+      fetch('api/me/progress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cleared: clearedLevel, best: bestLevel }) }).catch(() => {});
   } else $('nameIn').title = '';
 }
 async function saveAccountName() {
@@ -887,8 +943,9 @@ function hud(dt, now) {
   if (left < 0) { left = 0; for (const i of lv.pList) if (!eaten(i)) left++; }
   setTxt('pLeft', left); setTxt('gCount', M.ghostCount(S.L));
   const regOf = id => !!(S.roster.get(id) || {}).reg;
-  const rows = [{ nm: (S.roster.get(S.id) || {}).nm || S.name, col: S.color, sc: S.sc, al: S.alive && !S.over, me: true, host: S.host === S.id, reg: regOf(S.id) }];
-  for (const p of S.players) rows.push({ nm: p.nm, col: p.col, sc: p.sc, al: p.al && !p.over, me: false, host: p.id === S.host, reg: regOf(p.id) });
+  const uidOf = id => (S.roster.get(id) || {}).uid | 0;
+  const rows = [{ nm: (S.roster.get(S.id) || {}).nm || S.name, col: S.color, sc: S.sc, al: S.alive && !S.over, me: true, host: S.host === S.id, reg: regOf(S.id), uid: uidOf(S.id) }];
+  for (const p of S.players) rows.push({ nm: p.nm, col: p.col, sc: p.sc, al: p.al && !p.over, me: false, host: p.id === S.host, reg: regOf(p.id), uid: uidOf(p.id) });
   rows.sort((a, b) => b.sc - a.sc);
   setTxt('pCount', rows.length);
   const ol = $('board'); ol.textContent = '';
@@ -896,7 +953,7 @@ function hud(dt, now) {
     const li = document.createElement('li'); if (!r.al) li.className = 'dead';
     const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = r.col;
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.nm;
-    if (r.reg) nm.appendChild(verifiedBadge());
+    if (r.reg) { nm.appendChild(verifiedBadge()); if (r.uid) { nm.dataset.uid = r.uid; nm.classList.add('linky'); } }
     if (r.me || r.host) { const sm = document.createElement('small'); sm.textContent = [r.host ? 'host' : '', r.me ? 'you' : ''].filter(Boolean).join(' · '); nm.appendChild(sm); }
     const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = r.sc.toLocaleString();
     li.append(sw, nm, sc); ol.appendChild(li);
@@ -1307,7 +1364,7 @@ function renderLobbyPlayers() {
     const paint = id === S.id ? S.paint : (r.paint || r.col);
     MazeModels.draw(cv.getContext('2d'), looksOf(r.nm, id === S.id ? S.model : r.mdl | 0), 32, 34, 22, paint, 0, 0.45, 0);
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.nm;
-    if (r.reg) nm.appendChild(verifiedBadge());
+    if (r.reg) { nm.appendChild(verifiedBadge()); if (r.uid) { nm.dataset.uid = r.uid; nm.classList.add('linky'); } }
     const tags = [id === S.host ? 'Host' : '', id === S.id ? 'You' : ''].filter(Boolean);
     li.append(cv, nm);
     for (const t of tags) { const c = document.createElement('span'); c.className = 'tag' + (t === 'Host' ? ' host' : ''); c.textContent = t; li.appendChild(c); }

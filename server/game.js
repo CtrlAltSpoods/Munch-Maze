@@ -61,12 +61,12 @@ class Game {
     this.send(p, {
       t: 'welcome', id: p.id, seed: this.seed, key: this.key, vis: this.isPrivate ? 'private' : 'public', gid: this.gid, title: this.title || '', testMode: this.opts.testMode ? 1 : 0, link: this.link || '', locked: !!this.pass,
       lv: this.L, b: M.toB64(this.bits),
-      roster: [...this.players.values()].map(q => [q.id, q.nm, q.col, q.mdl, q.ci, q.uid ? 1 : 0]),
+      roster: [...this.players.values()].map(q => [q.id, q.nm, q.col, q.mdl, q.ci, q.uid ? 1 : 0, q.uid || 0]),
       sc: p.sc, li: p.li, over: p.over, host: this.hostId, ph: this.ph,
       stats: (this.ph === 1 || this.ph === 2) ? this.lvStats : null,
       pu: this.pending ? { kind: this.pending.kind, by: this.pending.by, x: this.pending.x, y: this.pending.y } : null
     });
-    this.broadcast({ t: 'join', id: p.id, nm: p.nm, col: p.col, mdl: p.mdl, ci: p.ci, reg: p.uid ? 1 : 0 }, p.id);
+    this.broadcast({ t: 'join', id: p.id, nm: p.nm, col: p.col, mdl: p.mdl, ci: p.ci, reg: p.uid ? 1 : 0, uid: p.uid || 0 }, p.id);
     if (this.ph === 6 && this.votes) {   // arrived mid-vote: they get a say too
       const pd = this.pending;
       this.send(p, { t: 'vote', by: pd.by, nm: pd.nm, x: pd.x, y: pd.y, crate: pd.crate, s: Math.round(this.ct * 10) / 10, tot: this.players.size });
@@ -86,7 +86,7 @@ class Game {
     }
     // keep the run for a while so a reconnect resumes it; record the score once it expires
     if (p.token) this.resume.set(p.token, { sc: p.sc, li: p.li, over: p.over, nm: p.nm, uid: p.uid || 0, lv: this.L, at: Date.now() });
-    else if (p.sc > 0 && !p.over) this.opts.onScore({ uid: p.uid || 0, n: p.nm, sc: p.sc, lv: this.L, seed: this.seed });
+    else if (p.sc > 0 && !p.over) this.report(p);
     this.broadcast({ t: 'leave', id: p.id });
     if (!this.players.size) this.emptySince = Date.now();
   }
@@ -111,6 +111,7 @@ class Game {
         const sk = (m.sk | 0) > 0 ? m.sk | 0 : 0;
         for (const raw of list) this.eat(p, raw | 0);
         if (sk) p.lvBest = Math.max(p.lvBest || 0, Math.min(sk, p.lvEat || 0));
+        if (p.lvBest >= 100) this.achieve(p, 'streak100');
         return;
       }
       case 'ghost': {
@@ -122,14 +123,21 @@ class Game {
         g.st = 3; g.ep++;
         if (p.fid !== this.fid) { p.fid = this.fid; p.combo = 0; }
         const pts = 200 * Math.pow(2, Math.min(p.combo, 3)); p.combo++;
+        if (p.combo >= 4) this.achieve(p, 'quad');
         p.sc += pts;
         this.send(p, { t: 'pts', v: pts, x: gx, y: gy });
+        return;
+      }
+      case 'hf': {   // a high five (the client spotted it); both players must really be next to each other
+        const o = this.players.get(m.id | 0);
+        if (!o || o === p || !o.al || !p.al || Math.hypot(o.x - p.x, o.y - p.y) > 1.6) return;
+        this.achieve(p, 'teamwork'); this.achieve(o, 'teamwork');
         return;
       }
       case 'die':
         if (!p.al || p.over || Date.now() - p.spawnAt < 1500) return;
         p.al = false; p.li = Math.max(0, p.li - 1);
-        if (p.li === 0) { p.over = true; if (p.sc > 0) this.opts.onScore({ uid: p.uid || 0, n: p.nm, sc: p.sc, lv: this.L, seed: this.seed }); }
+        if (p.li === 0) { p.over = true; if (p.sc > 0) this.report(p); }
         if (this.nukeIn > 0) {   // everyone had to survive: one death and the strike is called off
           this.nukeIn = 0;
           this.broadcast({ t: 'nukecancel', by: p.id, nm: p.nm });
@@ -220,9 +228,22 @@ class Game {
     for (const g of this.ghosts) if (g.st === 1 || g.st === 2) { g.st = 2; g.rev = true; }
   }
 
+  /** A finished run goes on the scoreboards (and the player's profile). */
+  report(p) { this.opts.onScore({ uid: p.uid || 0, n: p.nm, sc: p.sc, lv: this.L, seed: this.seed, daily: this.daily || '', model: (M.MODELS[p.mdl] || {}).id || '' }); }
+  /** Achievements only count for logged-in players; the server keeps track and says when one is new. */
+  achieve(p, id) {
+    if (!p || !p.uid || !this.opts.onAchieve) return;
+    p.ach = p.ach || new Set(); if (p.ach.has(id)) return; p.ach.add(id);
+    if (this.opts.onAchieve(p.uid, id)) this.send(p, { t: 'ach', id });
+  }
   /** Level over: celebrate, and tell everyone who got what. */
   finishLevel(nuked) {
     this.ph = 1; this.ct = 3.9; this.nukeIn = 0;   // long enough for the slot reels to finish
+    for (const p of this.players.values()) {
+      if (p.over) continue;
+      if (this.opts.onCleared && p.uid) this.opts.onCleared(p.uid, this.L);
+      this.achieve(p, 'first'); if (this.L >= 10) this.achieve(p, 'level10'); if (this.L >= 25) this.achieve(p, 'level25');
+    }
     const total = this.lv.pList.length || 1, rows = [];
     for (const p of this.players.values()) rows.push([p.id, p.nm, p.lvEat || 0, Math.round((p.lvEat || 0) * 1000 / total) / 10, p.lvBest || 0]);
     rows.sort((a, b) => b[2] - a[2] || b[4] - a[4]);
@@ -438,7 +459,7 @@ class Game {
     const now = Date.now();
     if (this.tickNo % 30 === 0) for (const [k, r] of this.resume) if (now - r.at > RESUME_MS) {
       this.resume.delete(k);
-      if (r.sc > 0 && !r.over) this.opts.onScore({ uid: r.uid || 0, n: r.nm, sc: r.sc, lv: r.lv, seed: this.seed });
+      if (r.sc > 0 && !r.over) this.opts.onScore({ uid: r.uid || 0, n: r.nm, sc: r.sc, lv: r.lv, seed: this.seed, daily: this.daily || '' });
     }
     if (!this.players.size) return;
     this.clock += dt;
@@ -464,6 +485,7 @@ class Game {
       for (const i of this.lv.pList) M.setBit(this.bits, i);
       this.left = 0; this.crates = [];
       this.broadcast({ t: 'nuke' });
+      for (const p of this.players.values()) if (!p.over) this.achieve(p, 'nuke');
     } else if (this.ph === 5) {      // nuke going off; still paused
       this.ct -= dt;
       if (this.ct <= 0) {

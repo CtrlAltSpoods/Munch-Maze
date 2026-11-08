@@ -217,6 +217,21 @@
     return o;
   }
 
-  return { DIRS, POWERUPS, POWERUP_FROM_LEVEL, VOTE_TIME, SPEED_STEP, PU_SPIN, PU_HOLD, NUKE_WARN, NUKE_TIME, rollPowerup, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, ghostMult, speedStep, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
+  // Achievements, earned by players logged in with Discord (shown on their profile card).
+  const ACHIEVEMENTS = [
+    { id: 'first',     name: 'First Clear',  desc: 'Clear a level' },
+    { id: 'level10',   name: 'Ten Down',     desc: 'Clear level 10' },
+    { id: 'level25',   name: 'Deep Diver',   desc: 'Clear level 25' },
+    { id: 'streak100', name: 'Unstoppable',  desc: 'Hit a 100 pellet streak' },
+    { id: 'quad',      name: 'Clean Sweep',  desc: 'Eat 4 ghosts from one big pellet' },
+    { id: 'nuke',      name: 'Survivor',     desc: 'Survive a Nuke countdown' },
+    { id: 'teamwork',  name: 'Teamwork',     desc: 'High five another player' },
+    { id: 'revive',    name: 'Lifesaver',    desc: 'Revive a teammate' },
+    { id: 'boss',      name: 'Boss Slayer',  desc: 'Help defeat a boss ghost' },
+    { id: 'fruit',     name: 'Fruit Picker', desc: 'Grab a bonus fruit' },
+    { id: 'daily',     name: 'Daily Driver', desc: 'Set a score on the daily maze' },
+    { id: 'versus',    name: 'Champion',     desc: 'Win a versus level' }
+  ];
+  return { ACHIEVEMENTS, DIRS, POWERUPS, POWERUP_FROM_LEVEL, VOTE_TIME, SPEED_STEP, PU_SPIN, PU_HOLD, NUKE_WARN, NUKE_TIME, rollPowerup, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, ghostMult, speedStep, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
     genLevel, wrapX, canGo, entPos, getBit, setBit, toB64, fromB64 };
 });
