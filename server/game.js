@@ -39,7 +39,7 @@ class Game {
     this.fr = 0; this.fid = 0; this.ph = lobby ? 3 : 0; this.ct = 0; this.clock = 0; this.lastMode = -1;
     this.eatenSince = [];
     // loot crates: from level 3, 1 or 2 appear at random moments in the level
-    this.crates = []; this.effects = []; this.pending = null; this.nukeIn = 0; this.lvStats = null; this.crateSeq = this.crateSeq || 0;
+    this.crates = []; this.effects = []; this.pending = null; this.nukeIn = 0; this.lvStats = null; this.ghostEats = 0; this.crateSeq = this.crateSeq || 0;
     this.spawns = L >= M.POWERUP_FROM_LEVEL ? Array.from({ length: Math.random() < 0.5 ? 1 : 2 }, () => 6 + Math.random() * 30).sort((a, b) => a - b) : [];
     for (const p of this.players.values()) {
       p.x = this.lv.sx; p.y = this.lv.sy; p.combo = 0; p.lvEat = 0; p.lvBest = 0;
@@ -207,6 +207,14 @@ class Game {
     if (this.left <= 0) this.finishLevel(false);
   }
 
+  /** A hacked ghost eats the pellet on its tile. Counts towards clearing the level; scores nothing. */
+  ghostEat(i) {
+    const lv = this.lv;
+    if (!lv.p[i] || M.getBit(this.bits, i)) return;
+    M.setBit(this.bits, i); this.left--; this.eatenSince.push(i);
+    this.ghostEats = (this.ghostEats || 0) + 1;
+    if (this.left <= 0) this.finishLevel(false);
+  }
   frighten(dur) {
     this.fr = dur || M.frightDuration(this.L); this.fid++;
     for (const g of this.ghosts) if (g.st === 1 || g.st === 2) { g.st = 2; g.rev = true; }
@@ -219,7 +227,7 @@ class Game {
     for (const p of this.players.values()) rows.push([p.id, p.nm, p.lvEat || 0, Math.round((p.lvEat || 0) * 1000 / total) / 10, p.lvBest || 0]);
     rows.sort((a, b) => b[2] - a[2] || b[4] - a[4]);
     const got = rows.reduce((s, r) => s + r[2], 0);
-    this.lvStats = { lv: this.L, total, rows, nuked: nuked ? Math.max(0, total - got) : 0 };
+    this.lvStats = { lv: this.L, total, rows, nuked: nuked ? Math.max(0, total - got - (this.ghostEats || 0)) : 0, ghosts: this.ghostEats || 0 };
     this.broadcast(Object.assign({ t: 'lvstats' }, this.lvStats));
   }
 
@@ -417,6 +425,8 @@ class Game {
       const rem = 1 - g.t;
       if (dist < rem) { g.t += dist; return; }
       dist -= rem; g.tx = M.wrapX(lv, g.tx + DIRS[g.d][0]); g.ty += DIRS[g.d][1]; g.t = 0;
+      if ((g.st === 1 || g.st === 2) && this.effect('hacker')) this.ghostEat(g.ty * lv.W + g.tx);   // HACKER: ghosts munch pellets
+      if (this.ph !== 0) return;   // that pellet may have finished the level
       if (g.st === 3 && g.tx === lv.mid && g.ty === lv.cy - 2) { g.st = 0; g.home = 1.2; g.d = -1; return; }
       g.d = this.chooseDir(g, players);
     }

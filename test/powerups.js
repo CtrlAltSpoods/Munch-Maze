@@ -129,6 +129,25 @@ async function trigger(r, id) {
   await until(nk.b, m => m.t === 's' && m.ph === 1, (M.NUKE_TIME + 2) * 1000);
   console.log('ok  Nuke: ' + M.NUKE_WARN + ' s survival countdown with play running, then a paused ' + M.NUKE_TIME + ' s strike, then the level is passed');
 
+  // HACKER: ghosts eat pellets for 10 s; nobody scores for it
+  const hk = await room('pu-hacker', 3);
+  await wait(1200);   // let the ghosts leave the box
+  const before = lastS(hk.b).left, scBefore = lastS(hk.b).p.map(r => r[5]).join();
+  await trigger(hk, 'hacker');
+  const hon = await until(hk.b, m => m.t === 'puon', 6000);
+  if (M.POWERUPS[hon.kind].id !== 'hacker') fail('hacker should activate');
+  const t0h = Date.now();
+  await until(hk.b, m => m.t === 's' && m.left < before - 3, 9000);
+  const fxh = lastS(hk.b).fx.find(f => M.POWERUPS[f[0]].id === 'hacker');
+  if (!fxh || fxh[1] > 10.01) fail('hacker lasts 10 s');
+  const eatenByGhosts = before - lastS(hk.b).left;
+  if (lastS(hk.b).p.map(r => r[5]).join() !== scBefore) fail('pellets eaten by hacked ghosts must not score for anyone');
+  console.log('ok  Hacker: ghosts ate ' + eatenByGhosts + ' pellets within ' + ((Date.now() - t0h) / 1000).toFixed(1) + ' s, for 10 s, scoring nothing');
+  await wait(10500);
+  const afterLeft = lastS(hk.b).left; await wait(2500);
+  if (lastS(hk.b).left !== afterLeft) fail('ghosts stop eating when Hacker ends');
+  console.log('ok  Hacker: ghosts stop eating when it ends');
+
   // a death during the nuke countdown calls the strike off
   const nc = await room('pu-nukecancel', 3);
   await trigger(nc, 'nuke');

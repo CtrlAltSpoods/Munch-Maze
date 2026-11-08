@@ -129,6 +129,15 @@ function icon(ctx, id, x, y, s, t = 0) {
       ctx.fillStyle = '#41e0f0'; ctx.beginPath(); ctx.arc(0, 0, r * 0.18, 0, 7); ctx.fill(); ctx.restore();
       break;
     }
+    case 'hacker': {   // a terminal prompt inside a hex, with a blinking cursor and the odd glitch
+      const gl = Math.sin(t * 37) > 0.93 ? r * 0.12 : 0;
+      ctx.strokeStyle = '#b44dff'; ctx.lineWidth = s * 0.08;
+      ctx.beginPath(); for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + k * Math.PI / 3; ctx.lineTo(Math.cos(a) * r * 0.85, Math.sin(a) * r * 0.85); } ctx.closePath(); ctx.stroke();
+      ctx.strokeStyle = '#3dffa0'; ctx.lineWidth = s * 0.09; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(-r * 0.42 + gl, -r * 0.28); ctx.lineTo(-r * 0.12 + gl, 0); ctx.lineTo(-r * 0.42 + gl, r * 0.28); ctx.stroke();
+      if (Math.floor(t * 2.5) % 2 === 0) { ctx.fillStyle = '#3dffa0'; ctx.fillRect(r * 0.02 - gl, r * 0.18, r * 0.4, r * 0.1); }
+      break;
+    }
     case 'phone': {
       ctx.rotate(-0.5 + Math.sin(t * 30) * 0.08);
       ctx.fillStyle = '#ffcc33'; ctx.strokeStyle = '#ffcc33'; ctx.lineWidth = s * 0.16;

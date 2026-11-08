@@ -75,7 +75,8 @@
     { id: 'quake',      name: 'EARTHQUAKE',       good: false, dur: 7,  weight: 10, desc: 'The whole maze shakes for 7 s' },
     { id: 'unplugged',  name: 'Controller Died',  good: false, dur: 3,  weight: 10, desc: 'Nobody can move for 3 s' },
     { id: 'autopilot',  name: 'Autopilot',        good: true,  dur: 10, weight: 10, desc: 'Your browser plays for you for 10 s' },
-    { id: 'phone',      name: 'Phone A Ghost',    good: false, dur: 20, weight: 10, desc: 'An extra ghost joins for 20 s' }
+    { id: 'phone',      name: 'Phone A Ghost',    good: false, dur: 20, weight: 10, desc: 'An extra ghost joins for 20 s' },
+    { id: 'hacker',     name: 'Hacker',           good: true,  dur: 10, weight: 9,  desc: 'Ghosts are hacked for 10 s: they eat pellets as they roam' }
   ];
   const POWERUP_FROM_LEVEL = 3;
   const VOTE_TIME = 8;   // seconds everyone gets to vote on opening a crate

@@ -655,9 +655,11 @@ function render(dt) {
     const fl = S.fr > 0 && S.fr < 2 && Math.floor(S.time * 5) % 2 === 0;
     if (!gone) drawCrates(T);
     const mega = effectOn('megaghost') ? 2 : 1;
+    const hacked = S.inGame && effectOn('hacker');
     if (!S.nuked) for (const g of S.gv) {
       if (mega > 1 && g.st !== 3) { ctx.globalAlpha = 0.35; blit(glowSprite('#7a0020', T * 0.6, T * 0.9), (g.x + .5) * T, (g.y + .5) * T); ctx.globalAlpha = 1; }
       drawGhost(g.x, g.y, T, g.phone ? '#ffcc33' : GCOL[g.i % GCOL.length], g.st, g.d, fl, g.st === 3 ? 1 : mega);
+      if (hacked && g.st !== 3) drawHacked(g, T);
       if (g.phone && g.st !== 3) MazeFX.icon(ctx, 'phone', (g.x + .5) * T, (g.y + .5) * T - T * 0.75 * mega, T * 0.55, S.time);
     }
     drawLasers(T);
@@ -871,6 +873,11 @@ function powerupStarted(kind, by) {
     case 'unplugged': A.sfx('unplugged'); MazeFX.flash('#000000', 0.45); break;
     case 'autopilot': A.sfx('autopilot'); MazeFX.ring(px, py, '#41e0f0', 3, 0.6); break;
     case 'phone': A.sfx('phone'); MazeFX.ring(lv.mid, lv.cy - 2, '#ffcc33', 3, 0.7); break;
+    case 'hacker':
+      A.sfx('hacker'); MazeFX.flash('#3dffa0', 0.2);
+      setTimeout(() => { if (A.say) A.say('System breached. The ghosts work for us now.'); }, 900);
+      for (const g of S.gv) { MazeFX.ring(g.x, g.y, '#b44dff', 2.5, 0.5); MazeFX.sparks(g.x, g.y, '#3dffa0', 12, 4, 0.5); }
+      break;
   }
 }
 function nukeStarted() {
@@ -1006,6 +1013,21 @@ function drawQuake(T, mw, mh) {
   ctx.restore();
   if (Math.random() < 0.5) MazeFX.sparks(Math.random() * S.lvl.W, Math.random() * S.lvl.H, '#b08a5a', 2, 1.2, 0.8);   // dust
 }
+/* HACKER: hacked ghosts glitch (shifted colour slices) and leak little bits of code. */
+function drawHacked(g, T) {
+  const cx = (g.x + .5) * T, cy = (g.y + .5) * T, r = T * .5;
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (let k = 0; k < 3; k++) {
+    if (Math.random() < 0.55) continue;
+    const y = cy - r + Math.random() * r * 2, h = T * (0.06 + Math.random() * 0.12), off = (Math.random() - 0.5) * T * 0.5;
+    ctx.fillStyle = Math.random() < 0.5 ? 'rgba(61,255,160,0.55)' : 'rgba(180,77,255,0.55)';
+    ctx.fillRect(cx - r + off, y, r * 2, h);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.font = '700 ' + Math.max(8, Math.round(T * 0.32)) + 'px "IBM Plex Mono", monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#3dffa0';
+  ctx.globalAlpha = 0.85; ctx.fillText(Math.floor(S.time * 6 + g.i) % 2 ? '01' : '10', cx, cy - r * 1.15);
+  ctx.restore();
+}
 /* Markers on players for active effects. */
 function drawEffectMarks(T) {
   // header badges with time left
@@ -1113,9 +1135,10 @@ function renderStats() {
     const sk = document.createElement('td'); sk.className = 'sk'; sk.textContent = best > 0 ? '×' + best : '–'; if (best > 0 && best === topSk) sk.classList.add('top');
     tr.append(who, pc, sk); body.appendChild(tr);
   }
-  const foot = $('statsFoot');
-  foot.hidden = !st.nuked;
-  if (st.nuked) foot.textContent = 'The nuke took the other ' + Math.round(st.nuked * 100 / st.total) + '% (' + st.nuked + ' pellets).';
+  const foot = $('statsFoot'), notes = [];
+  if (st.ghosts) notes.push('Hacked ghosts ate ' + Math.round(st.ghosts * 100 / st.total) + '% (' + st.ghosts + ' pellets).');
+  if (st.nuked) notes.push('The nuke took the other ' + Math.round(st.nuked * 100 / st.total) + '% (' + st.nuked + ' pellets).');
+  foot.hidden = !notes.length; foot.textContent = notes.join(' ');
 }
 function updateReady() {
   updateLobby();

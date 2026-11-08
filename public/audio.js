@@ -473,6 +473,19 @@ const FX = {
   replugged(t) { [72, 79].forEach((m, i) => tone(sfxBus, { type: 'square', f: hz(m), t: t + i * 0.08, dur: 0.1, vol: 0.1 })); },
   autopilot(t) { [84, 84, 91, 96].forEach((m, i) => tone(sfxBus, { type: 'square', f: hz(m), t: t + i * 0.11, dur: 0.08, vol: 0.1, filter: [3500, 3500, 1] })); },
   autopilotOff(t) { [91, 84].forEach((m, i) => tone(sfxBus, { type: 'square', f: hz(m), t: t + i * 0.11, dur: 0.08, vol: 0.09 })); },
+  hacker(t) {   // glitchy data stutter, a modem chirp, then a two-note "access granted"
+    for (let k = 0; k < 16; k++) {
+      const tt = t + k * 0.032 + Math.random() * 0.01, f = 300 + Math.random() * 2200;
+      tone(sfxBus, { type: Math.random() < 0.5 ? 'square' : 'sawtooth', f, f2: f * (0.5 + Math.random()), t: tt, dur: 0.025, vol: 0.05, filter: [4000, 1500, 2] });
+      if (k % 4 === 0) noise(sfxBus, { t: tt, dur: 0.02, vol: 0.08, type: 'bandpass', freq: 3000 + Math.random() * 3000, q: 4 });
+    }
+    const m = t + 0.55, o = ctx.createOscillator(), lfo = ctx.createOscillator(), lg = ctx.createGain(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(1100, m); o.frequency.linearRampToValueAtTime(2300, m + 0.3);
+    lfo.frequency.value = 55; lg.gain.value = 260; lfo.connect(lg); lg.connect(o.frequency);
+    env(g, m, 0.01, 0.06, 0.3); o.connect(g); g.connect(sfxBus); o.start(m); o.stop(m + 0.35); lfo.start(m); lfo.stop(m + 0.35);
+    tone(sfxBus, { type: 'triangle', f: 880, t: m + 0.42, dur: 0.12, vol: 0.1 });
+    tone(sfxBus, { type: 'triangle', f: 1320, t: m + 0.56, dur: 0.22, vol: 0.1 });
+  },
   phone(t) {   // old phone ring, twice
     for (let r = 0; r < 2; r++) for (let k = 0; k < 10; k++) {
       const tt = t + r * 0.65 + k * 0.04;
@@ -526,6 +539,16 @@ const FX = {
   respawn(t) { tone(sfxBus, { type: 'sine', f: 400, f2: 1200, t, dur: 0.18, vol: 0.22 }); },
   join(t) { [79, 84].forEach((m, i) => tone(sfxBus, { type: 'sine', f: hz(m), t: t + i * 0.07, dur: 0.18, vol: 0.12 })); }
 };
+/* A short robotic voice line (the browser's built-in speech), at the effects volume. */
+function say(text, { pitch = 0.5, rate = 1.05 } = {}) {
+  try {
+    if (!('speechSynthesis' in window) || sfxVol <= 0.001) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.pitch = pitch; u.rate = rate; u.volume = Math.min(1, curve(sfxVol) * 2.2);
+    const v = speechSynthesis.getVoices().find(x => /^en/i.test(x.lang)); if (v) u.voice = v;
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  } catch (e) { /* speech is a nice extra, never required */ }
+}
 /* Nuke alarm: a rising electronic "whoop" every second, warbling, until stopped. */
 let alarm = null;
 function alarmWhoop(t, out) {
@@ -570,5 +593,5 @@ document.addEventListener('visibilitychange', () => {
   else ctx.resume().then(() => { if (music.on) music.next = Math.max(music.next, ctx.currentTime + 0.05); }).catch(() => {});
 });
 
-window.MazeAudio = { nukeAlarm, get alarmOn() { return !!alarm; }, fadeOutMusic, DROP_TIME, get playing() { return music.on; }, get mode() { return music.mode; }, /* for tests */ levels() { return tracks ? { normal: +tracks.normal.bus.gain.value.toFixed(3), boss: +tracks.boss.bus.gain.value.toFixed(3) } : null; }, get bpm() { return music.bpm; }, unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, beat, get supported() { return !!AC; } };
+window.MazeAudio = { say, nukeAlarm, get alarmOn() { return !!alarm; }, fadeOutMusic, DROP_TIME, get playing() { return music.on; }, get mode() { return music.mode; }, /* for tests */ levels() { return tracks ? { normal: +tracks.normal.bus.gain.value.toFixed(3), boss: +tracks.boss.bus.gain.value.toFixed(3) } : null; }, get bpm() { return music.bpm; }, unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, beat, get supported() { return !!AC; } };
 })();
