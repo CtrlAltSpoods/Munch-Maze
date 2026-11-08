@@ -105,6 +105,7 @@ function onMsg(m) {
       try { history.replaceState(null, '', '#' + inviteHash()); } catch (e) { /* ignore */ }
       setNet('');
       A.startMusic(S.L); A.sfx('start');
+      if (isPeanut(S.name)) MazeFX.bigText('PEANUT MODE', 'quack quack', '#ffd83b', 1.8);
       break;
     }
     case 'level':
@@ -425,6 +426,10 @@ getJSON('api/info').then(info => {
 }).catch(() => {});
 refreshLobby(); setInterval(refreshLobby, 3000);
 
+/* Easter egg: play as "Peanut" and you're a waddling duck with your own song.
+   Anyone named Peanut shows up as a duck for everyone; only Peanut hears the song. */
+const isPeanut = nm => String(nm || '').trim().toLowerCase() === 'peanut';
+const looksOf = (nm, mdl) => isPeanut(nm) ? 'duck' : mdl;
 /* Title screen tabs: Join a game / New maze / Top scores */
 function setTab(name) {
   for (const [id, pane] of [['tabJoin', 'paneJoin'], ['tabNew', 'paneNew'], ['tabScores', 'paneScores']]) {
@@ -445,7 +450,8 @@ function drawHero() {
   halo.addColorStop(0, col + '55'); halo.addColorStop(1, col + '00');
   g.fillStyle = halo; g.fillRect(0, 0, w, w);
   const chew = MazeFX.reduced() ? 0.45 : 0.5 + 0.5 * Math.sin(t * 7);
-  MazeModels.draw(g, S.model, w / 2, w / 2 + Math.sin(t * 2) * (MazeFX.reduced() ? 0 : 3), w * 0.3, S.paint, 0, chew, t);
+  setTxt('charName', isPeanut($('nameIn').value) ? 'Duck' : M.MODELS[S.model].name);
+  MazeModels.draw(g, looksOf($('nameIn').value, S.model), w / 2, w / 2 + Math.sin(t * 2) * (MazeFX.reduced() ? 0 : 3), w * 0.3, S.paint, 0, chew, t);
 }
 function askPassword(room, name) {
   S.tabPicked = true; setTab('join');
@@ -466,6 +472,7 @@ function join(roomId) {
   S.key = '';
   store.set('mm.vis', $('visIn').value);
   A.unlock();
+  if (A.setCustomTrack) A.setCustomTrack(isPeanut(S.name) ? 'custom/peanut.mp3' : null);   // Peanut's song, if the server has it
   $('joinErr').hidden = true;
   $('playBtn').disabled = true; $('playBtn').textContent = 'Connecting…';
   S.wantGame = true; clearTimeout(S.reconnectT);
@@ -701,7 +708,7 @@ function render(dt) {
       ctx.globalCompositeOperation = 'lighter';
       for (const q of o.trail) { const a = 1 - (S.time - q.t) / 0.22; ctx.globalAlpha = a * 0.4; blit(glowSprite(pc, T * 0.18, T * 0.3), (q.x + .5) * T, (q.y + .5) * T, 0.6 + a * 0.5); }
       ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-      drawPac(o.x, o.y, T, p.paint, p.f, .06 + .22 * Math.abs(Math.sin(S.time * 12 + p.id)), true, p.mdl);
+      drawPac(o.x, o.y, T, p.paint, p.f, .06 + .22 * Math.abs(Math.sin(S.time * 12 + p.id)), true, looksOf(p.nm, p.mdl));
       ctx.strokeStyle = pc; ctx.globalAlpha = .3 + beat * .25; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc((o.x + .5) * T, (o.y + .5) * T, T * (.62 + beat * .08), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
       ctx.font = '600 ' + Math.max(10, Math.round(T * .42)) + 'px "IBM Plex Mono", ui-monospace, monospace';
       ctx.lineWidth = 3; ctx.strokeStyle = '#0a0c1c'; ctx.strokeText(p.nm, (o.x + .5) * T, (o.y + .5) * T - T * .5);
@@ -718,10 +725,10 @@ function render(dt) {
       ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
     }
     if (!S.over) {
-      if (!S.alive) { const prog = 1 - Math.max(0, S.deadT) / 1.4; if (prog < .95) drawPac(px, py, T, S.paint, S.me.face, .3, true, S.model, prog); }
+      if (!S.alive) { const prog = 1 - Math.max(0, S.deadT) / 1.4; if (prog < .95) drawPac(px, py, T, S.paint, S.me.face, .3, true, looksOf(S.name, S.model), prog); }
       else {
         const blink = S.inv > 0 && Math.floor(S.time * 10) % 2 === 0;
-        if (!blink) drawPac(px, py, T, S.paint, S.me.face, S.me.d >= 0 && S.ph === 0 ? .06 + .24 * Math.abs(Math.sin(S.time * 14)) : .18, true, S.model);
+        if (!blink) drawPac(px, py, T, S.paint, S.me.face, S.me.d >= 0 && S.ph === 0 ? .06 + .24 * Math.abs(Math.sin(S.time * 14)) : .18, true, looksOf(S.name, S.model));
         ctx.strokeStyle = MazeModels.colorAt(S.paint, S.time); ctx.globalAlpha = .35 + beat * .3; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc((px + .5) * T, (py + .5) * T, T * (.62 + beat * .08), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
       }
     }
@@ -1238,7 +1245,7 @@ function renderLobbyPlayers() {
     const r = S.roster.get(id), li = document.createElement('li');
     const cv = document.createElement('canvas'); cv.width = 64; cv.height = 64; cv.className = 'av';
     const paint = id === S.id ? S.paint : (r.paint || r.col);
-    MazeModels.draw(cv.getContext('2d'), id === S.id ? S.model : r.mdl | 0, 32, 34, 22, paint, 0, 0.45, 0);
+    MazeModels.draw(cv.getContext('2d'), looksOf(r.nm, id === S.id ? S.model : r.mdl | 0), 32, 34, 22, paint, 0, 0.45, 0);
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.nm;
     const tags = [id === S.host ? 'Host' : '', id === S.id ? 'You' : ''].filter(Boolean);
     li.append(cv, nm);

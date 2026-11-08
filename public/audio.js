@@ -252,6 +252,8 @@ function scheduler() {
   }
 }
 function startMusic(level = 1) {
+  custom.level = level;
+  if (custom.url) { if (ready()) playCustom(); return; }
   if (!unlock()) return;
   clearTimeout(fadeTimer);
   if (!music.on) { const g = musicBus.gain; g.cancelScheduledValues(ctx.currentTime); g.setValueAtTime(curve(musicVol) * MUSIC_TRIM, ctx.currentTime); }
@@ -279,12 +281,55 @@ function beat() {
 let fadeTimer = 0;
 /** Fade the music out over `dur` seconds, then stop it (it restarts with the next level). */
 function fadeOutMusic(dur = DROP_TIME) {
+  if (custom.url) return;   // the custom song carries on into the next level
   if (!ready() || !music.on) return;
   const t = ctx.currentTime, g = musicBus.gain;
   g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0.0001, t + dur);
   clearTimeout(fadeTimer); fadeTimer = setTimeout(() => { stopMusic(); }, dur * 1000 + 50);
 }
+/* A custom song (the Peanut easter egg) replaces all background music while it's set.
+   It loops through the music channel (so the music slider works) and carries on across
+   levels and blue-ghost phases. If the file can't be loaded, the normal music plays. */
+const custom = { url: null, buf: null, src: null, gain: null, offset: 0, startedAt: 0, want: false, level: 1, failed: null };
+function setCustomTrack(url) {
+  if (url === custom.url) return;
+  stopCustom(); custom.url = url || null; custom.buf = null;
+  if (!url || !ctx) return;
+  loadCustom();
+}
+function loadCustom() {
+  const url = custom.url; if (!url || custom.buf || custom.loading === url || custom.failed === url) return;
+  custom.loading = url;
+  fetch(url).then(r => r.ok ? r.arrayBuffer() : Promise.reject(new Error('HTTP ' + r.status)))
+    .then(b => new Promise((res, rej) => ctx.decodeAudioData(b, res, rej)))
+    .then(buf => { if (custom.url !== url) return; custom.buf = buf; custom.loading = null; if (custom.want) playCustom(); })
+    .catch(() => {   // no song on this server: fall back to the normal music
+      custom.loading = null; custom.failed = url;
+      if (custom.url === url) { custom.url = null; if (custom.want) { custom.want = false; startMusic(custom.level); } }
+    });
+}
+function playCustom() {
+  custom.want = true;
+  if (!ready() || custom.src) return;
+  if (!custom.buf) { loadCustom(); return; }
+  const s = ctx.createBufferSource(), g = ctx.createGain();
+  s.buffer = custom.buf; s.loop = true; g.gain.value = 0.0001; g.gain.setTargetAtTime(1.3, ctx.currentTime, 0.3);
+  s.connect(g); g.connect(musicFilter);
+  const off = custom.offset % custom.buf.duration;
+  s.start(ctx.currentTime, off); custom.startedAt = ctx.currentTime - off;
+  custom.src = s; custom.gain = g;
+  musicBus.gain.cancelScheduledValues(ctx.currentTime); musicBus.gain.setValueAtTime(curve(musicVol) * MUSIC_TRIM, ctx.currentTime);
+  musicFilter.frequency.cancelScheduledValues(ctx.currentTime); musicFilter.frequency.setValueAtTime(18000, ctx.currentTime);
+}
+function stopCustom() {
+  custom.want = false;
+  if (!custom.src) return;
+  if (custom.buf) custom.offset = (ctx.currentTime - custom.startedAt) % custom.buf.duration;   // pick up where it left off
+  const s = custom.src, g = custom.gain; custom.src = null; custom.gain = null;
+  try { g.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.08); s.stop(ctx.currentTime + 0.4); } catch (e) { /* ignore */ }
+}
 function stopMusic() {
+  stopCustom();
   clearTimeout(fadeTimer);
   music.on = false; clearInterval(music.timer); music.kicks = []; music.mode = 'normal'; frightOn = false;
   if (tracks) { const t = ctx.currentTime; tracks.boss.bus.gain.cancelScheduledValues(t); tracks.boss.bus.gain.setValueAtTime(0, t); tracks.normal.bus.gain.cancelScheduledValues(t); tracks.normal.bus.gain.setValueAtTime(1, t); }
@@ -300,6 +345,7 @@ function setDelays() {
 const bossBpm = () => Math.min(176, Math.round(music.baseBpm * 1.2 + 20));   // boss stays fast (~154 at level 1)
 /** Ghosts turned blue: cut to the boss track on the very next 16th; back again when they recover. */
 function setFright(on) {
+  if (custom.url) { frightOn = on; return; }   // the custom song plays straight through
   if (!ready() || on === frightOn) return; frightOn = on;
   ensureBossChain();
   music.mode = on ? 'boss' : 'normal';
@@ -615,5 +661,5 @@ document.addEventListener('visibilitychange', () => {
   else ctx.resume().then(() => { if (music.on) music.next = Math.max(music.next, ctx.currentTime + 0.05); }).catch(() => {});
 });
 
-window.MazeAudio = { loadSample, playSample, say, nukeAlarm, get alarmOn() { return !!alarm; }, fadeOutMusic, DROP_TIME, get playing() { return music.on; }, get mode() { return music.mode; }, /* for tests */ levels() { return tracks ? { normal: +tracks.normal.bus.gain.value.toFixed(3), boss: +tracks.boss.bus.gain.value.toFixed(3) } : null; }, get bpm() { return music.bpm; }, unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, beat, get supported() { return !!AC; } };
+window.MazeAudio = { setCustomTrack, get customPlaying() { return !!custom.src; }, loadSample, playSample, say, nukeAlarm, get alarmOn() { return !!alarm; }, fadeOutMusic, DROP_TIME, get playing() { return music.on; }, get mode() { return music.mode; }, /* for tests */ levels() { return tracks ? { normal: +tracks.normal.bus.gain.value.toFixed(3), boss: +tracks.boss.bus.gain.value.toFixed(3) } : null; }, get bpm() { return music.bpm; }, unlock, startMusic, stopMusic, setFright, setMusicVolume, setSfxVolume, sfx, beat, get supported() { return !!AC; } };
 })();

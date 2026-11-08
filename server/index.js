@@ -244,6 +244,8 @@ const server = http.createServer((req, res) => {
   }
   if (p === '/api/scores') return json(res, scores.slice(0, 10));
   if (p === '/maze.js') return sendFile(res, path.join(ROOT, 'shared', 'maze.js'));
+  // Optional sound files the server owner drops into the data folder (kept out of the image)
+  if (p === '/custom/peanut.mp3') return sendFile(res, path.join(CFG.dataDir, 'peanut.mp3'));
   let rel;
   try { rel = p === '/' ? 'index.html' : decodeURIComponent(p).replace(/^\/+/, ''); }
   catch (e) { res.writeHead(400); res.end(); return; }          // malformed %-escape

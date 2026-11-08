@@ -263,7 +263,53 @@ function gem(g, r, c, chew, t) {
 }
 
 const DRAW = { chomper, shark, bear, piranha, croc, wolf, dino, whale, dragon, gem };
+/* Easter egg: a little yellow duck, seen from the side, waddling along. Faces left when
+   heading left; tips its head up or down for vertical moves. chew opens the beak. */
+function drawDuck(g, cx, cy, r, face = 0, chew = 0.5, t = 0) {
+  const step = t * 11, bob = Math.abs(Math.sin(step)) * r * 0.07, sway = Math.sin(step) * 0.07;
+  g.save(); g.translate(cx, cy - bob);
+  if (face === 2) g.scale(-1, 1);
+  g.rotate(face === 3 ? -0.28 : face === 1 ? 0.28 : sway);
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  // feet, stepping in turn
+  for (const k of [0, 1]) {
+    const ph = step + k * Math.PI, fx = Math.sin(ph) * r * 0.22 - r * 0.05 + k * r * 0.12, lift = Math.max(0, Math.cos(ph)) * r * 0.1;
+    g.fillStyle = '#ff9a1f'; g.strokeStyle = '#c26a00'; g.lineWidth = Math.max(1, r * 0.05);
+    g.beginPath(); g.moveTo(fx - r * 0.05, r * 0.5 - lift); g.lineTo(fx - r * 0.05, r * 0.66 - lift); g.stroke();
+    g.beginPath(); g.moveTo(fx - r * 0.12, r * 0.7 - lift); g.lineTo(fx + r * 0.2, r * 0.68 - lift); g.lineTo(fx + r * 0.02, r * 0.6 - lift); g.closePath(); g.fill();
+  }
+  // body
+  const body = g.createRadialGradient(-r * 0.15, -r * 0.05, r * 0.1, -r * 0.05, r * 0.15, r * 0.75);
+  body.addColorStop(0, '#fff6a8'); body.addColorStop(0.6, '#ffdb2e'); body.addColorStop(1, '#f2b800');
+  g.fillStyle = body; g.strokeStyle = '#b98500'; g.lineWidth = Math.max(1, r * 0.06);
+  g.beginPath(); g.ellipse(-r * 0.08, r * 0.16, r * 0.62, r * 0.42, 0, 0, Math.PI * 2);
+  g.moveTo(-r * 0.62, r * 0.02); g.lineTo(-r * 0.86, -r * 0.2); g.lineTo(-r * 0.6, r * 0.18);   // tail tuft
+  g.fill(); g.stroke();
+  // wing, flapping a little with each step
+  g.save(); g.translate(-r * 0.12, r * 0.1); g.rotate(-0.15 + Math.sin(step * 2) * 0.12);
+  g.fillStyle = '#ffcf1a'; g.beginPath(); g.ellipse(0, 0, r * 0.32, r * 0.2, -0.2, 0, Math.PI * 2); g.fill(); g.stroke();
+  g.strokeStyle = 'rgba(185,133,0,0.6)'; g.lineWidth = Math.max(1, r * 0.035);
+  g.beginPath(); g.moveTo(-r * 0.2, r * 0.02); g.quadraticCurveTo(0, r * 0.1, r * 0.18, -r * 0.02); g.stroke();
+  g.restore();
+  // head
+  const hx = r * 0.36, hy = -r * 0.34;
+  const head = g.createRadialGradient(hx - r * 0.1, hy - r * 0.12, r * 0.05, hx, hy, r * 0.36);
+  head.addColorStop(0, '#fff6a8'); head.addColorStop(1, '#ffd21f');
+  g.fillStyle = head; g.strokeStyle = '#b98500'; g.lineWidth = Math.max(1, r * 0.06);
+  g.beginPath(); g.arc(hx, hy, r * 0.33, 0, Math.PI * 2); g.fill(); g.stroke();
+  // beak: top and bottom halves, opening as it eats
+  const open = Math.max(0, Math.min(1, chew)) * r * 0.16;
+  g.fillStyle = '#ff9a1f'; g.strokeStyle = '#c26a00'; g.lineWidth = Math.max(1, r * 0.04);
+  g.beginPath(); g.moveTo(hx + r * 0.24, hy - r * 0.02); g.quadraticCurveTo(hx + r * 0.62, hy - r * 0.04 - open * 0.3, hx + r * 0.66, hy + r * 0.04 - open * 0.5); g.lineTo(hx + r * 0.26, hy + r * 0.08); g.closePath(); g.fill(); g.stroke();
+  g.beginPath(); g.moveTo(hx + r * 0.26, hy + r * 0.1); g.lineTo(hx + r * 0.6, hy + r * 0.1 + open); g.quadraticCurveTo(hx + r * 0.4, hy + r * 0.2 + open, hx + r * 0.22, hy + r * 0.14); g.closePath(); g.fill(); g.stroke();
+  // eye and cheek
+  g.fillStyle = '#1a1206'; g.beginPath(); g.arc(hx + r * 0.1, hy - r * 0.1, r * 0.07, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#ffffff'; g.beginPath(); g.arc(hx + r * 0.12, hy - r * 0.13, r * 0.025, 0, Math.PI * 2); g.fill();
+  g.fillStyle = 'rgba(255,120,120,0.45)'; g.beginPath(); g.ellipse(hx + r * 0.02, hy + r * 0.08, r * 0.08, r * 0.05, 0, 0, Math.PI * 2); g.fill();
+  g.restore();
+}
 function draw(g, mdl, cx, cy, r, paint, face = 0, chew = 0.5, t = 0) {
+  if (mdl === 'duck') return drawDuck(g, cx, cy, r, face, chew, t);
   const list = (window.MazeCore && MazeCore.MODELS) || [];
   const fn = DRAW[(list[mdl] || list[0] || { id: 'chomper' }).id] || chomper;
   const premium = typeof paint === 'string' && paint.startsWith('p:') ? paint.slice(2) : '';
