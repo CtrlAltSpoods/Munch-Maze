@@ -33,8 +33,8 @@
      Each has five colours (colour N also needs level N cleared), plus five premium
      animated colours shared by every character, unlocked every 10 levels cleared. */
   const MODELS = [
+    { id: 'shark',   name: 'Shark',      colors: ['#41e0f0', '#8fb0d8', '#e6edf5', '#ff6b8b', '#e0a35a'] },
     { id: 'chomper', name: 'Chomper',    colors: ['#ffcc33', '#7cf0a0', '#6fd3ff', '#ff8fd1', '#f2f2f2'] },
-    { id: 'shark',   name: 'Shark',      colors: ['#8fb0d8', '#e6edf5', '#e0a35a', '#41e0f0', '#ff6b8b'] },
     { id: 'bear',    name: 'Polar Bear', colors: ['#f4f8ff', '#efe3c8', '#c9d6e8', '#ffd6e8', '#d6f0ff'] },
     { id: 'piranha', name: 'Piranha',    colors: ['#ff5a4a', '#ff9f1c', '#6fa8ff', '#a77bff', '#c0c8d8'] },
     { id: 'croc',    name: 'Croc',       colors: ['#5fbf4a', '#9aa83a', '#3fae8f', '#d8c27a', '#7a8cff'] },

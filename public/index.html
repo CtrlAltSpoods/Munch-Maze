@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Munch Maze</title>
 <meta name="description" content="A multiplayer maze-chase game. Share a seed, share a maze.">
-<meta name="theme-color" content="#0a0c1c">
+<meta name="theme-color" content="#07060f">
 <link rel="icon" href="icon.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="app" id="app">
   <header class="hud">
-    <div class="brand" id="brand">Munch<span>Maze</span></div>
+    <div class="brand" id="brand" data-logo></div>
     <div class="stats">
       <div class="stat"><span class="k">Level</span><span class="v" id="hLevel">1</span></div>
       <div class="stat"><span class="k">Maze</span><span class="v" id="hSize">15×11</span></div>
@@ -47,7 +47,7 @@
       <div class="overlay" id="startOv">
         <form class="card start" id="startForm" autocomplete="off">
           <header class="start-head">
-            <h1>Munch<span>Maze</span></h1>
+            <h1 class="biglogo" data-logo></h1>
             <p>Share a maze with however many people show up. Clear every pellet together and the next level opens, bigger than the last.</p>
           </header>
           <div class="err" id="joinErr" hidden></div>
@@ -234,6 +234,7 @@
 <script src="audio.js"></script>
 <script src="fx.js"></script>
 <script src="nuke.js"></script>
+<script src="logo.js"></script>
 <script src="space.js"></script>
 <script src="models.js"></script>
 <script src="client.js"></script>

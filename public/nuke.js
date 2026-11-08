@@ -282,13 +282,13 @@ function drawWarning(ctx, W, H, left, time, incoming) {
   ctx.globalAlpha = 0.85; hazard(ctx, 0, W, hh, time); hazard(ctx, H - hh, W, hh, -time); ctx.globalAlpha = 1;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const big = Math.min(W / 16, 34), small = Math.min(W / 30, 17), y = hh + 14 + small;
-  ctx.font = '400 ' + Math.round(small) + 'px Bungee, Impact, "Arial Black", sans-serif';
+  ctx.font = '900 ' + Math.round(small) + 'px Orbitron, Impact, "Arial Black", sans-serif';
   ctx.lineWidth = 4; ctx.strokeStyle = '#0a0c1c';
   const head = incoming ? 'TACTICAL NUKE INCOMING' : 'TACTICAL NUKE INBOUND';
   ctx.strokeText(head, W / 2, y); ctx.shadowColor = '#ff2a3a'; ctx.shadowBlur = 12 * pulse; ctx.fillStyle = '#ff3d4d'; ctx.fillText(head, W / 2, y); ctx.shadowBlur = 0;
   const line2 = incoming ? 'BRACE FOR IMPACT' : 'SURVIVE ' + Math.max(0, left).toFixed(1) + 's';
   const urgent = !incoming && left < 3 && Math.floor(time * 6) % 2 === 0;
-  ctx.font = '400 ' + Math.round(big) + 'px Bungee, Impact, "Arial Black", sans-serif';
+  ctx.font = '900 ' + Math.round(big) + 'px Orbitron, Impact, "Arial Black", sans-serif';
   ctx.strokeText(line2, W / 2, y + small * 0.7 + big * 0.75);
   ctx.fillStyle = urgent ? '#ff3d4d' : '#fff3b0'; ctx.fillText(line2, W / 2, y + small * 0.7 + big * 0.75);
   ctx.restore();

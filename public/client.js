@@ -43,8 +43,11 @@ const S = {
   time: 0, lastT: performance.now(), bannerT: 0, camX: null, camY: null, mazeKey: '', mazeCv: null, mazeFlash: null
 };
 { // remembered character and colour
-  const mdl = parseInt(store.get('mm.model'), 10), ci = parseInt(store.get('mm.ci'), 10);
-  let look = M.pickModel(Number.isFinite(mdl) ? mdl : 0, Number.isFinite(ci) ? ci : 0);
+  // saved by id; older saves were an index into the list from before the Shark moved to the front
+  const OLD = ['chomper', 'shark', 'bear', 'piranha', 'croc', 'wolf', 'dino', 'whale', 'dragon', 'gem'];
+  const savedId = store.get('mm.mdlId') || OLD[parseInt(store.get('mm.model'), 10)];
+  const mdl = M.MODELS.findIndex(m => m.id === savedId), ci = parseInt(store.get('mm.ci'), 10);
+  let look = M.pickModel(mdl >= 0 ? mdl : 0, Number.isFinite(ci) ? ci : 0);
   if (!modelOpen(look.mdl) || !colourOpen(look.ci)) look = M.pickModel(modelOpen(look.mdl) ? look.mdl : 0, colourOpen(look.ci) ? look.ci : 0);   // fall back if a saved pick is still locked
   S.model = look.mdl; S.ci = look.ci; S.color = look.col; S.paint = look.paint;
 }
@@ -400,7 +403,7 @@ function join(roomId) {
   S.setpw = $('visIn').value === 'public' && !S.inviteKey ? $('setpwIn').value.slice(0, 64) : '';
   S.lname = $('lnameIn').value.trim().slice(0, 32); store.set('mm.lname', S.lname);
   S.name = ($('nameIn').value.trim() || 'Player').slice(0, 16);
-  store.set('mm.name', S.name); store.set('mm.model', String(S.model)); store.set('mm.ci', String(S.ci));
+  store.set('mm.name', S.name); store.set('mm.mdlId', M.MODELS[S.model].id); store.set('mm.ci', String(S.ci));
   S.seed = M.slug($('seedIn').value);
   S.vis = S.inviteKey ? 'private' : ($('visIn').value === 'private' ? 'private' : 'public');
   S.key = '';
@@ -1235,7 +1238,7 @@ function refreshPicker() {
   M.PREMIUM.forEach((p, j) => addSwatch(5 + j, 'p:' + p.id, p.name));
   $('unlockHint').textContent = clearedLevel >= 50 ? 'Everything unlocked. Nice.'
     : 'Levels cleared: ' + clearedLevel + '. Clear more to unlock characters, colours and premium finishes (every 10 levels).';
-  store.set('mm.model', String(S.model)); store.set('mm.ci', String(S.ci));
+  store.set('mm.mdlId', M.MODELS[S.model].id); store.set('mm.ci', String(S.ci));
 }
 function animatePicker(t) {
   if ($('startOv').hidden) return;

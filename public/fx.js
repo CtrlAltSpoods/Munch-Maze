@@ -173,7 +173,7 @@ function drawPowerSlot(ctx, W, H) {
     const row = Math.floor(pos) + j, off = (row - pos) * rowH, idx = ((row % n) + n) % n, item = p.items[idx];
     const cy = ry + rh / 2 + off;
     icon(ctx, item.id, rx + 44, cy, rowH * 0.62, p.t);
-    ctx.font = '400 ' + Math.round(Math.min(26, rw / 14)) + 'px Bungee, Impact, "Arial Black", sans-serif';
+    ctx.font = '900 ' + Math.round(Math.min(26, rw / 14)) + 'px Orbitron, Impact, "Arial Black", sans-serif';
     ctx.fillStyle = p.landed && idx === p.final ? (item.good ? '#1f8a3a' : '#c2142f') : '#2a2f6a';
     ctx.textAlign = 'left'; ctx.fillText(item.name.toUpperCase(), rx + 84, cy + 1);
   }
@@ -253,7 +253,7 @@ function drawWorld(ctx, T) {
   for (const t of texts) {
     const k = t.life / t.max, pop = k < 0.15 ? 0.6 + (k / 0.15) * 0.7 : 1.3 - Math.min(0.3, (k - 0.15) * 1.2);
     ctx.globalAlpha = k > 0.7 ? (1 - k) / 0.3 : 1;
-    ctx.font = '400 ' + Math.round(t.size * T * pop) + 'px Bungee, Impact, "Arial Black", sans-serif';
+    ctx.font = '900 ' + Math.round(t.size * T * pop) + 'px Orbitron, Impact, "Arial Black", sans-serif';
     ctx.lineWidth = Math.max(2, T * 0.12); ctx.strokeStyle = '#0a0c1c'; ctx.strokeText(t.str, (t.x + 0.5) * T, (t.y + 0.5) * T);
     ctx.fillStyle = t.color; ctx.fillText(t.str, (t.x + 0.5) * T, (t.y + 0.5) * T);
   }
@@ -275,7 +275,7 @@ function drawScreen(ctx, W, H) {
   ctx.restore();
 }
 function glowText(ctx, str, x, y, size, color, blur) {
-  ctx.font = '400 ' + Math.round(size) + 'px Bungee, Impact, "Arial Black", sans-serif';
+  ctx.font = '900 ' + Math.round(size) + 'px Orbitron, Impact, "Arial Black", sans-serif';
   ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(3, size * 0.14); ctx.strokeStyle = '#0a0c1c'; ctx.strokeText(str, x, y);
   ctx.shadowColor = color; ctx.shadowBlur = blur; ctx.fillStyle = color; ctx.fillText(str, x, y);
   ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,0.55)';
@@ -321,7 +321,7 @@ function drawReels(ctx, W, H) {
     const wg = ctx.createLinearGradient(0, cy, 0, cy + h); wg.addColorStop(0, '#c8cbe8'); wg.addColorStop(0.5, '#ffffff'); wg.addColorStop(1, '#c8cbe8');
     ctx.fillStyle = wg; roundRect(ctx, cx, cy, cell, h, 8); ctx.fill();
     ctx.save(); roundRect(ctx, cx, cy, cell, h, 8); ctx.clip();
-    ctx.font = '400 ' + Math.round(cell * 0.62) + 'px Bungee, Impact, "Arial Black", sans-serif';
+    ctx.font = '900 ' + Math.round(cell * 0.62) + 'px Orbitron, Impact, "Arial Black", sans-serif';
     if (!r.stopped[i]) {
       const off = (r.t * 22 + i * 3.7) % r.strips[i].length;
       for (let j = -1; j < 3; j++) {
