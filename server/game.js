@@ -130,6 +130,10 @@ class Game {
         if (!p.al || p.over || Date.now() - p.spawnAt < 1500) return;
         p.al = false; p.li = Math.max(0, p.li - 1);
         if (p.li === 0) { p.over = true; if (p.sc > 0) this.opts.onScore({ n: p.nm, sc: p.sc, lv: this.L, seed: this.seed }); }
+        if (this.nukeIn > 0) {   // everyone had to survive: one death and the strike is called off
+          this.nukeIn = 0;
+          this.broadcast({ t: 'nukecancel', by: p.id, nm: p.nm });
+        }
         return;
       case 'respawn':
         if (p.al || p.over || p.li <= 0) return;

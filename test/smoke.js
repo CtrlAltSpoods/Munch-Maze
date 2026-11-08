@@ -139,6 +139,14 @@ const waitFor = (c, t, pred = () => true, ms = 8000) => new Promise((res, rej) =
   const lvl = await waitFor(b, 'level', m => m.lv === 2, 6000);
   const ratio = M.playerSpeed(2) / M.playerSpeed(1), gr = M.ghostSpeed(3) / M.ghostSpeed(1);
   if (Math.abs(ratio - 1.05) > 1e-9 || Math.abs(gr - 1.1025) > 1e-9) fail('speed should grow 5% per level, compounding');
+  {
+    const r = (a, b) => M.speedMult(b) / M.speedMult(a);
+    if (Math.abs(r(9, 10) - 1.05) > 1e-9 || Math.abs(r(10, 11) - 1.01) > 1e-9 || Math.abs(r(40, 41) - 1.01) > 1e-9) fail('speed: +5% a level to level 10, then +1%');
+    const gap = L => M.ghostSpeed(L) / M.playerSpeed(L);
+    if (Math.abs(gap(10) - gap(1)) > 1e-9 || !(gap(11) > gap(10)) || Math.abs(gap(11) / gap(10) - 1.005) > 1e-9) fail('ghosts close the gap on players by 0.5% a level after level 10');
+    if (Math.abs(M.ghostSpeed(150) - M.playerSpeed(150)) > 1e-9 || M.ghostSpeed(84) > M.playerSpeed(84) + 1e-9) fail('ghosts end up exactly as fast as players, never faster');
+    console.log('ok  speed: +5% a level to 10, then +1%; ghosts catch up 0.5% a level until they match');
+  }
   console.log('ok  host started level 2; speed x' + ratio.toFixed(2) + ' (level 3: x' + gr.toFixed(2) + ')');
   const lv2 = M.genLevel(wa.seed, 2);
   console.log('ok  both moved to level', lvl.lv, `(${lv2.W}x${lv2.H}, ${M.ghostCount(2)} ghosts)`);

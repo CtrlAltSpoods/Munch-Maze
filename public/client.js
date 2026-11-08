@@ -163,6 +163,13 @@ function onMsg(m) {
       MazeFX.flash('#ff2a3a', 0.35);
       break;
     case 'nuke': nukeStarted(); break;
+    case 'nukecancel': {   // someone died during the countdown
+      S.nukeIn = 0; if (A.nukeAlarm) A.nukeAlarm(false);
+      const who = (m.by | 0) === S.id ? 'You' : String(m.nm || 'Someone');
+      MazeFX.bigText('NUKE CANCELLED', who + ' didn’t survive', '#ff4d5e', 2.2);
+      MazeFX.flash('#ff4d5e', 0.3); A.sfx('puLand', false);
+      break;
+    }
     case 'lvstats': S.lvStats = m; renderStats(); break;
     case 'zap': { const x = +m.x || 0, y = +m.y || 0; A.sfx('ghost'); MazeFX.sparks(x, y, '#ff3d5e', 18, 6, 0.5); MazeFX.ring(x, y, '#ff6b8b', 1.6, 0.4); break; }
     case 'pts': MazeFX.text(+m.x || 0, (+m.y || 0) - 0.3, String(m.v | 0), '#41e0f0', 0.95); break;
@@ -1076,7 +1083,7 @@ function levelClear() {
   const syms = [String(nx.W), '×', String(nx.H)];
   MazeFX.confetti(160, CW); MazeFX.flash('#ffcc33', 0.2);
   const [px, py] = M.entPos(S.me); MazeFX.coins(px, py, 14, 10);
-  MazeFX.reels(syms, { title: 'LEVEL ' + S.L + ' CLEAR', sub: 'NEXT MAZE  ·  ' + M.ghostCount(S.L + 1) + (M.ghostCount(S.L + 1) > 1 ? ' GHOSTS' : ' GHOST') + '  ·  SPEED +' + Math.round(M.SPEED_STEP * 100) + '%', dur: 3.7,
+  MazeFX.reels(syms, { title: 'LEVEL ' + S.L + ' CLEAR', sub: 'NEXT MAZE  ·  ' + M.ghostCount(S.L + 1) + (M.ghostCount(S.L + 1) > 1 ? ' GHOSTS' : ' GHOST') + '  ·  SPEED +' + Math.round(M.speedStep(S.L) * 100) + '%', dur: 3.7,
     onStop: i => { A.sfx('reel'); if (i === syms.length - 1) { A.sfx('jackpot'); MazeFX.confetti(90, CW); } } });
 }
 
@@ -1117,7 +1124,7 @@ function updateReady() {
   if (!show) return;
   const next = S.L + 1, nx = M.genLevel(S.seed, next), g = M.ghostCount(next), isHost = S.host === S.id;
   $('readyTitle').textContent = 'Level ' + S.L + ' clear';
-  $('readyNext').textContent = 'Next: ' + nx.W + ' × ' + nx.H + ' maze · ' + g + (g > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(next) + ' (+' + Math.round(M.SPEED_STEP * 100) + '%)';
+  $('readyNext').textContent = 'Next: ' + nx.W + ' × ' + nx.H + ' maze · ' + g + (g > 1 ? ' ghosts' : ' ghost') + ' · speed ' + speedLabel(next) + ' (+' + Math.round(M.speedStep(S.L) * 100) + '%)';
   renderStats();
   $('readyBtn').hidden = !isHost; $('readyHint').hidden = !isHost;
   $('readyBtn').textContent = 'Start level ' + next;

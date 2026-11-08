@@ -92,13 +92,21 @@
   // Level rules
   const levelSize = L => [Math.min(15 + 4 * (L - 1), 63), Math.min(11 + 4 * (L - 1), 51)];
   const ghostCount = L => Math.min(1 + Math.floor(L / 2), 6);
-  // Everything that moves gets 5% faster with each completed level (compounding).
-  const SPEED_STEP = 0.05;
-  const speedMult = L => Math.pow(1 + SPEED_STEP, Math.max(0, L - 1));
-  const playerSpeed = L => 5.2 * speedMult(L);
-  const ghostSpeed = L => 3.6 * speedMult(L);          // chasing / scattering
-  const frightGhostSpeed = L => 2.4 * speedMult(L);    // blue
-  const eyesSpeed = L => 9 * speedMult(L);             // eaten, heading home
+  // Speed: everything gets 5% faster per completed level up to level 10, then players gain
+  // 1% a level. From level 10 ghosts also close the gap on players by 0.5% a level
+  // (so they speed up ~1.5% a level) until they are exactly as fast as players.
+  const SPEED_STEP = 0.05, LATE_FROM = 10, LATE_STEP = 0.01, GHOST_CATCHUP = 0.005;
+  const PLAYER_BASE = 5.2, GHOST_BASE = 3.6;
+  const lateLevels = L => Math.max(0, Math.max(1, L) - LATE_FROM);
+  const speedMult = L => Math.pow(1 + SPEED_STEP, Math.min(Math.max(1, L), LATE_FROM) - 1) * Math.pow(1 + LATE_STEP, lateLevels(L));
+  /** Ghost speed as a multiple of its level-1 speed, capped so ghosts never outrun players. */
+  const ghostMult = L => Math.min(speedMult(L) * Math.pow(1 + GHOST_CATCHUP, lateLevels(L)), speedMult(L) * PLAYER_BASE / GHOST_BASE);
+  /** The speed increase going from level L to L + 1, e.g. 0.05 or 0.01. */
+  const speedStep = L => speedMult(L + 1) / speedMult(L) - 1;
+  const playerSpeed = L => PLAYER_BASE * speedMult(L);
+  const ghostSpeed = L => GHOST_BASE * ghostMult(L);         // chasing / scattering
+  const frightGhostSpeed = L => 2.4 * ghostMult(L);          // blue
+  const eyesSpeed = L => 9 * ghostMult(L);                   // eaten, heading home
   const frightDuration = L => Math.max(2.5, 7 - 0.45 * (L - 1));
 
   /* Tiles: 0 path, 1 wall, 2 ghost door, 3 ghost-house floor.
@@ -208,6 +216,6 @@
     return o;
   }
 
-  return { DIRS, POWERUPS, POWERUP_FROM_LEVEL, VOTE_TIME, SPEED_STEP, PU_SPIN, PU_HOLD, NUKE_WARN, NUKE_TIME, rollPowerup, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
+  return { DIRS, POWERUPS, POWERUP_FROM_LEVEL, VOTE_TIME, SPEED_STEP, PU_SPIN, PU_HOLD, NUKE_WARN, NUKE_TIME, rollPowerup, MODELS, PREMIUM, COLOURS_PER_MODEL, modelUnlock, colourUnlock, pickModel, slug, randomSeed, levelSize, ghostCount, speedMult, ghostMult, speedStep, playerSpeed, ghostSpeed, frightGhostSpeed, eyesSpeed, frightDuration,
     genLevel, wrapX, canGo, entPos, getBit, setBit, toB64, fromB64 };
 });

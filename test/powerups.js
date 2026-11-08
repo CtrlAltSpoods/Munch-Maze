@@ -129,6 +129,19 @@ async function trigger(r, id) {
   await until(nk.b, m => m.t === 's' && m.ph === 1, (M.NUKE_TIME + 2) * 1000);
   console.log('ok  Nuke: ' + M.NUKE_WARN + ' s survival countdown with play running, then a paused ' + M.NUKE_TIME + ' s strike, then the level is passed');
 
+  // a death during the nuke countdown calls the strike off
+  const nc = await room('pu-nukecancel', 3);
+  await trigger(nc, 'nuke');
+  await until(nc.b, m => m.t === 'nukewarn', 6000);
+  await wait(1700);   // past the respawn grace
+  send(nc.a, { t: 'die' });
+  const can = await until(nc.b, m => m.t === 'nukecancel', 2000);
+  if (can.nm !== 'host') fail('nukecancel names who died');
+  await wait(400);
+  if (lastS(nc.b).nk || lastS(nc.b).ph !== 0) fail('after a death the countdown is gone and play goes on');
+  if (nc.b.msgs.some(m => m.t === 'nuke')) fail('a cancelled nuke never drops');
+  console.log('ok  Nuke: a death during the countdown cancels it');
+
   // TEST_MODE: the host picks an effect; it goes through the paused slot with no randomness
   const tm = await room('pu-testmode', 3);
   if (!tm.a.last.welcome.testMode) fail('welcome should say test mode is on');
