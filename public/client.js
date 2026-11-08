@@ -84,7 +84,7 @@ function onMsg(m) {
   switch (m.t) {
     case 'welcome': {
       S.id = m.id; S.seed = m.seed;
-      S.roster.clear(); for (const r of m.roster || []) S.roster.set(r[0], { nm: String(r[1]), col: String(r[2]), mdl: r[3] | 0, paint: M.pickModel(r[3], r[4]).paint });
+      S.roster.clear(); for (const r of m.roster || []) S.roster.set(r[0], { nm: String(r[1]), col: String(r[2]), mdl: r[3] | 0, paint: M.pickModel(r[3], r[4]).paint, reg: r[5] === 1 });
       S.sc = m.sc | 0; S.li = m.li | 0; S.over = !!m.over;
       loadLevel(m.lv | 0, m.b, m.ph | 0);
       S.inGame = true;
@@ -114,7 +114,7 @@ function onMsg(m) {
       if (S.ph === 0) recordLevel(S.L);
       if (m.adv && !S.over) A.sfx('life');
       break;
-    case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col), mdl: m.mdl | 0, paint: M.pickModel(m.mdl, m.ci).paint }); A.sfx('join'); updateLobby(); break;
+    case 'join': S.roster.set(m.id, { nm: String(m.nm), col: String(m.col), mdl: m.mdl | 0, paint: M.pickModel(m.mdl, m.ci).paint, reg: m.reg === 1 }); A.sfx('join'); updateLobby(); break;
     case 'leave': S.roster.delete(m.id); S.ov.delete(m.id); updateLobby(); break;
     case 'pw': {   // a big pellet was eaten; we already played our own
       if ((m.id | 0) === S.id || !S.lvl) break;
@@ -413,12 +413,22 @@ async function refreshLobby() {
     for (const s of sc) {
       const li = document.createElement('li');
       const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = s.n + ' ';
-      if (s.reg) { const b = document.createElement('span'); b.className = 'regd'; b.title = 'Registered player'; b.textContent = '✓'; nm.appendChild(b); nm.append(' '); }
+      if (s.reg) { nm.appendChild(verifiedBadge()); nm.append(' '); }
       const sm = document.createElement('small'); sm.textContent = 'level ' + s.lv; nm.appendChild(sm);
       const v = document.createElement('span'); v.className = 'sc'; v.textContent = (s.sc | 0).toLocaleString();
       li.append(nm, v); ol.appendChild(li);
     }
   } catch (e) { /* ignore */ }
+}
+/** Blue verified tick for names claimed by a Discord account. */
+const BADGE_PATH = (() => {   // a 12-point scalloped rosette
+  let d = ''; for (let i = 0; i < 24; i++) { const a = (i / 24) * Math.PI * 2 - Math.PI / 2, r = i % 2 ? 9.2 : 11.6; d += (i ? 'L' : 'M') + (12 + Math.cos(a) * r).toFixed(2) + ' ' + (12 + Math.sin(a) * r).toFixed(2); }
+  return d + 'Z';
+})();
+function verifiedBadge() {
+  const s = document.createElement('span'); s.className = 'verified'; s.title = 'Verified: this name belongs to a registered player'; s.setAttribute('role', 'img'); s.setAttribute('aria-label', 'verified');
+  s.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + BADGE_PATH + '" fill="#1d9bf0" stroke="#1d9bf0" stroke-width="1.6" stroke-linejoin="round"/><path d="M7.4 12.4l3.1 3.1 6.1-6.6" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  return s;
 }
 /* ---------- Discord accounts ----------
    Logged in, your name box edits your account name (saved when you leave the box or
@@ -876,8 +886,9 @@ function hud(dt, now) {
   let left = S.left;   // the server's count is the one that matters
   if (left < 0) { left = 0; for (const i of lv.pList) if (!eaten(i)) left++; }
   setTxt('pLeft', left); setTxt('gCount', M.ghostCount(S.L));
-  const rows = [{ nm: S.name, col: S.color, sc: S.sc, al: S.alive && !S.over, me: true, host: S.host === S.id }];
-  for (const p of S.players) rows.push({ nm: p.nm, col: p.col, sc: p.sc, al: p.al && !p.over, me: false, host: p.id === S.host });
+  const regOf = id => !!(S.roster.get(id) || {}).reg;
+  const rows = [{ nm: (S.roster.get(S.id) || {}).nm || S.name, col: S.color, sc: S.sc, al: S.alive && !S.over, me: true, host: S.host === S.id, reg: regOf(S.id) }];
+  for (const p of S.players) rows.push({ nm: p.nm, col: p.col, sc: p.sc, al: p.al && !p.over, me: false, host: p.id === S.host, reg: regOf(p.id) });
   rows.sort((a, b) => b.sc - a.sc);
   setTxt('pCount', rows.length);
   const ol = $('board'); ol.textContent = '';
@@ -885,6 +896,7 @@ function hud(dt, now) {
     const li = document.createElement('li'); if (!r.al) li.className = 'dead';
     const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = r.col;
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.nm;
+    if (r.reg) nm.appendChild(verifiedBadge());
     if (r.me || r.host) { const sm = document.createElement('small'); sm.textContent = [r.host ? 'host' : '', r.me ? 'you' : ''].filter(Boolean).join(' · '); nm.appendChild(sm); }
     const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = r.sc.toLocaleString();
     li.append(sw, nm, sc); ol.appendChild(li);
@@ -1204,6 +1216,7 @@ function renderStats() {
   for (const [id, nm, n, pct, best] of st.rows) {
     const tr = document.createElement('tr'); if (id === S.id) tr.className = 'me';
     const who = document.createElement('td'); who.className = 'who'; who.textContent = String(nm);
+    if ((S.roster.get(id) || {}).reg) { who.append(' '); who.appendChild(verifiedBadge()); }
     if (id === S.id) { const y = document.createElement('span'); y.className = 'you'; y.textContent = 'You'; who.append(' ', y); }
     const pc = document.createElement('td'); pc.className = 'pct';
     const bar = document.createElement('span'); bar.className = 'bar'; const fill = document.createElement('i'); fill.style.width = Math.min(100, pct) + '%'; bar.appendChild(fill);
@@ -1294,6 +1307,7 @@ function renderLobbyPlayers() {
     const paint = id === S.id ? S.paint : (r.paint || r.col);
     MazeModels.draw(cv.getContext('2d'), looksOf(r.nm, id === S.id ? S.model : r.mdl | 0), 32, 34, 22, paint, 0, 0.45, 0);
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.nm;
+    if (r.reg) nm.appendChild(verifiedBadge());
     const tags = [id === S.host ? 'Host' : '', id === S.id ? 'You' : ''].filter(Boolean);
     li.append(cv, nm);
     for (const t of tags) { const c = document.createElement('span'); c.className = 'tag' + (t === 'Host' ? ' host' : ''); c.textContent = t; li.appendChild(c); }

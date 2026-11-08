@@ -61,12 +61,12 @@ class Game {
     this.send(p, {
       t: 'welcome', id: p.id, seed: this.seed, key: this.key, vis: this.isPrivate ? 'private' : 'public', gid: this.gid, title: this.title || '', testMode: this.opts.testMode ? 1 : 0, link: this.link || '', locked: !!this.pass,
       lv: this.L, b: M.toB64(this.bits),
-      roster: [...this.players.values()].map(q => [q.id, q.nm, q.col, q.mdl, q.ci]),
+      roster: [...this.players.values()].map(q => [q.id, q.nm, q.col, q.mdl, q.ci, q.uid ? 1 : 0]),
       sc: p.sc, li: p.li, over: p.over, host: this.hostId, ph: this.ph,
       stats: (this.ph === 1 || this.ph === 2) ? this.lvStats : null,
       pu: this.pending ? { kind: this.pending.kind, by: this.pending.by, x: this.pending.x, y: this.pending.y } : null
     });
-    this.broadcast({ t: 'join', id: p.id, nm: p.nm, col: p.col, mdl: p.mdl, ci: p.ci }, p.id);
+    this.broadcast({ t: 'join', id: p.id, nm: p.nm, col: p.col, mdl: p.mdl, ci: p.ci, reg: p.uid ? 1 : 0 }, p.id);
     if (this.ph === 6 && this.votes) {   // arrived mid-vote: they get a say too
       const pd = this.pending;
       this.send(p, { t: 'vote', by: pd.by, nm: pd.nm, x: pd.x, y: pd.y, crate: pd.crate, s: Math.round(this.ct * 10) / 10, tot: this.players.size });
